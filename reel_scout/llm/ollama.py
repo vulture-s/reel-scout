@@ -33,6 +33,6 @@ class OllamaLLM(BaseLLM):
             data=data,
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=600) as resp:
             result = json.loads(resp.read().decode("utf-8"))
         return result.get("response", "")
