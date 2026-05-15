@@ -9,3 +9,8 @@ build/
 .venv/
 venv/
 .pytest_cache/
+
+# Transient analyze run artifacts
+analyze_*.log
+urls_*.txt
+smoke_urls_*.txt
