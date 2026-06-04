@@ -5,6 +5,10 @@ __pycache__/
 dist/
 build/
 .env
+# Secrets / runtime input — never commit
+cookies.txt
+*.cookies
+urls.txt
 *.db
 .venv/
 venv/
