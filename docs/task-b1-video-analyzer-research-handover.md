@@ -9,7 +9,7 @@ byjlw/video-analyzer (1.3K⭐) 是 GitHub 上架構最接近 Reel Scout 的開�
 
 ## Repo / Constraints
 - 目標 repo: https://github.com/byjlw/video-analyzer
-- 本 repo: https://github.com/ourladypeace2011-commits/reel-scout
+- 本 repo: https://github.com/vulture-s/reel-scout
 - **這是唯讀研究任務，不改任何 code**
 - 唯一產出是 `docs/video-analyzer-research.md`
 

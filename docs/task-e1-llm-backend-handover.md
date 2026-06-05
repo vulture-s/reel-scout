@@ -8,7 +8,7 @@
 預期成果：新增 `reel_scout/llm/` 模組，refactor `merger.py` 使用新 backend 系統，現有功能無 regression。
 
 ## Repo / Constraints
-- Repo: https://github.com/ourladypeace2011-commits/reel-scout
+- Repo: https://github.com/vulture-s/reel-scout
 - Python: 3.9（禁止 match/case、3.10+ 語法）
 - 所有 .py 檔必須有 `from __future__ import annotations`
 - typing 用 `Optional`, `List`, `Dict`（不用 `list[]`, `dict[]`）
