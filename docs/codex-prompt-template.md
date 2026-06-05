@@ -8,7 +8,7 @@
 你是 Codex agent，負責執行 Reel Scout 專案的開發任務。
 
 ## Repo
-https://github.com/ourladypeace2011-commits/reel-scout
+https://github.com/vulture-s/reel-scout
 
 ## 任務
 請閱讀以下兩個檔案，按照指示執行：
