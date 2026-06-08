@@ -247,6 +247,18 @@ sponsored review 風格。重點不在 setup（與 Higgsfield #1 重複），重
 - **招**：「**長 livestream 怎麼壓縮**」實作章 — yt-dlp + Whisper + 關鍵字索引（純機械、不需要 LLM）
 - 對學員：「reel-scout 不只是抽爆款，是把任何長內容變成可檢索的知識資產」
 
+### 應用三層 + 自我指涉案例：教學影片 → 學習速查卡（2026-06-08 實戰）⭐
+Reel Scout 的價值不止「抽爆款」。同一引擎三層應用：**競品分析 → 長內容壓縮（Clarity Act）→ 學習萃取**。
+
+實例：Son Wu 的 EP-133 八集教學 playlist，用 `crawl`（yt-dlp 下載）+ keyframe 抽幀 —— **Reel Scout 負責取素材、Claude 負責判讀＋寫卡**（= 課程「AI 補位 vs 取代」的活教材：工具做 labor、人做判斷）—— 產出 8 張自包含 HTML 速查卡（真實畫面幀 base64 內嵌）+ Tailscale 隨手查，一個下午完成。
+
+- **教學用法 #1**：開場證明「reel-scout = video → knowledge engine」定位（不只爆款偵測器）。
+- **教學用法 #2**：學員作業 —— 「把你買的任何線上課／教學影片，用同 pipeline 變成自己的速查卡」。比抽象講「知識資產」具體十倍。
+- **自我指涉**：這件事本身就是課程兩個核心論點的現場執行（AI 補位 vs 取代 ＋ 把長內容變知識資產）。
+- **邊界**：這是「學習／消費」應用、非「內容創作」 → 當能力廣度 sidebar 用，別當核心章節（避免把課拉向通用 AI 工具 demo，對齊 product-ladder 對通用定位的保留）。
+
+> 素材：`references/bucketlist/ep133-cards/`（hevin-ai-os repo）+ Tailscale `http://100.112.9.111:8133/`；**6/28 第一堂課（Warp）demo 點**。
+
 ---
 
 ## 7. AI 內戰（林一）— `an7Dbkh7no4`
