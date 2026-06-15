@@ -89,11 +89,14 @@ def test_handle_tools_list():
 
 
 def test_message_framing_round_trip():
+    # MCP stdio framing = newline-delimited JSON (one compact object per line),
+    # not LSP-style Content-Length headers.
     payload = {"jsonrpc": "2.0", "id": 7, "method": "tools/list", "params": {}}
     output = StringIO()
     server.write_message(payload, output)
     serialized = output.getvalue()
-    assert serialized.startswith("Content-Length: ")
+    assert serialized.endswith("\n")
+    assert serialized.count("\n") == 1  # single line, no embedded newlines
 
     input_stream = StringIO(serialized)
     parsed = server.read_message(input_stream)

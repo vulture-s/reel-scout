@@ -16,62 +16,36 @@ CAPABILITIES = {
 }
 
 
-def _readline(stream: Any) -> Any:
-    if hasattr(stream, "buffer"):
-        return stream.buffer.readline()
-    return stream.readline()
-
-
-def _read_exact(stream: Any, length: int) -> Any:
-    if hasattr(stream, "buffer"):
-        return stream.buffer.read(length)
-    return stream.read(length)
-
-
-def _write(stream: Any, data: bytes) -> None:
-    if hasattr(stream, "buffer"):
-        stream.buffer.write(data)
-    else:
-        stream.write(data.decode("utf-8"))
-
-
 def read_message(stream: Any = None) -> Optional[Dict[str, Any]]:
+    """Read one JSON-RPC message.
+
+    MCP's stdio transport frames messages as newline-delimited JSON — one compact
+    object per line, no embedded newlines. (The original implementation used
+    LSP-style ``Content-Length`` headers, which MCP clients like Claude Code do
+    not send, so the server never saw a request.)
+    """
     if stream is None:
         stream = sys.stdin
-
-    content_length = None
     while True:
-        line = _readline(stream)
+        line = stream.readline()
         if line in (b"", ""):
-            return None
+            return None  # EOF
         if isinstance(line, bytes):
-            decoded = line.decode("utf-8")
-        else:
-            decoded = line
-        if decoded in ("\r\n", "\n", ""):
-            break
-        name, separator, value = decoded.partition(":")
-        if separator and name.lower().strip() == "content-length":
-            content_length = int(value.strip())
-
-    if content_length is None:
-        raise ValueError("Missing Content-Length header")
-
-    body = _read_exact(stream, content_length)
-    if isinstance(body, bytes):
-        body = body.decode("utf-8")
-    if not body:
-        return None
-    return json.loads(body)
+            line = line.decode("utf-8")
+        line = line.strip()
+        if line:
+            return json.loads(line)
 
 
 def write_message(message: Dict[str, Any], stream: Any = None) -> None:
+    """Write one JSON-RPC message as a single newline-terminated line (UTF-8)."""
     if stream is None:
         stream = sys.stdout
-
-    body = json.dumps(message, ensure_ascii=False).encode("utf-8")
-    header = ("Content-Length: %d\r\n\r\n" % len(body)).encode("utf-8")
-    _write(stream, header + body)
+    line = json.dumps(message, ensure_ascii=False) + "\n"
+    if hasattr(stream, "buffer"):
+        stream.buffer.write(line.encode("utf-8"))  # real stdout: bytes, keeps 中文
+    else:
+        stream.write(line)  # text stream (e.g. StringIO in tests)
     if hasattr(stream, "flush"):
         stream.flush()
 
