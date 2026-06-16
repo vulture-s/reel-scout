@@ -100,6 +100,23 @@ def test_message_framing_round_trip():
     assert parsed == payload
 
 
+def test_message_framing_ndjson_round_trip():
+    payload = {"jsonrpc": "2.0", "id": 9, "method": "tools/list", "params": {}}
+    # A client sending newline-delimited JSON (no Content-Length header).
+    input_stream = StringIO(json.dumps(payload) + "\n")
+    parsed = server.read_message(input_stream)
+    assert parsed == payload
+    assert server._detected_framing == server.FRAMING_NDJSON
+
+    # write_message must echo NDJSON when asked (no Content-Length header, ends with newline).
+    output = StringIO()
+    server.write_message(payload, output, framing=server.FRAMING_NDJSON)
+    serialized = output.getvalue()
+    assert not serialized.startswith("Content-Length")
+    assert serialized.endswith("\n")
+    assert json.loads(serialized) == payload
+
+
 def test_call_export_json(temp_db):
     conn = db.get_connection()
     try:
