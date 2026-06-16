@@ -15,6 +15,17 @@ CAPABILITIES = {
     "tools": {},
 }
 
+# Wire framing. Two stdio framings exist in the wild:
+#   - "content-length": LSP-style headers (the original MCP stdio framing)
+#   - "ndjson": one JSON-RPC message per line (what current MCP clients,
+#     including Claude Code, actually send)
+# read_message() auto-detects per message; main() echoes responses back in the
+# same framing the client used. Default stays content-length for backward compat
+# (and so write_message() called directly keeps its historical output shape).
+FRAMING_CONTENT_LENGTH = "content-length"
+FRAMING_NDJSON = "ndjson"
+_detected_framing = FRAMING_CONTENT_LENGTH
+
 
 def _readline(stream: Any) -> Any:
     if hasattr(stream, "buffer"):
@@ -36,23 +47,36 @@ def _write(stream: Any, data: bytes) -> None:
 
 
 def read_message(stream: Any = None) -> Optional[Dict[str, Any]]:
+    global _detected_framing
     if stream is None:
         stream = sys.stdin
 
+    line = _readline(stream)
+    if line in (b"", ""):
+        return None
+    decoded = line.decode("utf-8") if isinstance(line, bytes) else line
+
+    # NDJSON framing: the line itself is a complete JSON-RPC message.
+    if decoded.lstrip().startswith("{"):
+        _detected_framing = FRAMING_NDJSON
+        stripped = decoded.strip()
+        if not stripped:
+            return None
+        return json.loads(stripped)
+
+    # LSP-style Content-Length framing: parse headers (first header already read).
+    _detected_framing = FRAMING_CONTENT_LENGTH
     content_length = None
     while True:
-        line = _readline(stream)
-        if line in (b"", ""):
-            return None
-        if isinstance(line, bytes):
-            decoded = line.decode("utf-8")
-        else:
-            decoded = line
         if decoded in ("\r\n", "\n", ""):
             break
         name, separator, value = decoded.partition(":")
         if separator and name.lower().strip() == "content-length":
             content_length = int(value.strip())
+        line = _readline(stream)
+        if line in (b"", ""):
+            return None
+        decoded = line.decode("utf-8") if isinstance(line, bytes) else line
 
     if content_length is None:
         raise ValueError("Missing Content-Length header")
@@ -65,13 +89,19 @@ def read_message(stream: Any = None) -> Optional[Dict[str, Any]]:
     return json.loads(body)
 
 
-def write_message(message: Dict[str, Any], stream: Any = None) -> None:
+def write_message(message: Dict[str, Any], stream: Any = None, framing: Optional[str] = None) -> None:
     if stream is None:
         stream = sys.stdout
+    if framing is None:
+        framing = FRAMING_CONTENT_LENGTH
 
-    body = json.dumps(message, ensure_ascii=False).encode("utf-8")
-    header = ("Content-Length: %d\r\n\r\n" % len(body)).encode("utf-8")
-    _write(stream, header + body)
+    if framing == FRAMING_NDJSON:
+        data = (json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8")
+        _write(stream, data)
+    else:
+        body = json.dumps(message, ensure_ascii=False).encode("utf-8")
+        header = ("Content-Length: %d\r\n\r\n" % len(body)).encode("utf-8")
+        _write(stream, header + body)
     if hasattr(stream, "flush"):
         stream.flush()
 
@@ -119,7 +149,7 @@ def main() -> None:
             break
         response = handle_request(message)
         if response is not None:
-            write_message(response)
+            write_message(response, framing=_detected_framing)
 
 
 if __name__ == "__main__":
