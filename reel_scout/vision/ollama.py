@@ -10,6 +10,31 @@ from .base import BaseVLM, FrameDescription
 from .prompts import get_frame_prompt
 
 
+_model_avail_cache: dict = {}
+
+
+def model_available(base_url: str, name: str) -> bool:
+    """True if `name` is installed in the local Ollama (matched by tag or base
+    name). Cached per process. Lets the fallback path skip cleanly when its model
+    isn't pulled instead of erroring (404) once per failed frame. (arkiv #83)"""
+    if not name:
+        return False
+    if name in _model_avail_cache:
+        return _model_avail_cache[name]
+    avail = False
+    try:
+        url = f"{base_url.rstrip('/')}/api/tags"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        installed = {m.get("name", "") for m in data.get("models", [])}
+        base = name.split(":")[0]
+        avail = name in installed or any(n.split(":")[0] == base for n in installed)
+    except Exception:
+        avail = False
+    _model_avail_cache[name] = avail
+    return avail
+
+
 class OllamaVLM(BaseVLM):
     def __init__(self, base_url: str, model: str = "") -> None:
         self._base_url = base_url.rstrip("/")
@@ -33,6 +58,11 @@ class OllamaVLM(BaseVLM):
             "prompt": prompt,
             "images": [img_b64],
             "stream": False,
+            # keep the model resident between frames so we don't pay the
+            # ~30s cold-load on every keyframe (which blew the old 60s timeout)
+            "keep_alive": "10m",
+            # bound per-frame generation length so a single frame can't run away
+            "options": {"num_predict": 384},
         }
 
         url = f"{self._base_url}/api/generate"
@@ -43,7 +73,9 @@ class OllamaVLM(BaseVLM):
             headers={"Content-Type": "application/json"},
         )
 
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        # cold-load of a vision model + generation can exceed a minute on the
+        # first frame; 300s covers cold start, keep_alive keeps later frames fast
+        with urllib.request.urlopen(req, timeout=300) as resp:
             result = json.loads(resp.read().decode("utf-8"))
 
         text = result.get("response", "")

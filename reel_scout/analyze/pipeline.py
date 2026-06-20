@@ -230,18 +230,62 @@ def _process_single(
             ]
             kf_ids = db.save_keyframes(conn, video_id, kf_data)
 
-            print(f"  Describing {len(kf_ids)} keyframes with VLM...")
-            vlm = get_vlm(options.vlm_backend)
-            for kf_id, kf_info in zip(kf_ids, kf_infos):
-                desc = vlm.describe_frame(kf_info.file_path)
+            backend = options.vlm_backend or config.VLM_BACKEND
+            primary_model = options.vlm_model or config.VLM_MODEL
+
+            def _persist(kf_id, desc, model):
                 db.save_vision_description(
                     conn, kf_id,
                     description=desc.description,
                     objects_json=json.dumps(desc.objects, ensure_ascii=False),
                     text_in_frame=desc.text_in_frame,
-                    vlm_backend=options.vlm_backend or config.VLM_BACKEND,
-                    vlm_model=options.vlm_model or config.VLM_MODEL,
+                    vlm_backend=backend,
+                    vlm_model=model,
                 )
+
+            print(f"  Describing {len(kf_ids)} keyframes with VLM ({primary_model})...")
+            vlm = get_vlm(backend)
+            failed = []  # (kf_id, kf_info) — empty/errored on the primary model
+            for kf_id, kf_info in zip(kf_ids, kf_infos):
+                # per-frame resilience: one bad frame must not abort the batch
+                try:
+                    desc = vlm.describe_frame(kf_info.file_path)
+                except Exception as e:  # noqa: BLE001
+                    print(f"    frame {kf_id} failed: {e}", file=sys.stderr)
+                    desc = None
+                if desc and desc.description:
+                    _persist(kf_id, desc, primary_model)
+                else:
+                    failed.append((kf_id, kf_info))
+
+            # graceful fallback (arkiv #83): retry failed frames with the fallback
+            # model, but only if it's a different model that's actually installed —
+            # otherwise leave frames empty for a later retry instead of 404ing.
+            if failed:
+                fb = config.VLM_FALLBACK_MODEL
+                from ..vision.ollama import model_available
+                use_fb = (
+                    backend == "ollama" and fb and fb != primary_model
+                    and model_available(config.OLLAMA_BASE_URL, fb)
+                )
+                if use_fb:
+                    print(f"  {len(failed)} frame(s) failed; retrying with fallback {fb}...")
+                    from ..vision.ollama import OllamaVLM
+                    fb_vlm = OllamaVLM(base_url=config.OLLAMA_BASE_URL, model=fb)
+                    for kf_id, kf_info in failed:
+                        try:
+                            desc = fb_vlm.describe_frame(kf_info.file_path)
+                        except Exception as e:  # noqa: BLE001
+                            print(f"    fallback frame {kf_id} failed: {e}", file=sys.stderr)
+                            desc = None
+                        if desc and desc.description:
+                            _persist(kf_id, desc, fb)
+                else:
+                    print(
+                        f"  {len(failed)} frame(s) failed; fallback "
+                        f"'{fb or '(none)'}' unavailable — left empty for a later vision retry",
+                        file=sys.stderr,
+                    )
 
     # Step 4: Merge analysis
     existing_analysis = db.get_analysis(conn, video_id)
