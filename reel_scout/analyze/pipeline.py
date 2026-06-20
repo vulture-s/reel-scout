@@ -211,10 +211,16 @@ def _process_single(
             print("  Skipping diarization: %s" % e, file=sys.stderr)
 
     # Step 3: Vision analysis
+    # Decoupled from keyframe extraction: vision descriptions are (re)generated for
+    # any keyframe that lacks one, whether or not keyframes were extracted this run.
+    # This lets a failed/partial VLM pass be backfilled by simply re-running analyze
+    # — previously the describe+save loop lived inside the "keyframes didn't exist"
+    # branch, so once keyframes were saved a failed vision pass could never recover.
     if not options.skip_vision:
         existing_kf = db.get_keyframes(conn, video_id)
         if existing_kf:
-            print("  Skipping keyframes (already extracted)")
+            print("  Keyframes already extracted")
+            frames = [(kf["id"], kf["file_path"]) for kf in existing_kf]
         else:
             print("  Extracting keyframes...")
             kf_dir = os.path.join(config.KEYFRAMES_DIR, video_id)
@@ -229,10 +235,18 @@ def _process_single(
                 for kf in kf_infos
             ]
             kf_ids = db.save_keyframes(conn, video_id, kf_data)
+            frames = list(zip(kf_ids, [kf.file_path for kf in kf_infos]))
 
-            backend = options.vlm_backend or config.VLM_BACKEND
-            primary_model = options.vlm_model or config.VLM_MODEL
+        backend = options.vlm_backend or config.VLM_BACKEND
+        primary_model = options.vlm_model or config.VLM_MODEL
 
+        # only describe keyframes that don't already have a description (backfill)
+        described = db.get_described_keyframe_ids(conn, video_id)
+        todo = [(kf_id, path) for kf_id, path in frames if kf_id not in described]
+
+        if not todo:
+            print("  Vision descriptions already present")
+        else:
             def _persist(kf_id, desc, model):
                 db.save_vision_description(
                     conn, kf_id,
@@ -243,38 +257,37 @@ def _process_single(
                     vlm_model=model,
                 )
 
-            print(f"  Describing {len(kf_ids)} keyframes with VLM ({primary_model})...")
+            print(f"  Describing {len(todo)} keyframe(s) with VLM ({primary_model})...")
             vlm = get_vlm(backend)
-            failed = []  # (kf_id, kf_info) — empty/errored on the primary model
-            for kf_id, kf_info in zip(kf_ids, kf_infos):
+            failed = []  # (kf_id, path) — empty/errored on the primary model
+            for kf_id, path in todo:
                 # per-frame resilience: one bad frame must not abort the batch
                 try:
-                    desc = vlm.describe_frame(kf_info.file_path)
+                    desc = vlm.describe_frame(path)
                 except Exception as e:  # noqa: BLE001
                     print(f"    frame {kf_id} failed: {e}", file=sys.stderr)
                     desc = None
                 if desc and desc.description:
                     _persist(kf_id, desc, primary_model)
                 else:
-                    failed.append((kf_id, kf_info))
+                    failed.append((kf_id, path))
 
             # graceful fallback (arkiv #83): retry failed frames with the fallback
             # model, but only if it's a different model that's actually installed —
             # otherwise leave frames empty for a later retry instead of 404ing.
             if failed:
                 fb = config.VLM_FALLBACK_MODEL
-                from ..vision.ollama import model_available
+                from ..vision.ollama import model_available, OllamaVLM
                 use_fb = (
                     backend == "ollama" and fb and fb != primary_model
                     and model_available(config.OLLAMA_BASE_URL, fb)
                 )
                 if use_fb:
                     print(f"  {len(failed)} frame(s) failed; retrying with fallback {fb}...")
-                    from ..vision.ollama import OllamaVLM
                     fb_vlm = OllamaVLM(base_url=config.OLLAMA_BASE_URL, model=fb)
-                    for kf_id, kf_info in failed:
+                    for kf_id, path in failed:
                         try:
-                            desc = fb_vlm.describe_frame(kf_info.file_path)
+                            desc = fb_vlm.describe_frame(path)
                         except Exception as e:  # noqa: BLE001
                             print(f"    fallback frame {kf_id} failed: {e}", file=sys.stderr)
                             desc = None

@@ -334,6 +334,18 @@ def get_keyframes(conn: sqlite3.Connection, video_id: str) -> List[sqlite3.Row]:
     ).fetchall()
 
 
+def get_described_keyframe_ids(conn: sqlite3.Connection, video_id: str) -> set:
+    """Keyframe ids for this video that already have a vision description.
+    Used to backfill only the missing frames on re-run."""
+    rows = conn.execute(
+        """SELECT vd.keyframe_id FROM vision_descriptions vd
+           JOIN keyframes k ON k.id = vd.keyframe_id
+           WHERE k.video_id = ?""",
+        (video_id,),
+    ).fetchall()
+    return {r[0] for r in rows}
+
+
 # --- Vision CRUD ---
 
 def save_vision_description(
