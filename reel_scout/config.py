@@ -32,7 +32,14 @@ ANALYSIS_DIR = os.path.join(DATA_DIR, "analysis")
 
 # --- VLM ---
 VLM_BACKEND = os.getenv("VLM_BACKEND", "omlx")
-VLM_MODEL = os.getenv("VLM_MODEL", "")
+# Default vision model. qwen2.5vl:7b runs ~8s/frame on an M2 Max vs qwen3-vl:8b's
+# ~60s/frame (Qwen3-VL offloads vision to CPU under Ollama) for comparable tag
+# quality — see arkiv #83. Override with VLM_MODEL.
+VLM_MODEL = os.getenv("VLM_MODEL", "qwen2.5vl:7b")
+# Fallback vision model: failed frames are retried with this. Skipped gracefully
+# (model_available check, logged once) when not installed — the frame is left
+# empty for a later vision retry instead of erroring per frame. Aligned w/ arkiv #83.
+VLM_FALLBACK_MODEL = os.getenv("VLM_FALLBACK_MODEL", "qwen3-vl:8b")
 OMLX_BASE_URL = os.getenv("OMLX_BASE_URL", "http://localhost:8000/v1")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
