@@ -14,22 +14,22 @@ _SCORE_PROMPT = """You are a short-form video content analyst. Based on the anal
 {analysis_json}
 
 ## Scoring Criteria
-- hook_strength (0-10): How compelling is the opening? Does it grab attention in the first 1-2 seconds?
-- information_density (0-10): How much value per second? Is every moment purposeful?
-- emotional_impact (0-10): Does it evoke emotion? Will viewers feel something?
-- shareability (0-10): Would someone share this? Is it remarkable or useful enough to forward?
+- hook_strength (0-10): How compelling is the opening? Does it grab attention in the first 1-2 seconds? (signal: hook.opening_type, timeline 0-3s)
+- visual_storytelling (0-10): Do the visuals carry the story on their own — shot variety, framing, visual information — readable even with the sound off? (signal: keyframe visual descriptions, style.format, faces)
+- pacing (0-10): Does the rhythm hold attention — cut frequency, beat changes, on-screen text density, no dead air? (signal: style.pacing, text_overlay_count, number of timeline segments)
+- structure (0-10): Is there a complete arc (setup -> build -> payoff) that lands its ending? A clear call-to-action at the close is a plus. (signal: timeline narrative arc, hook.cta_type/cta_text)
 
 ## Output Format (JSON only)
 {{
   "hook_strength": 0.0,
-  "information_density": 0.0,
-  "emotional_impact": 0.0,
-  "shareability": 0.0,
+  "visual_storytelling": 0.0,
+  "pacing": 0.0,
+  "structure": 0.0,
   "overall": 0.0,
   "reasoning": "1-2 sentence explanation"
 }}
 
-The overall score is the weighted average: hook_strength*0.3 + information_density*0.25 + emotional_impact*0.25 + shareability*0.2
+The overall score is the weighted average: hook_strength*0.3 + visual_storytelling*0.25 + pacing*0.2 + structure*0.25
 
 Return ONLY valid JSON."""
 
@@ -37,9 +37,9 @@ Return ONLY valid JSON."""
 @dataclass
 class VideoScore:
     hook_strength: float = 0.0
-    information_density: float = 0.0
-    emotional_impact: float = 0.0
-    shareability: float = 0.0
+    visual_storytelling: float = 0.0
+    pacing: float = 0.0
+    structure: float = 0.0
     overall: float = 0.0
     reasoning: str = ""
     model_used: str = ""
@@ -71,12 +71,20 @@ def score_video(
         else:
             data = {}
 
+    hook = float(data.get("hook_strength", 0))
+    visual = float(data.get("visual_storytelling", 0))
+    pacing = float(data.get("pacing", 0))
+    structure = float(data.get("structure", 0))
+    # overall is COMPUTED from the dimensions (weights must match _SCORE_PROMPT).
+    # The LLM's self-reported "overall" drifts ~0.1 from the formula, so we ignore it
+    # and recompute — keeps tool output self-consistent with the four dimensions.
+    overall = round(hook * 0.3 + visual * 0.25 + pacing * 0.2 + structure * 0.25, 2)
     score = VideoScore(
-        hook_strength=float(data.get("hook_strength", 0)),
-        information_density=float(data.get("information_density", 0)),
-        emotional_impact=float(data.get("emotional_impact", 0)),
-        shareability=float(data.get("shareability", 0)),
-        overall=float(data.get("overall", 0)),
+        hook_strength=hook,
+        visual_storytelling=visual,
+        pacing=pacing,
+        structure=structure,
+        overall=overall,
         reasoning=str(data.get("reasoning", "")),
         model_used=llm_backend or config.LLM_BACKEND,
     )

@@ -232,8 +232,17 @@ def _process_single(
 
             print(f"  Describing {len(kf_ids)} keyframes with VLM...")
             vlm = get_vlm(options.vlm_backend)
+            described = 0
             for kf_id, kf_info in zip(kf_ids, kf_infos):
-                desc = vlm.describe_frame(kf_info.file_path)
+                try:
+                    desc = vlm.describe_frame(kf_info.file_path)
+                except Exception as e:
+                    # Defense-in-depth: one slow/failing frame (e.g. VLM timeout on a
+                    # text-dense frame near VRAM limit) must not kill the whole video's
+                    # analysis. Skip it, keep the rest, let merge proceed (degraded, not dead).
+                    print("    ! VLM failed on frame @%.1fs, skipping: %s"
+                          % (kf_info.timestamp_sec, e), file=sys.stderr)
+                    continue
                 db.save_vision_description(
                     conn, kf_id,
                     description=desc.description,
@@ -242,6 +251,10 @@ def _process_single(
                     vlm_backend=options.vlm_backend or config.VLM_BACKEND,
                     vlm_model=options.vlm_model or config.VLM_MODEL,
                 )
+                described += 1
+            if described < len(kf_ids):
+                print("  VLM described %d/%d frames (%d skipped)"
+                      % (described, len(kf_ids), len(kf_ids) - described))
 
     # Step 4: Merge analysis
     existing_analysis = db.get_analysis(conn, video_id)
@@ -260,8 +273,8 @@ def _process_single(
             print("  Scoring...")
             from ..scorer import score_video
             score = score_video(conn, video_id)
-            print("  Score: %.1f (hook=%.1f info=%.1f emotion=%.1f share=%.1f)" % (
-                score.overall, score.hook_strength, score.information_density,
-                score.emotional_impact, score.shareability))
+            print("  Score: %.1f (hook=%.1f visual=%.1f pacing=%.1f structure=%.1f)" % (
+                score.overall, score.hook_strength, score.visual_storytelling,
+                score.pacing, score.structure))
 
     return video_id
