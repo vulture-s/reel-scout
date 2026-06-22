@@ -317,8 +317,8 @@ def _process_single(
             print("  Scoring...")
             from ..scorer import score_video
             score = score_video(conn, video_id)
-            print("  Score: %.1f (hook=%.1f info=%.1f emotion=%.1f share=%.1f)" % (
-                score.overall, score.hook_strength, score.information_density,
-                score.emotional_impact, score.shareability))
+            print("  Score: %.1f (hook=%.1f visual=%.1f pacing=%.1f structure=%.1f)" % (
+                score.overall, score.hook_strength, score.visual_storytelling,
+                score.pacing, score.structure))
 
     return video_id
