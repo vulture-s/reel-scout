@@ -50,11 +50,11 @@ def test_score_video_parses_json():
 
     mock_response = json.dumps({
         "hook_strength": 7.5,
-        "information_density": 6.0,
-        "emotional_impact": 8.0,
-        "shareability": 5.5,
-        "overall": 6.85,
-        "reasoning": "Strong hook with emotional appeal",
+        "visual_storytelling": 6.0,
+        "pacing": 5.5,
+        "structure": 8.0,
+        "overall": 9.9,  # deliberately wrong — code must IGNORE this and recompute
+        "reasoning": "Strong hook, weaker pacing",
     })
 
     mock_llm = MagicMock()
@@ -64,11 +64,11 @@ def test_score_video_parses_json():
         score = score_video(conn, vid)
 
     assert score.hook_strength == 7.5
-    assert score.information_density == 6.0
-    assert score.emotional_impact == 8.0
-    assert score.shareability == 5.5
+    assert score.visual_storytelling == 6.0
+    assert score.pacing == 5.5
+    assert score.structure == 8.0
     assert score.overall == 6.85
-    assert score.reasoning == "Strong hook with emotional appeal"
+    assert score.reasoning == "Strong hook, weaker pacing"
 
     # Verify saved to DB
     saved = db.get_score(conn, vid)
@@ -97,18 +97,18 @@ def test_score_video_no_analysis():
 def test_video_score_dataclass():
     score = VideoScore()
     assert score.hook_strength == 0.0
-    assert score.information_density == 0.0
-    assert score.emotional_impact == 0.0
-    assert score.shareability == 0.0
+    assert score.visual_storytelling == 0.0
+    assert score.pacing == 0.0
+    assert score.structure == 0.0
     assert score.overall == 0.0
     assert score.reasoning == ""
     assert score.model_used == ""
 
     score2 = VideoScore(
         hook_strength=8.0,
-        information_density=7.0,
-        emotional_impact=6.0,
-        shareability=5.0,
+        visual_storytelling=7.0,
+        pacing=6.0,
+        structure=5.0,
         overall=6.7,
         reasoning="Good video",
         model_used="omlx",
@@ -120,8 +120,8 @@ def test_video_score_dataclass():
 def test_score_overall_calculation():
     """Verify the weighted average formula described in the prompt."""
     hook = 8.0
-    info = 6.0
-    emotion = 7.0
-    share = 5.0
-    expected = hook * 0.3 + info * 0.25 + emotion * 0.25 + share * 0.2
-    assert expected == pytest.approx(6.65)
+    visual = 6.0
+    pacing = 7.0
+    structure = 5.0
+    expected = hook * 0.3 + visual * 0.25 + pacing * 0.2 + structure * 0.25
+    assert expected == pytest.approx(6.55)
