@@ -36,7 +36,7 @@ _MERGE_PROMPT_TEMPLATE = """You are analyzing a short-form video. Based on the t
   "hook": {{
     "opening_type": "question|statement|visual|music|none",
     "opening_text": "first few words or description",
-    "cta_type": "follow|like|comment|link|none",
+    "cta_type": "follow|like|comment|link|visit|none",
     "cta_text": "CTA text if any"
   }},
   "style": {{
@@ -55,6 +55,8 @@ _MERGE_PROMPT_TEMPLATE = """You are analyzing a short-form video. Based on the t
   }},
   "content_type": "educational|entertainment|promotional|review|story|news"
 }}
+
+IMPORTANT — cta_type: read the LAST transcript segments and final frames before deciding. If the video closes by urging a real-world action — visit a shop, go try/eat somewhere, go check it out (e.g. "快去試試看", "大家快去吃", "就在XX路上") — set "cta_type": "visit" and copy the phrase into cta_text. follow/like/comment/link are ONLY for on-platform engagement. Use "none" ONLY when there is genuinely no closing call to action at all. Do not default to "none" for offline/visit CTAs.
 
 The timeline should capture the narrative arc: how the video progresses from hook to main content to conclusion/CTA. Use approximate time ranges.
 
