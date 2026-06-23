@@ -2,7 +2,7 @@
 name: reel-scout
 description: Reverse-decode a short-form video (Instagram Reel / TikTok / YouTube Short). Use when the user pastes a short-form video URL and wants to know WHY it works and extract a transferable structure — not just a summary. Downloads + transcribes + visually analyzes the clip with the local reel-scout pipeline, then applies the reverse-decode prompt pack to produce a 4-beat skeleton (Hook → contrast → CTA → resonance) and a transferable骨架.
 allowed-tools: Bash, Read
-homepage: https://github.com/ourladypeace2011-commits/reel-scout
+homepage: https://github.com/vulture-s/reel-scout
 license: MIT
 user-invocable: true
 ---
