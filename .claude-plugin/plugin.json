@@ -5,8 +5,8 @@
   "author": {
     "name": "Hevin Yeh"
   },
-  "homepage": "https://github.com/ourladypeace2011-commits/reel-scout",
-  "repository": "https://github.com/ourladypeace2011-commits/reel-scout",
+  "homepage": "https://github.com/vulture-s/reel-scout",
+  "repository": "https://github.com/vulture-s/reel-scout",
   "license": "MIT",
   "keywords": ["video", "reels", "tiktok", "shorts", "reverse-engineering", "hook", "analysis", "whisper", "vlm", "yt-dlp", "ffmpeg"]
 }
