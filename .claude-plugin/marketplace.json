@@ -1,0 +1,21 @@
+{
+  "name": "reel-scout",
+  "metadata": {
+    "description": "Reverse-decode short-form videos. /scout downloads, transcribes, and visually analyzes a Reel/TikTok/Short, then applies the reverse-decode prompt pack to extract why it works and a transferable structure."
+  },
+  "owner": {
+    "name": "Hevin Yeh"
+  },
+  "plugins": [
+    {
+      "name": "reel-scout",
+      "description": "Reverse-decode a short-form video (URL). Downloads with yt-dlp, extracts keyframes with ffmpeg, transcribes and runs a local VLM, then applies the 4-beat reverse-decode prompt pack.",
+      "author": {
+        "name": "Hevin Yeh"
+      },
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/vulture-s/reel-scout"
+    }
+  ]
+}

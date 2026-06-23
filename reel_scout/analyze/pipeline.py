@@ -29,6 +29,9 @@ class PipelineOptions:
     vlm_model: Optional[str] = None
     keyframe_strategy: Optional[str] = None
     keyframe_max: Optional[int] = None
+    resolution: int = 0       # 招④ keyframe upscale long-edge px (0 = native)
+    start_sec: float = 0.0    # 招③ focus window start (0 = whole clip)
+    end_sec: float = 0.0      # 招③ focus window end (0 = whole clip)
 
 
 def run(urls: List[str], options: Optional[PipelineOptions] = None) -> None:
@@ -127,9 +130,23 @@ def _process_single(
         if existing_transcript:
             print("  Skipping transcribe (already done)")
         else:
-            print("  Transcribing...")
-            transcriber = get_transcriber(options.whisper_backend)
-            result = transcriber.transcribe(file_path)
+            # 招① subtitle-first: if a native/auto subtitle was downloaded next to the
+            # video, parse it instead of spending local Whisper compute. Whisper stays
+            # the fallback (still fully local — no cloud ASR).
+            from ..transcribe import find_subtitle
+            from ..transcribe.vtt import parse_vtt
+            sub_path = find_subtitle(file_path)
+            if sub_path:
+                print(f"  Using native subtitles ({os.path.basename(sub_path)})...")
+                result = parse_vtt(sub_path)
+                if not result.segments:
+                    # Empty/garbled subtitle file — fall back to Whisper.
+                    print("  Subtitle empty; falling back to Whisper...")
+                    sub_path = None
+            if not sub_path:
+                print("  Transcribing (local Whisper)...")
+                transcriber = get_transcriber(options.whisper_backend)
+                result = transcriber.transcribe(file_path)
             segments_data = [
                 {"start": s.start, "end": s.end, "text": s.text,
                  "confidence": s.confidence}
@@ -227,7 +244,10 @@ def _process_single(
             kf_infos = extract_keyframes(
                 file_path, kf_dir, video_id,
                 strategy=options.keyframe_strategy or "",
-                max_frames=options.keyframe_max or 0,
+                max_frames=options.keyframe_max or 0,  # 0 -> 招② auto budget
+                resolution=options.resolution,         # 招④
+                start_sec=options.start_sec,            # 招③
+                end_sec=options.end_sec,                # 招③
             )
             kf_data = [
                 {"frame_index": kf.frame_index, "timestamp_sec": kf.timestamp_sec,

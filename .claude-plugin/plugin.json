@@ -1,0 +1,12 @@
+{
+  "name": "reel-scout",
+  "version": "0.1.0",
+  "description": "Reverse-decode a short-form video. Downloads + transcribes + visually analyzes IG Reels / TikTok / YouTube Shorts with the local reel-scout pipeline, then applies the reverse-decode prompt pack to extract a 4-beat skeleton and a transferable structure.",
+  "author": {
+    "name": "Hevin Yeh"
+  },
+  "homepage": "https://github.com/vulture-s/reel-scout",
+  "repository": "https://github.com/vulture-s/reel-scout",
+  "license": "MIT",
+  "keywords": ["video", "reels", "tiktok", "shorts", "reverse-engineering", "hook", "analysis", "whisper", "vlm", "yt-dlp", "ffmpeg"]
+}
