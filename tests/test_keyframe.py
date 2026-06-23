@@ -5,7 +5,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from reel_scout.vision.keyframe import KeyframeInfo, _ensure_first_last
+from reel_scout.vision.keyframe import (
+    KeyframeInfo,
+    _ensure_first_last,
+    _scale_vf,
+    _seek_args,
+    auto_frame_budget,
+)
+from reel_scout import config
 
 
 class TestKeyframeInfoHasScore:
@@ -83,6 +90,118 @@ class TestEnsureFirstLast:
         # The frame with lowest score (0.1 at 7.0) should be removed
         timestamps = [f.timestamp_sec for f in result]
         assert 7.0 not in timestamps
+
+
+class TestAutoFrameBudget:
+    def test_full_scan_curve(self) -> None:
+        # claude-video full-scan table (pre-fps-cap on long clips)
+        assert auto_frame_budget(20) == 30
+        assert auto_frame_budget(45) == 40
+        assert auto_frame_budget(120) == 60
+        assert auto_frame_budget(300) == 80
+        assert auto_frame_budget(900) == 100
+
+    def test_focused_curve_is_denser(self) -> None:
+        assert auto_frame_budget(45, focused=True) == 80
+        assert auto_frame_budget(45, focused=False) == 40
+
+    def test_hard_ceiling_100(self) -> None:
+        assert auto_frame_budget(99999) == 100
+        assert auto_frame_budget(99999, focused=True) == 100
+
+    def test_fps_cap_short_clip(self) -> None:
+        # <=2 fps: a 2s clip can supply at most 4 frames
+        assert auto_frame_budget(2) == 4
+        # 3s focused window: table says 10 but fps cap is 6
+        assert auto_frame_budget(3, focused=True) == 6
+
+    def test_unknown_duration(self) -> None:
+        assert auto_frame_budget(0) == 30
+        assert auto_frame_budget(-5) == 30
+
+    @patch("reel_scout.vision.keyframe._get_duration", return_value=900.0)
+    @patch("reel_scout.vision.keyframe._extract_scene", return_value=[])
+    @patch("reel_scout.vision.keyframe._ensure_first_last", side_effect=lambda *a, **k: a[3])
+    @patch("reel_scout.vision.keyframe.os.makedirs")
+    def test_auto_budget_clamped_to_keyframe_max(
+        self,
+        mock_makedirs: MagicMock,
+        mock_ensure: MagicMock,
+        mock_scene: MagicMock,
+        mock_duration: MagicMock,
+    ) -> None:
+        # COST RED LINE: even a 15-min clip (raw budget 100) must clamp to KEYFRAME_MAX
+        from reel_scout.vision.keyframe import extract_keyframes
+
+        extract_keyframes("/tmp/v.mp4", "/tmp/out", "vid1", strategy="scene", max_frames=0)
+        # _extract_scene called with the clamped budget, not 100
+        called_max = mock_scene.call_args[0][3]
+        assert called_max == config.KEYFRAME_MAX
+
+
+class TestScaleAndSeekHelpers:
+    def test_scale_vf(self) -> None:
+        assert _scale_vf(0) == ""
+        assert _scale_vf(1024) == "scale=1024:-2"
+
+    def test_seek_args(self) -> None:
+        assert _seek_args(0, 0) == []
+        assert _seek_args(5, 0) == ["-ss", "5"]
+        assert _seek_args(5, 10) == ["-ss", "5", "-to", "10"]
+        assert _seek_args(0, 10) == ["-to", "10"]
+
+    @patch("reel_scout.vision.keyframe._get_duration", return_value=30.0)
+    @patch("reel_scout.vision.keyframe.os.path.exists", return_value=True)
+    @patch("reel_scout.vision.keyframe.os.makedirs")
+    @patch("reel_scout.vision.keyframe.subprocess.run")
+    def test_resolution_appended_to_scene_vf(
+        self,
+        mock_run: MagicMock,
+        mock_makedirs: MagicMock,
+        mock_exists: MagicMock,
+        mock_duration: MagicMock,
+    ) -> None:
+        from reel_scout.vision.keyframe import extract_keyframes
+
+        mock_result = MagicMock()
+        mock_result.stderr = ""
+        mock_result.stdout = ""
+        mock_run.return_value = mock_result
+
+        extract_keyframes(
+            "/tmp/v.mp4", "/tmp/out", "vid1",
+            strategy="scene", max_frames=4, resolution=1024,
+        )
+        cmd = mock_run.call_args_list[0][0][0]
+        vf = cmd[cmd.index("-vf") + 1]
+        assert "scale=1024:-2" in vf
+        assert "showinfo" in vf
+
+    @patch("reel_scout.vision.keyframe._get_duration", return_value=30.0)
+    @patch("reel_scout.vision.keyframe.os.path.exists", return_value=True)
+    @patch("reel_scout.vision.keyframe.os.makedirs")
+    @patch("reel_scout.vision.keyframe.subprocess.run")
+    def test_focus_window_adds_seek_args(
+        self,
+        mock_run: MagicMock,
+        mock_makedirs: MagicMock,
+        mock_exists: MagicMock,
+        mock_duration: MagicMock,
+    ) -> None:
+        from reel_scout.vision.keyframe import extract_keyframes
+
+        mock_result = MagicMock()
+        mock_result.stderr = ""
+        mock_result.stdout = ""
+        mock_run.return_value = mock_result
+
+        extract_keyframes(
+            "/tmp/v.mp4", "/tmp/out", "vid1",
+            strategy="scene", max_frames=4, start_sec=5.0, end_sec=10.0,
+        )
+        cmd = mock_run.call_args_list[0][0][0]
+        assert "-ss" in cmd and "5.0" in cmd
+        assert "-to" in cmd and "10.0" in cmd
 
 
 class TestMotionStrategy:
