@@ -1,0 +1,17 @@
+Reel Scout
+==========
+
+Reverse-decode prompt templates under `prompts/` are authored by Hevin (vulture.s)
+and released open as part of this repository (MIT). They are the default analysis
+layer for reverse-engineering short-form video structure.
+
+Video extraction techniques adapted from claude-video
+(https://github.com/bradautomates/claude-video), MIT License,
+Copyright (c) 2026 Bradley Bonanno:
+  - captions-first transcription (native subtitles before Whisper)
+  - duration-aware keyframe budgeting (frame count scales inversely with duration)
+  - time-range focus (--start / --end with denser sampling)
+  - resolution bump for reading on-screen text
+
+These are independent reimplementations within Reel Scout's own pipeline, not a
+fork; attribution is provided per the MIT License.
