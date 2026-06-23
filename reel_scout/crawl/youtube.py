@@ -53,11 +53,22 @@ class YouTubeCrawler(BaseCrawler):
 
         info = json.loads(result.stdout)
 
-        # Download
+        # Download. Also grab native + auto-generated subtitles (招①): when present
+        # they let the transcribe step skip local Whisper entirely. Converted to vtt
+        # so the stdlib VTT parser can read them. Cloud ASR is intentionally NOT used.
         dl_cmd = [
             "yt-dlp",
             "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
             "--merge-output-format", "mp4",
+            "--write-subs",
+            "--write-auto-subs",
+            "--sub-langs", "en.*,zh.*",
+            "--convert-subs", "vtt",
+            # Subtitle fetch is best-effort: a sub-only failure (e.g. HTTP 429 on the
+            # caption endpoint, or no captions for this video) must NOT abort the media
+            # download — we just fall back to local Whisper. Real media failure is still
+            # caught below by the "no mp4 produced" check.
+            "--no-abort-on-error",
             "-o", output_template,
             "--no-playlist",
             "--remote-components", "ejs:github",
@@ -66,15 +77,16 @@ class YouTubeCrawler(BaseCrawler):
         result = subprocess.run(
             dl_cmd, capture_output=True, text=True, timeout=300,
         )
-        if result.returncode != 0:
-            raise RuntimeError(f"yt-dlp download failed: {result.stderr[:500]}")
 
         # Find downloaded file
         expected = os.path.join(output_dir, f"yt_{vid}.mp4")
-        file_path = expected if os.path.exists(expected) else ""
+        if not os.path.exists(expected):
+            # No media produced -> genuine download failure (not a subtitle hiccup).
+            raise RuntimeError(f"yt-dlp download failed: {result.stderr[:500]}")
+        file_path = expected
         file_size = os.path.getsize(file_path) if file_path else 0
 
-        return VideoMeta(
+        meta = VideoMeta(
             platform=self.platform,
             platform_id=vid,
             url=url,
@@ -85,6 +97,13 @@ class YouTubeCrawler(BaseCrawler):
             file_path=file_path,
             file_size_bytes=file_size,
         )
+        # Record any subtitle yt-dlp wrote next to the media (en.* / zh.* .vtt).
+        if file_path:
+            from ..transcribe import find_subtitle
+            sub = find_subtitle(file_path)
+            if sub:
+                meta.extra["subtitle_path"] = sub
+        return meta
 
     def browse(self, url: str, limit: int = 30) -> List[VideoMeta]:
         """List videos from a YouTube channel/playlist page."""
