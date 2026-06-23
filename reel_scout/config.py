@@ -59,7 +59,14 @@ RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "10"))
 
 # --- Vision ---
 KEYFRAME_STRATEGY = os.getenv("KEYFRAME_STRATEGY", "scene")
+# Hard cap on keyframes per video. Each keyframe = one local VLM call (NOT a token),
+# so this is a compute-cost ceiling, not a token budget. auto_frame_budget() never
+# exceeds this. Default 8 (cost-conservative); raise it to let duration-aware
+# budgeting (招②) actually spread more frames across longer videos.
 KEYFRAME_MAX = int(os.getenv("KEYFRAME_MAX", "8"))
+# Optional upscale (long edge px) applied to extracted keyframes so the VLM can read
+# small on-screen text (招④). 0 = keep native resolution (no scaling, default).
+KEYFRAME_RESOLUTION = int(os.getenv("KEYFRAME_RESOLUTION", "0"))
 
 # --- Audio ---
 PANNS_MODEL_PATH = os.getenv("PANNS_MODEL_PATH", "")
@@ -104,6 +111,7 @@ def show() -> str:
         f"RATE_LIMIT_PER_MINUTE:{RATE_LIMIT_PER_MINUTE}",
         f"KEYFRAME_STRATEGY:    {KEYFRAME_STRATEGY}",
         f"KEYFRAME_MAX:         {KEYFRAME_MAX}",
+        f"KEYFRAME_RESOLUTION:  {KEYFRAME_RESOLUTION or '(native)'}",
         f"PANNS_MODEL_PATH:     {PANNS_MODEL_PATH or '(not set)'}",
         f"AUDIO_WINDOW_SEC:     {AUDIO_WINDOW_SEC}",
         f"AUDIO_HOP_SEC:        {AUDIO_HOP_SEC}",

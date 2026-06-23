@@ -29,6 +29,9 @@ class PipelineOptions:
     vlm_model: Optional[str] = None
     keyframe_strategy: Optional[str] = None
     keyframe_max: Optional[int] = None
+    resolution: int = 0       # 招④ keyframe upscale long-edge px (0 = native)
+    start_sec: float = 0.0    # 招③ focus window start (0 = whole clip)
+    end_sec: float = 0.0      # 招③ focus window end (0 = whole clip)
 
 
 def run(urls: List[str], options: Optional[PipelineOptions] = None) -> None:
@@ -227,7 +230,10 @@ def _process_single(
             kf_infos = extract_keyframes(
                 file_path, kf_dir, video_id,
                 strategy=options.keyframe_strategy or "",
-                max_frames=options.keyframe_max or 0,
+                max_frames=options.keyframe_max or 0,  # 0 -> 招② auto budget
+                resolution=options.resolution,         # 招④
+                start_sec=options.start_sec,            # 招③
+                end_sec=options.end_sec,                # 招③
             )
             kf_data = [
                 {"frame_index": kf.frame_index, "timestamp_sec": kf.timestamp_sec,
