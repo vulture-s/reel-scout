@@ -172,7 +172,18 @@ def _process_single(
                     if _os.path.exists(wav_path):
                         _os.unlink(wav_path)
         except (ImportError, FileNotFoundError) as e:
-            print("  Skipping audio analysis: %s" % e, file=sys.stderr)
+            # Reaching here means audio was EXPLICITLY requested (skip_audio
+            # defaults to True, so the pipeline only enters this block on an
+            # opt-in). Swallowing the error here used to let merge proceed and
+            # emit has_background_music=false on videos that are wall-to-wall
+            # music — a silent false negative. Fail loud instead: the operator
+            # asked for audio, so surface the missing dep/model and let them
+            # install it (or pass skip_audio) rather than bake a wrong result.
+            raise RuntimeError(
+                "Audio analysis was requested (skip_audio=False) but could not run: %s. "
+                "Install the PANNs deps and set PANNS_MODEL_PATH to the model checkpoint, "
+                "or pass skip_audio=True to analyze without audio." % e
+            ) from e
 
     # Step 2.7: Speaker diarization
     if not options.skip_diarize and config.DIARIZE_ENABLED:

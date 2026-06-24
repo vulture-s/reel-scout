@@ -143,13 +143,38 @@ def handle_request(request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def main() -> None:
+    # The loop is intentionally defensive. Processing is serial (one stdio
+    # request at a time) and a `tools/call analyze` can block for minutes; if a
+    # client gives up and closes the pipe during that wait, the next write would
+    # raise BrokenPipeError. Previously any such error (or a malformed frame)
+    # propagated out of main() and killed the whole process — taking down ALL
+    # tools for the session, not just the one slow request. Now a dead client or
+    # a bad frame is contained: we exit cleanly on a closed pipe and skip bad
+    # frames instead of crashing. (True concurrency would need a worker thread;
+    # this only makes the server survive disconnects — it does not parallelize.)
     while True:
-        message = read_message()
+        try:
+            message = read_message()
+        except Exception as exc:  # malformed / partial frame
+            print("reel-scout: skipping unreadable message: %s" % exc, file=sys.stderr)
+            continue
         if message is None:
             break
-        response = handle_request(message)
+        try:
+            response = handle_request(message)
+        except Exception as exc:  # belt-and-suspenders; handle_request already guards
+            print("reel-scout: handler error: %s" % exc, file=sys.stderr)
+            continue
         if response is not None:
-            write_message(response, framing=_detected_framing)
+            try:
+                write_message(response, framing=_detected_framing)
+            except (BrokenPipeError, ConnectionResetError):
+                # Client closed the pipe (e.g. timed out on a long analyze).
+                # Nothing left to write to — stop cleanly instead of crashing.
+                break
+            except Exception as exc:
+                print("reel-scout: failed to write response: %s" % exc, file=sys.stderr)
+                continue
 
 
 if __name__ == "__main__":

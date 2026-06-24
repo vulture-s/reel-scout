@@ -26,13 +26,27 @@ def list_tools() -> List[Dict[str, Any]]:
         },
         {
             "name": "analyze",
-            "description": "Full pipeline: download + transcribe + vision analysis + structured merge",
+            "description": (
+                "Full pipeline: download + transcribe + audio + vision analysis + structured merge. "
+                "Audio analysis (music/silence/event timeline via PANNs) is OFF by default — set "
+                "skip_audio=false to enable it (needed to detect background music, esp. on long-form). "
+                "For long videos, raise keyframe_max so vision isn't sampled too sparsely."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "urls": {"type": "array", "items": {"type": "string"}},
                     "skip_vision": {"type": "boolean", "default": False},
                     "skip_transcribe": {"type": "boolean", "default": False},
+                    "skip_audio": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Skip PANNs audio analysis. Default True. Set False to detect music/silence ratio + audio events (requires PANNS_MODEL_PATH to point at the model).",
+                    },
+                    "keyframe_max": {
+                        "type": "integer",
+                        "description": "Max keyframes to sample for vision. 0 / unset = backend default. Raise for long-form videos to avoid 1-frame-per-many-minutes sparsity.",
+                    },
                     "wait": {"type": "boolean", "default": True},
                 },
                 "required": ["urls"],
@@ -168,6 +182,8 @@ def _tool_analyze(args: Dict[str, Any]) -> Dict[str, Any]:
 
     skip_vision = bool(args.get("skip_vision", False))
     skip_transcribe = bool(args.get("skip_transcribe", False))
+    skip_audio = bool(args.get("skip_audio", True))
+    keyframe_max = args.get("keyframe_max")
     wait = bool(args.get("wait", True))
 
     config.ensure_dirs()
@@ -176,6 +192,8 @@ def _tool_analyze(args: Dict[str, Any]) -> Dict[str, Any]:
     options = PipelineOptions(
         skip_vision=skip_vision,
         skip_transcribe=skip_transcribe,
+        skip_audio=skip_audio,
+        keyframe_max=int(keyframe_max) if keyframe_max is not None else None,
     )
     if not wait:
         conn.close()
