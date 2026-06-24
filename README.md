@@ -23,6 +23,33 @@ reel-scout export --format json -o ./export
 reel-scout config check
 ```
 
+## Long-form video
+
+Reel Scout is **built for short-form** (Shorts / Reels / TikTok) — that's where the
+structured output (hook, CTA, pacing, retention-style timeline) is most meaningful,
+and where it's fastest.
+
+It is **not limited to short-form**, though. The engine has no hard duration cap:
+download (yt-dlp), transcription (whisper), and audio analysis (PANNs) all scale to
+long videos, and keyframe extraction is bounded by `max_frames` rather than blowing
+up. A 1-hour video runs fine. Two things to do when you point it at long-form:
+
+- **Raise `--keyframe-max`.** The default keyframe budget is tuned for short clips; on
+  a long video it samples too sparsely (a 1-hour video can land ~1 frame per 15 min).
+  Bump it so vision isn't starved.
+- **Enable `--no-skip-audio`** to get the music / speech / silence / sound-effect
+  breakdown — often the most useful signal on music or ambient pieces (see
+  [`docs/audio-panns-setup.md`](docs/audio-panns-setup.md)).
+
+Caveat: the structured **merge schema is short-form-shaped** (it expects a hook and a
+3-segment `0-3s … CTA` timeline), so on long-form those particular fields get noisy or
+meaningless. The transcript, audio breakdown, keyframe descriptions, and summary stay
+useful; the reel-specific fields don't.
+
+```bash
+reel-scout analyze "<long-form-url>" --keyframe-max 24 --no-skip-audio
+```
+
 ## MCP Server
 
 ```bash
