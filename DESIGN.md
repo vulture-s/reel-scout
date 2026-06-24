@@ -52,7 +52,7 @@ consumes the *same* `ClipPayload`; they differ only in how they render it to the
 
 | backend | how it ingests | local? | auth | role |
 |---|---|---|---|---|
-| **Qwen2.5-VL-7B** (M2 Max via MLX) / minicpm-v / llava (4070) | contact-sheet grid image (timestamps burned in) → 1 call | **yes (default)** | none | local-first baseline |
+| **local VLM, contact-sheet** (per-machine, see below) | contact-sheet grid image (timestamps burned in) → 1 call | **yes (default)** | none | local-first baseline |
 | **gemini-native-video** | upload `video_path`, **native** temporal reasoning | no | API key (OAuth-first: Gemini=key) | best quality on long-form |
 | **claude** | contact-sheet image(s) | no | **OpenClaw proxy** (subscription/OAuth, no Anthropic key) | swappable cloud, parity |
 | **codex / gpt** | contact-sheet image(s) | no | OpenClaw proxy / Codex runtime | swappable cloud |
@@ -62,8 +62,17 @@ consumes the *same* `ClipPayload`; they differ only in how they render it to the
 Same `ClipPayload`, different rendering. Native-video is an *optional enhanced* path for backends that
 support it — never required, so **local-first always holds**.
 
-Local backend sizing: Qwen2.5-VL-7B ≈ 8–16 GB quantized → fine on M2 Max (32 GB+) via MLX/Ollama;
-3B trivial; 32B only on a 64 GB M2 Max; 72B no.
+### Local backend = per-machine, not one model (verified 2026-06-24)
+
+| machine | RAM | default local VLM | note |
+|---|---|---|---|
+| **Mac mini M2 Pro** (24h relay hub) | **16 GB** | **minicpm-v** (5.5 GB, already installed) | safe on 16 GB; keep contact-sheets small (≤6–9 cells, modest res). `qwen3-vl:8b` is also installed but balloons to ~10.4 GB resident + can time out on text-dense sheets → too tight while it's also relaying. Light backend, not the workhorse. |
+| **MacBook Pro M2 Max** | 32 GB+ | **qwen3-vl:8b** (already installed, newer than Qwen2.5-VL) | the local-first workhorse — full-size sheets, dense frames fine. |
+| **PC RTX 4070** | 12 GB VRAM | minicpm-v / llava:7b | per reel-scout README; lean VLM only on 12 GB. |
+
+We do **not** standardise on "Qwen2.5-VL". The mini already runs `minicpm-v` + `qwen3-vl:8b`; M2 Max
+runs `qwen3-vl:8b` (supersedes 2.5-VL). Pick per machine; the contact-sheet payload is identical, so
+the backend swaps without touching callers. Heavy/long-form local work → M2 Max or Gemini, not the mini.
 
 ---
 
@@ -132,6 +141,7 @@ maintaining two diverging crawlers. (B) is acceptable only if we want a throwawa
 
 1. **Shared-core strategy**: **A — extract `scout-core`** ✅ (Hevin, 2026-06-24).
 2. **New repo name**: **Longshot** ✅ (Hevin, 2026-06-24).
-3. **Backends** ✅: local-first default = Qwen2.5-VL-7B (M2 Max, MLX) / minicpm-llava (4070), contact-sheet.
-   Gemini = native-video enhanced path (API key). Claude / Codex = contact-sheet via OpenClaw proxy
-   (no Anthropic key, no Gemini CLI). Native-video is Gemini-only for now; everything else = contact-sheet.
+3. **Backends** ✅: local-first default = **per-machine** contact-sheet VLM (mini→minicpm-v / M2 Max→qwen3-vl:8b
+   / 4070→minicpm-llava — verified 2026-06-24, see §2 table). Gemini = native-video enhanced path (API key).
+   Claude / Codex = contact-sheet via OpenClaw proxy (no Anthropic key, no Gemini CLI). Native-video is
+   Gemini-only for now; everything else = contact-sheet. Not standardising on Qwen2.5-VL.
