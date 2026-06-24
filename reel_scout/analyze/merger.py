@@ -5,7 +5,13 @@ import sqlite3
 from typing import Optional
 
 from .. import config, db
+from ..audio.panns import _MUSIC_LABELS
 from ..llm import get_llm
+
+# Minimum PANNs confidence for a music label to count as "background music present".
+# A real bed (e.g. 2 windows at 0.84) clears this easily; incidental ambient leakage
+# below it doesn't flip the flag.
+MUSIC_CONF_THRESHOLD = 0.30
 
 _MERGE_PROMPT_TEMPLATE = """You are analyzing a short-form video. Based on the transcript and visual descriptions below, produce a structured JSON analysis.
 
@@ -133,6 +139,24 @@ def merge_analysis(
             data = json.loads(m.group())
         else:
             data = {"summary": result_json, "topics": [], "error": "failed to parse JSON"}
+
+    # has_background_music is a measured fact, not a guess. The PANNs audio stage
+    # detects music with a confidence score; the merge LLM tends to ignore a music
+    # bed under heavy voiceover and emit false (e.g. 17 Speech vs 2 Music windows ->
+    # LLM says false even though Music was detected at 0.84). The merge layer must
+    # not overwrite a signal an upstream stage actually measured, so the detector
+    # decides this one field — the LLM's value is discarded.
+    #   - audio ran (events present): True iff any music label clears the threshold.
+    #   - audio skipped (no events, the default path): the LLM has no audio signal
+    #     either, so mark unknown (None) rather than keep a fabricated bool.
+    if audio_events:
+        data.setdefault("style", {})["has_background_music"] = any(
+            ae["label"] in _MUSIC_LABELS
+            and ae["confidence"] >= MUSIC_CONF_THRESHOLD
+            for ae in audio_events
+        )
+    else:
+        data.setdefault("style", {})["has_background_music"] = None
 
     db.save_analysis(
         conn, video_id,
