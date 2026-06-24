@@ -125,6 +125,30 @@ maintaining two diverging crawlers. (B) is acceptable only if we want a throwawa
 
 ---
 
+## 6b. P2 first-run findings (2026-06-24, mini)
+
+First end-to-end run of the contact-sheet → local-VLM backend, on the halfof8 BTS
+"I built an app" clip (10 keyframes, 330 s) against the mini's Ollama.
+
+- ✅ **Pipeline works end-to-end**: `ClipPayload → build_contact_sheets → Ollama VLM →
+  SceneAnalysis`, parsed cleanly. minicpm-v returned in ~28 s.
+- ✅ **Contact-sheet artifact is excellent** (verified by eye): a 10-cell timestamped grid
+  that clearly shows the whole video's progression — even surfaced the end-card credit
+  *"Original soundtrack by Sasha DZA"* (independently confirms the attribution flag from
+  the case study). The substrate is good.
+- ⚠️ **minicpm-v reads a DENSE sheet weakly**: on 10 small, text-heavy cells it gave a
+  generic "compilation of scenes" summary and parroted the prompt template. Likely the
+  model downscales the sheet and loses the small text. Density is the suspected lever
+  (fewer, larger cells) — test was cut off when the mini went down (below).
+- 🔴 **qwen3-vl:8b is NOT viable on the 16 GB mini**: the request timed out (>400 s) AND
+  left the mini unresponsive (SSH + Ollama both down — 16 GB exhausted, swap death).
+  Confirms §2's per-machine call: **qwen3-vl → M2 Max only; mini = minicpm-v, light loads**.
+
+**Conclusions / next**: plumbing proven; quality is a model+density question, not an
+architecture one. To prove a *good* read: (a) sparse-sheet preset on minicpm-v (few cells),
+(b) qwen3-vl on the M2 Max (where it fits), or (c) a cloud backend (Claude/Codex via proxy)
+on the same sheet. Do NOT run heavy VLMs on the mini.
+
 ## 7. Law Phase
 
 - **Acceptance**: (a) one `BaseTemporalVision` interface with ≥2 working backends (local contact-sheet
