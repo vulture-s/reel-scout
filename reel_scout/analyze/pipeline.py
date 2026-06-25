@@ -157,7 +157,10 @@ def _process_single(
                 import tempfile
                 wav_path = tempfile.mktemp(suffix=".wav")
                 try:
-                    extract_wav(file_path, wav_path)
+                    # PANNs needs 32kHz (its mel front-end is trained for it);
+                    # Whisper's separate 16kHz extraction is left untouched.
+                    extract_wav(file_path, wav_path,
+                                sample_rate=config.PANNS_SAMPLE_RATE)
                     analyzer = get_audio_analyzer()
                     timeline = analyzer.analyze(wav_path)
                     events_data = [

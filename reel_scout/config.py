@@ -65,6 +65,10 @@ KEYFRAME_MAX = int(os.getenv("KEYFRAME_MAX", "8"))
 PANNS_MODEL_PATH = os.getenv("PANNS_MODEL_PATH", "")
 AUDIO_WINDOW_SEC = float(os.getenv("AUDIO_WINDOW_SEC", "2.0"))
 AUDIO_HOP_SEC = float(os.getenv("AUDIO_HOP_SEC", "1.0"))
+# PANNs Cnn14 is trained at 32kHz with a baked-in mel front-end; the audio fed to
+# it MUST be 32kHz or class probabilities are unreliable. This is independent of the
+# 16kHz extraction Whisper/diarization use — do not couple them.
+PANNS_SAMPLE_RATE = int(os.getenv("PANNS_SAMPLE_RATE", "32000"))
 
 # --- External tools ---
 FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg")
