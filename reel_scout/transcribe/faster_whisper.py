@@ -25,11 +25,22 @@ class FasterWhisperTranscriber(BaseTranscriber):
 
     def transcribe(self, audio_path: str) -> TranscriptResult:
         self._ensure_model()
-        segments_iter, info = self._model.transcribe(
-            audio_path,
-            beam_size=5,
-            vad_filter=True,
-        )
+
+        from .. import config
+        kwargs = {"beam_size": 5, "vad_filter": True}
+        # language="" -> None so faster-whisper auto-detects
+        if config.WHISPER_LANGUAGE:
+            kwargs["language"] = config.WHISPER_LANGUAGE
+        if config.WHISPER_TASK and config.WHISPER_TASK != "transcribe":
+            kwargs["task"] = config.WHISPER_TASK
+        # Per-chunk language detection for code-switching (中英對照) audio.
+        # Only meaningful when language is NOT forced.
+        if config.WHISPER_MULTILINGUAL and not config.WHISPER_LANGUAGE:
+            kwargs["multilingual"] = True
+            if config.WHISPER_CHUNK_LENGTH > 0:
+                kwargs["chunk_length"] = config.WHISPER_CHUNK_LENGTH
+
+        segments_iter, info = self._model.transcribe(audio_path, **kwargs)
 
         segments = []
         texts = []
