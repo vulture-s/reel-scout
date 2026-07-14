@@ -52,6 +52,16 @@ OPENCLAW_MODEL = os.getenv("OPENCLAW_MODEL", "")
 # --- Whisper ---
 WHISPER_BACKEND = os.getenv("WHISPER_BACKEND", "faster-whisper")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "large-v3")
+# Language handling. Defaults reproduce prior behavior (detect-once, transcribe).
+#   WHISPER_LANGUAGE=""      -> auto-detect (whisper locks one language from the opening window)
+#   WHISPER_LANGUAGE="en"    -> force a single language
+#   WHISPER_TASK="translate" -> force output to English regardless of source
+#   WHISPER_MULTILINGUAL=1   -> per-chunk language detection (faster-whisper >=1.1);
+#                               required for code-switching / 中英對照 interviews
+WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "")
+WHISPER_TASK = os.getenv("WHISPER_TASK", "transcribe")
+WHISPER_MULTILINGUAL = os.getenv("WHISPER_MULTILINGUAL", "false").lower() in ("true", "1", "yes")
+WHISPER_CHUNK_LENGTH = int(os.getenv("WHISPER_CHUNK_LENGTH", "0"))  # 0 = library default
 
 # --- Crawl ---
 IG_COOKIES_FILE = os.getenv("IG_COOKIES_FILE", "")
@@ -107,6 +117,10 @@ def show() -> str:
         f"OPENCLAW_MODEL:       {OPENCLAW_MODEL or '(auto)'}",
         f"WHISPER_BACKEND:      {WHISPER_BACKEND}",
         f"WHISPER_MODEL:        {WHISPER_MODEL}",
+        f"WHISPER_LANGUAGE:     {WHISPER_LANGUAGE or '(auto)'}",
+        f"WHISPER_TASK:         {WHISPER_TASK}",
+        f"WHISPER_MULTILINGUAL: {WHISPER_MULTILINGUAL}",
+        f"WHISPER_CHUNK_LENGTH: {WHISPER_CHUNK_LENGTH or '(default)'}",
         f"IG_COOKIES_FILE:      {IG_COOKIES_FILE or '(not set)'}",
         f"RATE_LIMIT_PER_MINUTE:{RATE_LIMIT_PER_MINUTE}",
         f"KEYFRAME_STRATEGY:    {KEYFRAME_STRATEGY}",

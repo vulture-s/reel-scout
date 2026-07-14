@@ -26,6 +26,16 @@ Short-form video analysis CLI tool.
 - `reel_scout/db.py` — SQLite schema + CRUD
 - `reel_scout/config.py` — env-based config
 
+## Transcription — bilingual / long-form drift
+- whisper `large-v3` locks language from the opening window; on long code-switching
+  files (中英對照 interview: ZH host + EN guest) it "translates" the other language
+  into the locked one → garbled output. NOT an audio problem (isolated slices are clean).
+- Fix is opt-in env (defaults preserve prior single-pass behavior):
+  `WHISPER_MULTILINGUAL=1 WHISPER_CHUNK_LENGTH=15` — per-chunk re-detection.
+  `multilingual` alone is insufficient; the short `chunk_length` is what forces it.
+- Also available: `WHISPER_LANGUAGE` (force one), `WHISPER_TASK=translate` (force EN out).
+- Keep OFF for single-language short-form (per-chunk detect adds cost).
+
 ## Rules
 - All HTTP calls use urllib.request, not requests
 - Use `from __future__ import annotations` in all files
