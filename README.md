@@ -1,5 +1,7 @@
 # Reel Scout
 
+> English ｜ [繁體中文](README.zh.md)
+
 Short-form video analysis CLI tool.
 
 Crawl, transcribe, and visually analyze YouTube Shorts, Instagram Reels, and TikTok videos into structured data.
