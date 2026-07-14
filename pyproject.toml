@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "reel-scout"
-version = "0.1.0"
+version = "0.2.0"
 description = "Short-form video analysis tool — crawl, transcribe, and visually analyze YouTube Shorts, Instagram Reels, and TikTok"
 readme = "README.md"
 license = "MIT"
@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-whisper = ["faster-whisper>=0.10.0"]
+whisper = ["faster-whisper>=1.1.0"]
 audio = ["onnxruntime>=1.15.0", "numpy>=1.21.0"]
 vector = ["lancedb>=0.4.0", "chromadb>=0.4.0"]
 diarize = ["pyannote.audio>=3.1", "torch>=2.0"]

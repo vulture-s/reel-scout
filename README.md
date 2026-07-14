@@ -1,5 +1,7 @@
 # Reel Scout
 
+> English ｜ [繁體中文](README.zh.md)
+
 Short-form video analysis CLI tool.
 
 Crawl, transcribe, and visually analyze YouTube Shorts, Instagram Reels, and TikTok videos into structured data.
@@ -22,6 +24,26 @@ reel-scout show <video_id>
 reel-scout export --format json -o ./export
 reel-scout config check
 ```
+
+## Bilingual / code-switching audio (中英對照)
+
+Whisper `large-v3` locks onto the language it detects in the opening window and, on
+long files, "translates" later speech of the *other* language back into the locked
+one — a code-switching interview (Chinese host + English guest) comes out with the
+guest's English mangled into garbled Chinese. It is a long-form drift, not a bad
+audio issue: the same passage transcribes perfectly when sliced out on its own.
+
+Fix — force per-chunk language re-detection:
+
+```bash
+WHISPER_MULTILINGUAL=1 WHISPER_CHUNK_LENGTH=15 reel-scout analyze "<url>"
+```
+
+`multilingual` alone is not enough — it needs a short `chunk_length` (~15s) so each
+chunk re-detects. Verified on a 40-min ZH-host/EN-guest interview: latin-char
+recovery 56% → 90%. Leave OFF for single-language short-form (per-chunk detection
+adds cost). Other levers: `WHISPER_LANGUAGE=en` (force one language),
+`WHISPER_TASK=translate` (force English output).
 
 ## MCP Server
 
