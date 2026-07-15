@@ -142,7 +142,7 @@ blurry, overexposed, harsh flash, cold blue tones, plastic look, CGI, cartoon, w
 
 ## 使用範例（橡子幼兒園 Shot 1 — Hook 開場）
 
-> 註：本範例採虛構幼兒園「橡子」做案例 — 公開附件不揭露真實客戶名。學員實際用時把品牌欄填自己的真案。
+> 註：本範例採虛構幼兒園「橡子」做案例 — 公開附件不揭露真實客戶名。實際使用時把品牌欄填自己的真案。
 
 ### Input（從劇本拆解產出的這一鏡）
 
@@ -238,7 +238,7 @@ Shot 2 的 prompt 加：
 | **Ideogram V3** | 需要文字 in image（logo / title） | 20-30 字 | 文字優先 |
 | **Midjourney** | 風格化、抽象、藝術感 | 20-35 字（含 --ar） | 用 --cref |
 
-**沒訂閱 Artlist 的學員 fallback**：ChatGPT Plus 內建 DALL-E 圖像生成 + Nano Banana（免費 quota）就能跑完整套，只是質感不如 Artlist Original 1.0。Marketing Grade 版本 prompt 對所有工具都通用，只要把風格 suffix 換成該工具偏好的詞。
+**沒訂閱 Artlist 的 fallback**：ChatGPT Plus 內建 DALL-E 圖像生成 + Nano Banana（免費 quota）就能跑完整套，只是質感不如 Artlist Original 1.0。Marketing Grade 版本 prompt 對所有工具都通用，只要把風格 suffix 換成該工具偏好的詞。
 
 ---
 
