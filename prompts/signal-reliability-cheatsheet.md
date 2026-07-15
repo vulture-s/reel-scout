@@ -36,7 +36,7 @@ cssclasses:
 
 **典型誤判**：用 uploader 名稱猜內容主題。例如「@coffee_master」可能 80% 內容是咖啡，但這支特定 reel 可能是旅遊。
 
-**Tony 案例的 L1 教訓**：3 支參考 reel 在 Reel Scout 跑之前用 uploader 名稱 mapping 全錯 — 猜不出來小建是炸雞創作者、Eric Luis 是咖啡 tutorial。
+**音響訪談案例的 L1 教訓**：3 支參考 reel 在 Reel Scout 跑之前用 uploader 名稱 mapping 全錯 — 猜不出來小建是炸雞創作者、Eric Luis 是咖啡 tutorial。
 
 ---
 
@@ -50,7 +50,7 @@ cssclasses:
 
 **典型誤判**：完全相信 caption。
 
-**Tony 案例的 L2 教訓**：Eric Luis 的 caption 是「pov: doing the most...」 — 完全沒提這支是咖啡 tutorial。如果只看 caption 會以為是生活 vlog，但 VLM 看出真實是「coffee preparation tutorial」。
+**音響訪談案例的 L2 教訓**：Eric Luis 的 caption 是「pov: doing the most...」 — 完全沒提這支是咖啡 tutorial。如果只看 caption 會以為是生活 vlog，但 VLM 看出真實是「coffee preparation tutorial」。
 
 **Caption 為什麼會誤導**：
 - 創作者為了 engagement 寫 hook，不是寫摘要
@@ -96,7 +96,7 @@ cssclasses:
 - **能識別「視覺奇觀」**（hook frame 為什麼會抓住人，VLM 能拆解）
 
 **VLM 的限制**：
-- 抓不到細微對白資訊（例如「這條線材是 Furutech NCF-Project V1」這種需要對白才知道）
+- 抓不到細微對白資訊（例如「這條線材是 XX 廠的 OO 型號」這種需要對白才知道）
 - 對「品牌 logo / 產品型號」識別準確度有限（需要 reference 圖輔助）
 - 跨幀理解較弱（單張 frame 強，整支影片的敘事弧線需要其他層補）
 
@@ -161,11 +161,11 @@ L1 Uploader → 「誰發的 + 是不是主軸」（最弱，只當 metadata）
 | L3 | Whisper 內建 | 上傳 MP4 給 Claude / Gemini 跑 transcript |
 | L4 | VLM 內建（Ollama / Claude API） | 上傳 MP4 給 Claude（最強）／ Gemini（YouTube 強）／ ChatGPT |
 
-**沒 Reel Scout 的學員**：用 cobalt.tools 下載 MP4 後上傳給 Claude.ai web，請 Claude 同時跑「描述每個 keyframe 在做什麼」+「轉錄對白」+「caption 跟畫面有沒有對齊」三個任務，等於人工版 4 層分層。
+**沒有 Reel Scout 時**：用 cobalt.tools 下載 MP4 後上傳給 Claude.ai web，請 Claude 同時跑「描述每個 keyframe 在做什麼」+「轉錄對白」+「caption 跟畫面有沒有對齊」三個任務，等於人工版 4 層分層。
 
 ---
 
-## 真實案例：Tony 訪談 reel 的 3 支參考片
+## 真實案例：一支音響訪談 reel 的 3 支參考片
 
 | Reel | L1 Uploader | L2 Caption 寫什麼 | L4 VLM 看到什麼 | 4 層合一結論 |
 |------|------------|----------------|--------------|------------|
@@ -183,7 +183,7 @@ L1 Uploader → 「誰發的 + 是不是主軸」（最弱，只當 metadata）
 
 ---
 
-## 給沒 Reel Scout 的學員用
+## 沒有 Reel Scout 時怎麼跑
 
 ### 手動跑 4 層分層的 prompt（給 Claude.ai web）
 
@@ -251,4 +251,4 @@ L1 — Uploader metadata：
 
 _最後更新：2026-05-20_
 _4 層信號可靠度框架來源：Reel Scout（跑 3 支參考片驗證）_
-_本框架在 Reel Scout 開發過程整理出來，課程平台首見_
+_本框架在 Reel Scout 開發過程整理出來_
