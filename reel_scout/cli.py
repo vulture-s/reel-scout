@@ -30,7 +30,13 @@ def main(argv: List[str] = None) -> None:
     # --- crawl ---
     p_crawl = sub.add_parser("crawl", help="Download videos")
     p_crawl.add_argument("urls", nargs="*", help="Video URLs")
-    p_crawl.add_argument("--file", "-f", help="File with URLs (one per line)")
+    p_crawl.add_argument("--file", "-f", help="File with URLs (one per line; '-' for stdin)")
+    p_crawl.add_argument("--channel", metavar="URL",
+                         help="Channel/profile page: list its videos and download them")
+    p_crawl.add_argument("--playlist", metavar="URL",
+                         help="Playlist page: list its videos and download them")
+    p_crawl.add_argument("--limit", "-n", type=int, default=30,
+                         help="Max videos to take from --channel/--playlist (default: 30)")
     p_crawl.add_argument("--cookies", help="Path to cookies file (for IG)")
 
     # --- analyze ---
@@ -122,15 +128,53 @@ def main(argv: List[str] = None) -> None:
     handlers[args.command](args)
 
 
+def _read_url_lines(path: str) -> List[str]:
+    """Read URL lines from a file, or from stdin when path is '-'.
+
+    The `browse --urls-only | crawl --file -` pipe advertised in browse's output
+    needs the '-' case; plain open('-') raises FileNotFoundError.
+    """
+    if path == "-":
+        return sys.stdin.read().splitlines()
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read().splitlines()
+
+
 def _collect_urls(args) -> List[str]:
     urls = list(args.urls) if args.urls else []
-    if getattr(args, "file", None):
-        with open(args.file, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    urls.append(line)
+    path = getattr(args, "file", None)
+    if path:
+        for line in _read_url_lines(path):
+            line = line.strip()
+            if line and not line.startswith("#"):
+                urls.append(line)
     return urls
+
+
+def _expand_listing(url: str, limit: int, require_profile: bool) -> List[str]:
+    """Expand a channel/playlist URL into the video URLs it lists.
+
+    Raises ValueError with a user-facing message; the caller prints it. The
+    profile check runs after get_crawler so an unsupported *platform* reports as
+    such, and browse's NotImplementedError surfaces for platforms that have no
+    listing support (TikTok) rather than being masked as "not a profile URL".
+    """
+    from .crawl import get_crawler, is_profile_url
+
+    crawler = get_crawler(url)  # ValueError for unsupported platforms
+    if require_profile and not is_profile_url(url):
+        raise ValueError(
+            "not a channel/profile URL: {}\n"
+            "  Use --playlist for playlists, or pass video URLs directly.".format(url)
+        )
+    try:
+        entries = crawler.browse(url, limit=limit)
+    except NotImplementedError as e:
+        raise ValueError(str(e))
+    # v1 forwards URLs only. browse already carries title/uploader/duration, so
+    # download() re-fetches them via yt-dlp --dump-json; threading VideoMeta
+    # through download()'s URL-shaped signature is a refactor, not a freebie.
+    return [e.url for e in entries if e.url]
 
 
 def _cmd_browse(args) -> None:
@@ -178,13 +222,39 @@ def _cmd_crawl(args) -> None:
     from . import db
     from .crawl import get_crawler
 
-    urls = _collect_urls(args)
-    if not urls:
-        print("No URLs provided. Use: reel-scout crawl <url> or --file urls.txt")
+    if args.channel and args.playlist:
+        print("Error: use --channel or --playlist, not both.")
         return
 
     if args.cookies:
         os.environ["IG_COOKIES_FILE"] = args.cookies
+
+    urls = _collect_urls(args)
+
+    listing = args.channel or args.playlist
+    if listing:
+        try:
+            found = _expand_listing(
+                listing, args.limit, require_profile=bool(args.channel)
+            )
+        except ValueError as e:
+            print("Error: {}".format(e))
+            return
+        except Exception as e:
+            print("Error listing {}: {}".format(listing, e))
+            return
+        if not found:
+            print("No videos found at {}".format(listing))
+            return
+        print("Found {} videos at {}".format(len(found), listing))
+        urls.extend(found)
+
+    if not urls:
+        print(
+            "No URLs provided. Use: reel-scout crawl <url>, --file urls.txt, "
+            "--channel <url>, or --playlist <url>"
+        )
+        return
 
     config.ensure_dirs()
     conn = db.init_db()

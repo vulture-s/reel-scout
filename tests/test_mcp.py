@@ -12,34 +12,11 @@ import pytest
 from reel_scout import config, db
 from reel_scout.mcp import server, tools
 
-
-TMP_ROOT = os.path.join(os.path.dirname(__file__), "_tmp")
+from .conftest import TMP_ROOT
 
 
 def _parse_result(result: Any) -> Any:
     return json.loads(result["content"][0]["text"])
-
-
-@pytest.fixture
-def temp_db(monkeypatch):
-    os.makedirs(TMP_ROOT, exist_ok=True)
-    data_dir = os.path.join(TMP_ROOT, "mcp_db")
-    shutil.rmtree(data_dir, ignore_errors=True)
-    os.makedirs(data_dir, exist_ok=True)
-    db_path = os.path.join(data_dir, "reel_scout.db")
-    monkeypatch.setattr(config, "DATA_DIR", data_dir)
-    monkeypatch.setattr(config, "DB_PATH", db_path)
-    monkeypatch.setattr(config, "VIDEOS_DIR", os.path.join(data_dir, "videos"))
-    monkeypatch.setattr(config, "KEYFRAMES_DIR", os.path.join(data_dir, "keyframes"))
-    monkeypatch.setattr(config, "ANALYSIS_DIR", os.path.join(data_dir, "analysis"))
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    db.init_db(conn)
-    conn.close()
-    try:
-        yield db_path
-    finally:
-        shutil.rmtree(data_dir, ignore_errors=True)
 
 
 def test_list_tools_count():

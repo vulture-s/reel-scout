@@ -58,16 +58,19 @@ Phase 5  ████░░░░░░░░░░░░░░░░  🔨 Tool
 
 **目標**：從「逐支分析」進化到「跨影片批量模式識別」，回答「什麼類型的短影音表現好？」
 
-### 3A. 批量爬取 + 頻道模式 🔨 半套
+### 3A. 批量爬取 + 頻道模式 🔨 半套（2026-07-15 補完主體）
 
 - [x] `reel-scout browse <profile_url>` — 帳號頁瀏覽（2026-04-16）
 - [ ] IG browse: instaloader fallback — **未實作**（2026-07-15 查證：`git log --all -S instaloader -- reel_scout/` 零 commit；`pyproject.toml` 有 `instagram` optional extra 但 `reel_scout/` 零引用；`InstagramCrawler.browse` 是純 yt-dlp，失敗即 `RuntimeError`。此項先前誤標已完成）
 - [x] browse 三種輸出模式：human / `--json` / `--urls-only`（2026-04-16）
 - [x] pyproject: `instagram` optional dependency group（2026-04-16）
-- [ ] `crawl --channel <URL> --limit 50` — browse → crawl 串起來（目前 crawl 只有 `--file` / `--cookies`）
-- [ ] `crawl --playlist <URL>` — 播放清單批量
-- [ ] `crawl --trending --platform youtube` — 平台趨勢（⚠️ 最脆弱，最可能被平台擋，優先序最低）
-- [ ] 頻道 metadata 存 DB（subscriber count、avg views、niche tag）
+- [x] `crawl --channel <URL> --limit N` — browse → crawl 串起來（2026-07-15，PR #9）
+- [x] `crawl --playlist <URL>` — 播放清單批量（2026-07-15，PR #9）
+- [x] `crawl --file -` 吃 stdin — `browse --urls-only | crawl --file -` 這條 browse 自己打廣告的 pipe 過去**從沒通過**（`open("-")` → `FileNotFoundError`），2026-07-15 修好（PR #9）
+- [ ] `crawl --trending --platform youtube` — 平台趨勢（⚠️ 最脆弱，最可能被平台擋，優先序最低；與本檔的平台風險判斷相衝，**刻意不做**）
+- [ ] 頻道 metadata 存 DB（subscriber count、avg views、niche tag）— **需先設計 channel 表**：目前沒有 channel 表也沒有 `channel_id`，唯一把手是 `videos.uploader`（自由文字、無索引、實際值長成 `Ben Aizen | Artzen Media` / `小建`）。獨立一輪處理
+- [ ] `crawl --channel` 傳 VideoMeta 而非 URL — browse 已經帶回 title/uploader/duration，但 `download()` 簽章吃 URL，所以會再打一次 `yt-dlp --dump-json`（每支多一個請求）。改簽章是真 refactor，v1 先付這個代價
+- [ ] `crawl` 的 batch/resume — 目前 `batches` / `batch_items` / `--resume` 全是 `analyze` 專屬（`pipeline.py`）。要給 crawl 用得把 orchestration 從 `pipeline.run` 搬出來
 
 ### 3B. 跨影片比較分析 ⬜
 
@@ -132,7 +135,14 @@ Phase 5  ████░░░░░░░░░░░░░░░░  🔨 Tool
       seam 已探明：`pipeline.py` 的 skip-download 分支（`db.get_video_by_url` 命中且 `file_path` 存在）已是完整的本機檔入口，且 `videos.url` 是無格式驗證的 TEXT；
       只需在跑 pipeline 前預先註冊一列 `platform="local"`、`url == file_path == abspath`、`platform_id` 用內容 hash 的 row，Steps 2-5 完全不用改。
       注意：`keyframe.py::_get_duration` 的 `60.0` fallback **不可**寫進 DB（會變成謊言），probe 失敗應留 `None` 讓 `COALESCE` 保持未設。
+- [ ] **yt-dlp 從 PATH 解析，不是用自己 pin 的那支**（2026-07-15 實測）：所有 crawler 都 `subprocess.run(["yt-dlp", ...])`，
+      吃到的是 PATH 上第一支。本機實測 PATH 上是 homebrew 的 `2026.03.17`、venv 裡是 `2026.07.04` — **`pyproject.toml` 的 yt-dlp 相依對 crawl 路徑等於裝飾**。
+      使用者裝了 reel-scout 卻配一支過期 yt-dlp 時，會得到一堆看不懂的 extractor 錯誤。
+      修法參考既有 `FFMPEG_BIN` 慣例（加 `YTDLP_BIN` config），但預設值要能優先解析到套件自己那支。
 - [ ] yt-dlp 相依健康檢查：平台 extractor 壞掉時給明確錯誤 + fallback 指引（這是本專案最脆弱的一環，見 Non-goals #1）
+- [ ] **錯誤訊息只印 `stderr[:500]`，真因常被前 500 字的 warning 淹掉**：2026-07-15 追字幕 429 時，畫面上是
+      「Deprecated Feature: Support for Python version 3.10 has been deprecated」，真正的 `ERROR: ... HTTP Error 429` 在後面。
+      截尾應該優先留 `ERROR:` 開頭的行，而不是盲切前 500 字元。
 - [ ] `config check` 涵蓋所有後端可達性
 
 ### 5C. 文件
@@ -173,7 +183,7 @@ Phase 5  ████░░░░░░░░░░░░░░░░  🔨 Tool
 
 | Milestone | 條件 |
 |-----------|------|
-| **v0.3** | 3A 補完（`crawl --channel/--playlist`）+ 3B（`compare`） |
+| **v0.3** | ~~3A 補完（`crawl --channel/--playlist`）~~ ✅ 2026-07-15 + 3B（`compare`） |
 | **v0.4** | 3C 標籤正規化 + 3D（`stats`） |
 | **v0.5** | 4A（競品研究報告） |
 | **v1.0** | 5A + 5B 完成（PyPI 可安裝 + CI 綠 + yt-dlp 健康檢查） |
