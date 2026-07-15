@@ -10,7 +10,10 @@
 
 **為什麼不產品化**（2026-07-15 決策）：
 
-1. **平台存取隨時可能被關**。整條 pipeline 的入口靠 yt-dlp。IG 已經在 rate-limit，yt-dlp 的 IG user extractor 2026.4 就壞過（本專案已被迫加 instaloader fallback）。這扇門哪天關起來，末端產品會整個死掉——工具則還能吃本機檔。
+1. **平台存取隨時可能被關**。整條 pipeline 的入口靠 yt-dlp。IG 已經在 rate-limit，yt-dlp 的 IG user extractor 2026.4 就壞過。
+   **實測爆炸半徑**（2026-07-15）：門一關，`crawl` / `browse` / **`analyze`（整條 pipeline，也就是核心價值）全死** —— `analyze` 只吃 URL，餵本機路徑直接 `ValueError: Unsupported platform for URL`。
+   活下來的只有 `transcribe <path>` / `vision <path>`（個別階段）與 `score` / `show` / `export`（吃已存的 DB）。
+   **也就是說這個風險目前零緩解措施** —— 補上 `analyze <local-path>`（見 5B）才是真正的保險。工具的存活優勢是**可以做到**，不是現在就有。
 2. **追平台變動的維護成本極高**。把它做成終端使用者產品，等於簽下一份「平台每改一次、我就得修一次，而且使用者會抱怨」的長期合約。這不是這個專案想付的代價。
 3. 因此 **star 數 / 使用者數不是這個 repo 的成功指標**。成功 = 自己（和會用 CLI 的人）能穩定拿到可信的分析資料。
 
@@ -58,7 +61,7 @@ Phase 5  ████░░░░░░░░░░░░░░░░  🔨 Tool
 ### 3A. 批量爬取 + 頻道模式 🔨 半套
 
 - [x] `reel-scout browse <profile_url>` — 帳號頁瀏覽（2026-04-16）
-- [x] IG browse: instaloader fallback（2026-04-16）
+- [ ] IG browse: instaloader fallback — **未實作**（2026-07-15 查證：`git log --all -S instaloader -- reel_scout/` 零 commit；`pyproject.toml` 有 `instagram` optional extra 但 `reel_scout/` 零引用；`InstagramCrawler.browse` 是純 yt-dlp，失敗即 `RuntimeError`。此項先前誤標已完成）
 - [x] browse 三種輸出模式：human / `--json` / `--urls-only`（2026-04-16）
 - [x] pyproject: `instagram` optional dependency group（2026-04-16）
 - [ ] `crawl --channel <URL> --limit 50` — browse → crawl 串起來（目前 crawl 只有 `--file` / `--cookies`）
@@ -125,6 +128,10 @@ Phase 5  ████░░░░░░░░░░░░░░░░  🔨 Tool
 ### 5B. 不會安靜爛掉
 
 - [ ] **GitHub Actions CI** — pytest matrix（目前無 `.github/workflows`，84 測只在本機跑）
+- [ ] **`analyze <local-path>` — 平台關門的唯一實際保險**（見 Non-goals #1 的實測爆炸半徑）。
+      seam 已探明：`pipeline.py` 的 skip-download 分支（`db.get_video_by_url` 命中且 `file_path` 存在）已是完整的本機檔入口，且 `videos.url` 是無格式驗證的 TEXT；
+      只需在跑 pipeline 前預先註冊一列 `platform="local"`、`url == file_path == abspath`、`platform_id` 用內容 hash 的 row，Steps 2-5 完全不用改。
+      注意：`keyframe.py::_get_duration` 的 `60.0` fallback **不可**寫進 DB（會變成謊言），probe 失敗應留 `None` 讓 `COALESCE` 保持未設。
 - [ ] yt-dlp 相依健康檢查：平台 extractor 壞掉時給明確錯誤 + fallback 指引（這是本專案最脆弱的一環，見 Non-goals #1）
 - [ ] `config check` 涵蓋所有後端可達性
 
