@@ -38,7 +38,15 @@ def get_crawler(url: str) -> BaseCrawler:
 
 
 def is_profile_url(url: str) -> bool:
-    """Check if a URL is a profile/channel page rather than a single video."""
+    """Check if a URL is a profile/channel page rather than a single video.
+
+    Answers what the URL *is*, not whether we can browse it — a TikTok profile
+    is a profile even though TikTokCrawler has no browse(). Callers that need
+    listing support should let browse() raise NotImplementedError.
+
+    YouTube playlists are deliberately excluded: they are not profiles, and the
+    caller distinguishes them via a separate flag.
+    """
     platform = detect_platform(url)
     if platform == "instagram":
         return InstagramCrawler().is_profile_url(url)
@@ -47,4 +55,7 @@ def is_profile_url(url: str) -> bool:
         return bool(re.search(
             r"youtube\.com/(?:@[^/]+|channel/|c/|user/|[^/]+/shorts)", url
         ))
+    if platform == "tiktok":
+        # tiktok.com/@user, optionally with a tab suffix, but not /@user/video/123
+        return bool(re.search(r"tiktok\.com/@[^/]+(?:/(?!video/)[^/]*)?/?$", url))
     return False
