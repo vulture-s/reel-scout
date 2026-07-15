@@ -27,6 +27,35 @@ class YouTubeCrawler(BaseCrawler):
                 return m.group(1)
         raise ValueError(f"Cannot extract YouTube video ID from: {url}")
 
+    def _fetch_subtitles(self, url: str, output_template: str) -> None:
+        """Fetch native + auto-generated subs alongside the media. Best effort.
+
+        When subs exist the transcribe step can skip local Whisper entirely (招①);
+        they are converted to vtt so the stdlib parser can read them. Cloud ASR is
+        intentionally NOT used.
+
+        Every failure here is swallowed — no captions, or HTTP 429 from the caption
+        endpoint, just means we fall back to local Whisper. 429 is routine and gets
+        likelier the more videos you pull, which is exactly what channel crawling
+        does, so it must never cost us media we already downloaded.
+        """
+        cmd = [
+            "yt-dlp",
+            "--skip-download",
+            "--write-subs",
+            "--write-auto-subs",
+            "--sub-langs", "en.*,zh.*",
+            "--convert-subs", "vtt",
+            "-o", output_template,
+            "--no-playlist",
+            "--remote-components", "ejs:github",
+            url,
+        ]
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        except Exception:
+            pass
+
     def download(self, url: str, output_dir: Optional[str] = None) -> VideoMeta:
         if output_dir is None:
             output_dir = config.VIDEOS_DIR
@@ -53,22 +82,15 @@ class YouTubeCrawler(BaseCrawler):
 
         info = json.loads(result.stdout)
 
-        # Download. Also grab native + auto-generated subtitles (招①): when present
-        # they let the transcribe step skip local Whisper entirely. Converted to vtt
-        # so the stdlib VTT parser can read them. Cloud ASR is intentionally NOT used.
+        # Media only. Subtitles are fetched by a separate invocation below —
+        # asking for both at once means a caption-endpoint failure takes the media
+        # down with it. --no-abort-on-error does not prevent that: it governs
+        # whether yt-dlp continues to the *next* playlist entry, not whether one
+        # entry survives a partial failure.
         dl_cmd = [
             "yt-dlp",
             "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
             "--merge-output-format", "mp4",
-            "--write-subs",
-            "--write-auto-subs",
-            "--sub-langs", "en.*,zh.*",
-            "--convert-subs", "vtt",
-            # Subtitle fetch is best-effort: a sub-only failure (e.g. HTTP 429 on the
-            # caption endpoint, or no captions for this video) must NOT abort the media
-            # download — we just fall back to local Whisper. Real media failure is still
-            # caught below by the "no mp4 produced" check.
-            "--no-abort-on-error",
             "-o", output_template,
             "--no-playlist",
             "--remote-components", "ejs:github",
@@ -85,6 +107,8 @@ class YouTubeCrawler(BaseCrawler):
             raise RuntimeError(f"yt-dlp download failed: {result.stderr[:500]}")
         file_path = expected
         file_size = os.path.getsize(file_path) if file_path else 0
+
+        self._fetch_subtitles(url, output_template)
 
         meta = VideoMeta(
             platform=self.platform,
