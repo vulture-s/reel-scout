@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import signal
+import subprocess
 import sys
 from dataclasses import dataclass
 from typing import List, Optional
@@ -14,6 +16,74 @@ from ..transcribe.base import TranscriptResult
 from ..vision import get_vlm
 from ..vision.keyframe import extract_keyframes
 from .merger import merge_analysis
+
+# Platform tag for videos that were registered from a local file instead of
+# crawled from a URL. This is the "platform门一关" insurance path: when yt-dlp /
+# a platform extractor breaks, the whole crawl→analyze pipeline still runs on a
+# file you already have on disk. See roadmap 5B.
+LOCAL_PLATFORM = "local"
+
+
+def _is_local_source(source: str) -> bool:
+    """True if `source` is a path to an existing local file (not a URL)."""
+    if "://" in source:
+        return False
+    return os.path.isfile(source)
+
+
+def _normalize_source(source: str) -> str:
+    """Local files become absolute paths so `url == file_path` stays stable
+    across cwd changes and batch resume; URLs pass through untouched."""
+    if _is_local_source(source):
+        return os.path.abspath(source)
+    return source
+
+
+def _probe_duration(path: str) -> Optional[float]:
+    """Best-effort duration probe. Returns None (never a fabricated fallback)
+    on failure so a bad probe doesn't get written to the DB as if it were real;
+    COALESCE downstream keeps duration unset until something真的 measures it."""
+    cmd = [
+        config.FFMPEG_BIN.replace("ffmpeg", "ffprobe"),
+        "-v", "quiet",
+        "-show_entries", "format=duration",
+        "-of", "csv=p=0",
+        path,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        return float(result.stdout.strip())
+    except (ValueError, TypeError, OSError, subprocess.SubprocessError):
+        return None
+
+
+def _hash_file(path: str) -> str:
+    """Content hash used as platform_id for local videos, so the same file
+    (even at two different paths) resolves to the same video_id / dedups."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()[:16]
+
+
+def _register_local_video(conn: db.sqlite3.Connection, path: str) -> str:
+    """Register a local file as a platform='local' video row and return its id.
+    Mirrors the shape crawler.download() would have produced so Steps 2-5 of the
+    pipeline treat it identically to a downloaded video."""
+    abspath = os.path.abspath(path)
+    return db.upsert_video(
+        conn,
+        platform=LOCAL_PLATFORM,
+        platform_id=_hash_file(abspath),
+        url=abspath,
+        title=os.path.splitext(os.path.basename(abspath))[0],
+        uploader=None,
+        duration_sec=_probe_duration(abspath),
+        upload_date=None,
+        file_path=abspath,
+        file_size_bytes=os.path.getsize(abspath),
+    )
 
 
 @dataclass
@@ -40,6 +110,10 @@ def run(urls: List[str], options: Optional[PipelineOptions] = None) -> None:
 
     config.ensure_dirs()
     conn = db.init_db()
+
+    # Local files → absolute paths so the batch url matches file_path exactly
+    # (the skip-download seam keys on url), and so resume is cwd-independent.
+    urls = [_normalize_source(u) for u in urls]
 
     # Resume or create batch
     if options.resume:
@@ -104,6 +178,13 @@ def _process_single(
     if existing and existing["file_path"] and os.path.exists(existing["file_path"]):
         video_id = existing["id"]
         print("  Skipping download (already exists)")
+    elif _is_local_source(url):
+        print("  Registering local file...")
+        video_id = _register_local_video(conn, url)
+    elif "://" not in url:
+        # Looks like a path but isn't a file we can find — say so plainly instead
+        # of the crawler's opaque "Unsupported platform for URL".
+        raise FileNotFoundError(f"Local file not found: {url}")
     else:
         print("  Downloading...")
         crawler = get_crawler(url)

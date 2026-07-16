@@ -131,10 +131,9 @@ Phase 5  ████░░░░░░░░░░░░░░░░  🔨 Tool
 ### 5B. 不會安靜爛掉
 
 - [ ] **GitHub Actions CI** — pytest matrix（目前無 `.github/workflows`，84 測只在本機跑）
-- [ ] **`analyze <local-path>` — 平台關門的唯一實際保險**（見 Non-goals #1 的實測爆炸半徑）。
-      seam 已探明：`pipeline.py` 的 skip-download 分支（`db.get_video_by_url` 命中且 `file_path` 存在）已是完整的本機檔入口，且 `videos.url` 是無格式驗證的 TEXT；
-      只需在跑 pipeline 前預先註冊一列 `platform="local"`、`url == file_path == abspath`、`platform_id` 用內容 hash 的 row，Steps 2-5 完全不用改。
-      注意：`keyframe.py::_get_duration` 的 `60.0` fallback **不可**寫進 DB（會變成謊言），probe 失敗應留 `None` 讓 `COALESCE` 保持未設。
+- [x] **`analyze <local-path>` — 平台關門的唯一實際保險**（見 Non-goals #1 的實測爆炸半徑）。2026-07-17 完成：
+      `analyze` 的 URL 引數現在也吃本機檔路徑 → 註冊一列 `platform="local"`、`url == file_path == abspath`、`platform_id` 用內容 hash（同內容不同路徑會 dedup 到同一 video_id）的 row，Steps 2-5 完全不用改。
+      duration 用獨立 probe，失敗留 `None`（**不**寫 `60.0` 謊言）；路徑打錯給 `FileNotFoundError: Local file not found` 而非 crawler 的 opaque「Unsupported platform」。
 - [ ] **yt-dlp 從 PATH 解析，不是用自己 pin 的那支**（2026-07-15 實測）：所有 crawler 都 `subprocess.run(["yt-dlp", ...])`，
       吃到的是 PATH 上第一支。本機實測 PATH 上是 homebrew 的 `2026.03.17`、venv 裡是 `2026.07.04` — **`pyproject.toml` 的 yt-dlp 相依對 crawl 路徑等於裝飾**。
       使用者裝了 reel-scout 卻配一支過期 yt-dlp 時，會得到一堆看不懂的 extractor 錯誤。
