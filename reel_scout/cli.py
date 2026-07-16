@@ -41,7 +41,7 @@ def main(argv: List[str] = None) -> None:
 
     # --- analyze ---
     p_analyze = sub.add_parser("analyze", help="Full pipeline: crawl + transcribe + vision + merge")
-    p_analyze.add_argument("urls", nargs="*", help="Video URLs")
+    p_analyze.add_argument("urls", nargs="*", help="Video URLs or local file paths")
     p_analyze.add_argument("--file", "-f", help="File with URLs (one per line)")
     p_analyze.add_argument("--resume", action="store_true", help="Resume interrupted batch")
     p_analyze.add_argument("--skip-vision", action="store_true", help="Skip VLM analysis")
