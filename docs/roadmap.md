@@ -2,6 +2,7 @@
 
 > 最後校正：2026-07-15（對照實際 code 逐項驗證，非憑記憶）
 > 2026-07-17 增補：crv 對標（§4E pacing/BPM 實測化 + §4F 燒錄字幕 OCR + 參考案例 crv）→ [`docs/crv-vs-reel-scout.md`](./crv-vs-reel-scout.md)
+> 2026-07-18 drift 修正：測試 162→177（實跑驗證）+ 已完成清單補 `inspect`（PR #29 遺漏回寫）
 
 ## 定位與 Non-goals
 
@@ -36,7 +37,7 @@ Phase 4  █████░░░░░░░░░░░░░░░░  🔨 C
 Phase 5  ██████████████████░░  ✅ Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅、CI ✅、config check ✅；PyPI build 就緒（上架待人工 token）
 ```
 
-**目前版本**：v1.1.0 ｜ **測試**：162 passing ｜ **DB schema**：v6
+**目前版本**：v1.1.0 ｜ **測試**：177 passing ｜ **DB schema**：v6
 
 ### 已完成功能清單（2026-07-15 驗證）
 
@@ -53,8 +54,8 @@ Phase 5  ██████████████████░░  ✅ Tool 
 - **Prompt pack**: 6 份 reverse-decode prompt（開源，作為預設分析層）
 - **Skill**: cross-surface skill 打包（SKILL.md + manifests）
 - **MCP Server**: stdio NDJSON JSON-RPC, 5 tools
-- **CLI**: browse / crawl / analyze / transcribe / vision / list / show / export（json/csv/**html**）/ score / compare / stats / research / **view** / db / config
-- **Viewer** (v1.1.0): 唯讀檢視器兩面——`export --format html`（自包含單檔、零安裝 take-home）+ `reel-scout view`（本機 server、live demo）；顯示拆解結構+keyframe+分數+逐字，無動作按鈕
+- **CLI**: browse / crawl / analyze / transcribe / vision / list / show / export（json/csv/**html**）/ score / compare / stats / research / **view** / **inspect** / db / config
+- **Viewer** (v1.1.0): 唯讀檢視器三面——`export --format html`（自包含單檔、零安裝 take-home）+ `reel-scout view`（本機 server、live demo）+ `reel-scout inspect`（互動 single-clip：transcript↔keyframe 時間同步、可點時間軸跳播，port 自 arkiv，PR #29）；顯示拆解結構+keyframe+分數+逐字，無動作按鈕
 - **DB**: SQLite WAL + batch resume + schema migration（→ v4）
 
 ---
