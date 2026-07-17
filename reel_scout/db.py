@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 import uuid
 from dataclasses import dataclass
@@ -8,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from . import config
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -70,6 +71,13 @@ CREATE TABLE IF NOT EXISTS analyses (
     style_json      TEXT,
     engagement_signals_json TEXT,
     full_json       TEXT,
+    -- Normalized low-cardinality tags (derived from full_json) for filtering/stats.
+    content_type    TEXT,
+    opening_type    TEXT,
+    cta_type        TEXT,
+    style_format    TEXT,
+    style_pacing    TEXT,
+    emotion         TEXT,
     created_at      TEXT DEFAULT (datetime('now'))
 );
 
@@ -97,6 +105,25 @@ CREATE INDEX IF NOT EXISTS idx_videos_status ON videos(status);
 CREATE INDEX IF NOT EXISTS idx_videos_platform ON videos(platform);
 CREATE INDEX IF NOT EXISTS idx_batch_items_status ON batch_items(status);
 """
+# analyses tag indexes are created after migrations (see init_db) so they don't
+# run against a pre-v5 DB whose analyses table lacks these columns yet.
+
+
+# Low-cardinality analysis tags that are mirrored from full_json into indexed
+# columns on `analyses` so they can be filtered/aggregated without JSON scans.
+# (column name -> extractor) — full_json stays the source of truth.
+def _extract_tag_columns(data: Dict[str, Any]) -> Dict[str, Any]:
+    hook = data.get("hook") or {}
+    style = data.get("style") or {}
+    eng = data.get("engagement_signals") or {}
+    return {
+        "content_type": data.get("content_type"),
+        "opening_type": hook.get("opening_type"),
+        "cta_type": hook.get("cta_type"),
+        "style_format": style.get("format"),
+        "style_pacing": style.get("pacing"),
+        "emotion": eng.get("emotion"),
+    }
 
 
 def _video_id(platform: str, platform_id: str) -> str:
@@ -179,6 +206,43 @@ def _migrate_v3_to_v4(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _migrate_v4_to_v5(conn: sqlite3.Connection) -> None:
+    """Normalize low-cardinality analysis tags into indexed columns for
+    filtering/stats (schema v4 -> v5), and backfill them from the existing
+    full_json blobs. First migration in this repo to ALTER an existing
+    data-bearing table (prior ones only added/rebuilt whole tables)."""
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(analyses)")}
+    for name in ("content_type", "opening_type", "cta_type",
+                 "style_format", "style_pacing", "emotion"):
+        if name not in existing:
+            conn.execute("ALTER TABLE analyses ADD COLUMN %s TEXT" % name)
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_analyses_content_type ON analyses(content_type);
+        CREATE INDEX IF NOT EXISTS idx_analyses_style_format ON analyses(style_format);
+        CREATE INDEX IF NOT EXISTS idx_analyses_opening_type ON analyses(opening_type);
+        CREATE INDEX IF NOT EXISTS idx_analyses_cta_type ON analyses(cta_type);
+    """)
+    # Backfill from full_json (the source of truth) for rows analyzed pre-v5.
+    for video_id, full_json in conn.execute(
+        "SELECT video_id, full_json FROM analyses"
+    ).fetchall():
+        if not full_json:
+            continue
+        try:
+            data = json.loads(full_json)
+        except (ValueError, TypeError):
+            continue
+        tags = _extract_tag_columns(data)
+        conn.execute(
+            """UPDATE analyses SET content_type=?, opening_type=?, cta_type=?,
+               style_format=?, style_pacing=?, emotion=? WHERE video_id=?""",
+            (tags["content_type"], tags["opening_type"], tags["cta_type"],
+             tags["style_format"], tags["style_pacing"], tags["emotion"], video_id),
+        )
+    conn.execute("UPDATE schema_version SET version = 5 WHERE version = 4")
+    conn.commit()
+
+
 def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
     if conn is None:
         conn = get_connection()
@@ -199,6 +263,9 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
             current_ver = 3
         if current_ver < 4:
             _migrate_v3_to_v4(conn)
+            current_ver = 4
+        if current_ver < 5:
+            _migrate_v4_to_v5(conn)
     # Always ensure audio_events table exists for fresh installs
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS audio_events (
@@ -225,6 +292,11 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
             model_used      TEXT,
             created_at      TEXT DEFAULT (datetime('now'))
         );
+
+        CREATE INDEX IF NOT EXISTS idx_analyses_content_type ON analyses(content_type);
+        CREATE INDEX IF NOT EXISTS idx_analyses_style_format ON analyses(style_format);
+        CREATE INDEX IF NOT EXISTS idx_analyses_opening_type ON analyses(opening_type);
+        CREATE INDEX IF NOT EXISTS idx_analyses_cta_type ON analyses(cta_type);
     """)
     conn.commit()
     return conn
@@ -470,13 +542,23 @@ def save_analysis(
     engagement_signals_json: str,
     full_json: str,
 ) -> None:
+    # Derive the normalized tag columns from full_json (the source of truth) so
+    # callers stay unchanged and the columns can never drift from the blob.
+    try:
+        data = json.loads(full_json) if full_json else {}
+    except (ValueError, TypeError):
+        data = {}
+    tags = _extract_tag_columns(data)
     conn.execute(
         """INSERT OR REPLACE INTO analyses
            (video_id, summary, topics_json, hooks_json, style_json,
-            engagement_signals_json, full_json)
-           VALUES (?,?,?,?,?,?,?)""",
+            engagement_signals_json, full_json,
+            content_type, opening_type, cta_type, style_format, style_pacing, emotion)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (video_id, summary, topics_json, hooks_json, style_json,
-         engagement_signals_json, full_json),
+         engagement_signals_json, full_json,
+         tags["content_type"], tags["opening_type"], tags["cta_type"],
+         tags["style_format"], tags["style_pacing"], tags["emotion"]),
     )
     update_video_status(conn, video_id, "analyzed")
     conn.commit()
