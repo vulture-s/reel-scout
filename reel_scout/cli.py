@@ -98,6 +98,12 @@ def main(argv: List[str] = None) -> None:
     p_compare.add_argument("video_ids", nargs="+", help="Video IDs (exact or unique prefix)")
     p_compare.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
 
+    # --- stats ---
+    p_stats = sub.add_parser("stats", help="Corpus statistics (tag distributions + score aggregates)")
+    p_stats.add_argument("--channel", help="Scope to one channel (matches videos.uploader substring)")
+    p_stats.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
+    p_stats.add_argument("--csv", help="Write long-format CSV to this path")
+
     # --- db ---
     p_db = sub.add_parser("db", help="Database operations")
     p_db_sub = p_db.add_subparsers(dest="db_command")
@@ -128,6 +134,7 @@ def main(argv: List[str] = None) -> None:
         "export": _cmd_export,
         "score": _cmd_score,
         "compare": _cmd_compare,
+        "stats": _cmd_stats,
         "db": _cmd_db,
         "config": _cmd_config,
     }
@@ -491,6 +498,24 @@ def _cmd_compare(args) -> None:
             print(json.dumps(comparison, ensure_ascii=False, indent=2))
         else:
             print(format_table(comparison))
+    finally:
+        conn.close()
+
+
+def _cmd_stats(args) -> None:
+    from . import db, stats as stats_mod
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        result = stats_mod.compute_stats(conn, channel=args.channel)
+        if args.csv:
+            n = stats_mod.write_csv(result, args.csv)
+            print("Wrote %d stat rows to %s" % (n, args.csv))
+        elif args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        else:
+            print(stats_mod.format_stats(result))
     finally:
         conn.close()
 

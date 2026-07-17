@@ -27,7 +27,7 @@
 Phase 1  ████████████████████  ✅ Core Pipeline（crawl + transcribe + vision + merger + DB + CLI + MCP）
 Phase 2  ████████████████████  ✅ Advanced Analysis（audio/PANNs + diarize/pyannote + scorer + LLM backends）
 Phase 2.5████████████████████  ✅ 品質強化（subtitle-first / keyframe budget / prompt pack / skill / 雙語轉錄）
-Phase 3  ██████████████░░░░░░  🔨 Batch Intelligence — browse ✅、compare ✅、3C ✅；patterns/stats ❌
+Phase 3  ██████████████████░░  🔨 Batch Intelligence — browse ✅、compare ✅、3C ✅、3D stats ✅；patterns ❌
 Phase 4  ░░░░░░░░░░░░░░░░░░░░  ⬜ Content Strategy Engine — 從分析到行動
 Phase 5  ██████████░░░░░░░░░░  🔨 Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅；PyPI ❌、CI ❌
 ```
@@ -86,11 +86,11 @@ Phase 5  ██████████░░░░░░░░░░  🔨 Tool
 - [x] 內容結構分類：hook-body-cta / problem-solution / listicle / story-arc / raw-moment（2026-07-17，schema v6；merger prompt 新增 `content_structure` 欄位）
 - [x] 標籤正規化進可查詢欄位（2026-07-17，schema v5）：`content_type / opening_type / cta_type / style_format / style_pacing / emotion / content_structure` 從 `full_json` 鏡射進 `analyses` 索引欄，`full_json` 仍為 SSOT；舊資料 migration 自動 backfill
 
-### 3D. 統計 ⬜
+### 3D. 統計 ✅（2026-07-17）
 
-- [ ] `reel-scout stats` — 全局統計（影片數、平均分數、top patterns）
-- [ ] `reel-scout stats --channel <id>` — 頻道維度
-- [ ] `reel-scout stats --export csv` — 匯出 CSV
+- [x] `reel-scout stats` — 全局統計：tag 分佈（content_type/content_structure/format/pacing/opening/cta/emotion）+ score 聚合（overall & 四維 avg/min/max/n），純讀正規化欄位
+- [x] `reel-scout stats --channel <uploader>` — 頻道維度（key on free-text `uploader` 子字串，無 channel 表故非精確 id）
+- [x] `reel-scout stats --csv <path>` — 匯出 long-format CSV（`metric,dimension,key,value`）；另有 `--json`
 
 ---
 
@@ -184,6 +184,6 @@ Phase 5  ██████████░░░░░░░░░░  🔨 Tool
 | Milestone | 條件 |
 |-----------|------|
 | **v0.3** | ~~3A 補完（`crawl --channel/--playlist`）~~ ✅ 2026-07-15 + ~~3B（`compare`）~~ ✅ 2026-07-17 |
-| **v0.4** | 3C 標籤正規化 + 3D（`stats`） |
+| **v0.4** | ~~3C 標籤正規化~~ ✅ + ~~3D（`stats`）~~ ✅ 2026-07-17（達成，隨 v1.0 一次發布） |
 | **v0.5** | 4A（競品研究報告） |
 | **v1.0** | 5A + 5B 完成（PyPI 可安裝 + CI 綠 + yt-dlp 健康檢查） |
