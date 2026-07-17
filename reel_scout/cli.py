@@ -85,8 +85,9 @@ def main(argv: List[str] = None) -> None:
 
     # --- export ---
     p_export = sub.add_parser("export", help="Export analyses")
-    p_export.add_argument("--format", choices=["json", "csv"], default="json")
+    p_export.add_argument("--format", choices=["json", "csv", "html"], default="json")
     p_export.add_argument("--output", "-o", default="./export")
+    p_export.add_argument("--video", help="Single video id (html: exact or unique prefix)")
 
     # --- score ---
     p_score = sub.add_parser("score", help="Score a video using LLM analysis")
@@ -443,7 +444,7 @@ def _cmd_show(args) -> None:
 
 def _cmd_export(args) -> None:
     from . import db
-    from .export.json_export import export_csv, export_json
+    from .export.json_export import export_csv, export_html, export_json
 
     config.ensure_dirs()
     conn = db.init_db()
@@ -454,6 +455,17 @@ def _cmd_export(args) -> None:
     elif args.format == "csv":
         count = export_csv(conn, args.output)
         print(f"Exported {count} rows to {args.output}")
+    elif args.format == "html":
+        video_id = None
+        if getattr(args, "video", None):
+            from .compare import resolve_ref
+            video_id, _ = resolve_ref(conn, args.video)
+            if video_id is None:
+                print(f"Video not found: {args.video}")
+                conn.close()
+                return
+        path = export_html(conn, args.output, video_id=video_id)
+        print(f"Wrote self-contained viewer to {path}")
 
     conn.close()
 
