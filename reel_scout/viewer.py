@@ -266,3 +266,105 @@ def render_bundle(conn: db.sqlite3.Connection, video_id: Optional[str] = None,
     if not views:
         sections = ['<section class="video"><p>No analyzed videos to show.</p></section>']
     return render_page(sections, index, title)
+
+
+# --- Live server surface (reel-scout view) ---
+# Same renderer as the bundle, but keyframes are served from disk by URL instead
+# of base64-embedded, and each video is its own page.
+
+def render_index_page(conn: db.sqlite3.Connection, title: str = "reel-scout") -> str:
+    views = [v for v in (build_video_view(conn, r["id"])
+                         for r in db.list_videos(conn, status="analyzed", limit=9999)) if v]
+    if not views:
+        body = '<section class="video"><p>No analyzed videos yet.</p></section>'
+        return render_page([body], "", title)
+    nav = render_index(views, href=lambda vid: "/video/%s" % vid)
+    # render_index returns "" for a single video; always show the list on the server.
+    if not nav:
+        nav = ('<nav class="index"><a href="/video/%s">%s</a></nav>'
+               % (_e(views[0]["video_id"]), _e(views[0]["title"])))
+    return render_page([], nav, title)
+
+
+def render_video_page(conn: db.sqlite3.Connection, video_id: str) -> Optional[str]:
+    view = build_video_view(conn, video_id)
+    if view is None:
+        return None
+    section = render_video_section(view, keyframe_src=lambda kf: "/keyframe/%s" % kf["id"])
+    back = '<nav class="index"><a href="/">&larr; all videos</a></nav>'
+    return render_page([section], back, view["title"])
+
+
+def _keyframe_path(conn: db.sqlite3.Connection, keyframe_id: str) -> Optional[str]:
+    row = conn.execute("SELECT file_path FROM keyframes WHERE id = ?", (keyframe_id,)).fetchone()
+    if row is None or not row[0]:
+        return None
+    for path in (os.path.abspath(row[0]),
+                 os.path.join(config.KEYFRAMES_DIR,
+                              os.path.basename(os.path.dirname(row[0])),
+                              os.path.basename(row[0]))):
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def make_server(host: str = "127.0.0.1", port: int = 0):
+    """Build (but don't start) the read-only HTTP server. Each request opens its
+    own short-lived connection (via db.get_connection → config.DB_PATH), so the
+    handler is thread-safe regardless of which thread serve_forever runs on.
+    Split from serve() so tests can drive it over a real socket."""
+    import http.server
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):  # keep the console quiet
+            pass
+
+        def _send(self, code, body, content_type="text/html; charset=utf-8"):
+            data = body.encode("utf-8") if isinstance(body, str) else body
+            self.send_response(code)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            path = self.path.split("?", 1)[0].rstrip("/") or "/"
+            conn = db.get_connection()
+            try:
+                if path == "/":
+                    self._send(200, render_index_page(conn))
+                elif path.startswith("/video/"):
+                    page = render_video_page(conn, path[len("/video/"):])
+                    self._send(200, page) if page else self._send(404, "not found")
+                elif path.startswith("/keyframe/"):
+                    fp = _keyframe_path(conn, path[len("/keyframe/"):])
+                    if fp:
+                        with open(fp, "rb") as f:
+                            self._send(200, f.read(), "image/jpeg")
+                    else:
+                        self._send(404, "not found")
+                else:
+                    self._send(404, "not found")
+            finally:
+                conn.close()
+
+    return http.server.HTTPServer((host, port), _Handler)
+
+
+def serve(host: str = "127.0.0.1", port: int = 0, open_browser: bool = True) -> None:
+    """Start the read-only local viewer server. Blocks until interrupted."""
+    httpd = make_server(host=host, port=port)
+    url = "http://%s:%d/" % (host, httpd.server_address[1])
+    print("reel-scout view (read-only) serving at %s  — Ctrl-C to stop" % url)
+    if open_browser:
+        try:
+            import webbrowser
+            webbrowser.open(url)
+        except Exception:  # noqa: BLE001 - headless / no browser is fine
+            pass
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\nstopped.")
+    finally:
+        httpd.server_close()

@@ -128,3 +128,61 @@ def test_export_html_missing_keyframe_degrades_gracefully(temp_db):
         assert "image unavailable" in content  # placeholder, not a crash
     finally:
         conn.close()
+
+
+def test_render_pages_use_url_keyframes_not_base64(temp_db):
+    conn = sqlite3.connect(temp_db)
+    conn.row_factory = sqlite3.Row
+    kf = os.path.join(config.KEYFRAMES_DIR, "abc", "abc_scene_000.jpg")
+    os.makedirs(os.path.dirname(kf), exist_ok=True)
+    _tiny_jpeg(kf)
+    try:
+        vid = _seed(conn, kf_path=kf)
+        idx = viewer.render_index_page(conn)
+        assert '/video/%s' % vid in idx and "Fried Chicken" in idx
+        page = viewer.render_video_page(conn, vid)
+        assert '/keyframe/' in page          # server serves frames by URL
+        assert 'data:image/jpeg;base64,' not in page   # NOT embedded on the server
+        assert viewer.render_video_page(conn, "nope") is None
+    finally:
+        conn.close()
+
+
+def test_view_server_serves_index_video_and_keyframe(temp_db):
+    import threading
+    import urllib.request
+
+    conn = sqlite3.connect(temp_db)
+    conn.row_factory = sqlite3.Row
+    kf = os.path.join(config.KEYFRAMES_DIR, "abc", "abc_scene_000.jpg")
+    os.makedirs(os.path.dirname(kf), exist_ok=True)
+    _tiny_jpeg(kf)
+    vid = _seed(conn, kf_path=kf)
+    kf_id = db.get_keyframes(conn, vid)[0]["id"]
+    conn.close()  # server opens its own per-request connections via config.DB_PATH
+
+    httpd = viewer.make_server(port=0)
+    port = httpd.server_address[1]
+    t = threading.Thread(target=httpd.serve_forever, daemon=True)
+    t.start()
+    try:
+        base = "http://127.0.0.1:%d" % port
+        index = urllib.request.urlopen(base + "/", timeout=5).read().decode()
+        assert "Fried Chicken" in index and "/video/%s" % vid in index
+
+        vpage = urllib.request.urlopen("%s/video/%s" % (base, vid), timeout=5).read().decode()
+        assert "hook-body-cta" in vpage and "reference, not authority" in vpage
+
+        img = urllib.request.urlopen("%s/keyframe/%s" % (base, kf_id), timeout=5)
+        assert img.status == 200
+        assert img.read()[:2] == b"\xff\xd8"  # JPEG magic
+
+        # unknown routes 404
+        try:
+            urllib.request.urlopen(base + "/video/nope", timeout=5)
+            assert False, "expected 404"
+        except urllib.error.HTTPError as e:
+            assert e.code == 404
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
