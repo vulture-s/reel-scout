@@ -27,12 +27,12 @@
 Phase 1  ████████████████████  ✅ Core Pipeline（crawl + transcribe + vision + merger + DB + CLI + MCP）
 Phase 2  ████████████████████  ✅ Advanced Analysis（audio/PANNs + diarize/pyannote + scorer + LLM backends）
 Phase 2.5████████████████████  ✅ 品質強化（subtitle-first / keyframe budget / prompt pack / skill / 雙語轉錄）
-Phase 3  ██████░░░░░░░░░░░░░░  🔨 Batch Intelligence — browse ✅、3C 半套；compare/patterns/stats ❌
+Phase 3  ██████████░░░░░░░░░░  🔨 Batch Intelligence — browse ✅、compare ✅、3C 半套；patterns/stats ❌
 Phase 4  ░░░░░░░░░░░░░░░░░░░░  ⬜ Content Strategy Engine — 從分析到行動
-Phase 5  ████░░░░░░░░░░░░░░░░  🔨 Tool Hygiene — LICENSE/README ✅；PyPI ❌、CI ❌
+Phase 5  ██████████░░░░░░░░░░  🔨 Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅；PyPI ❌、CI ❌
 ```
 
-**目前版本**：v0.2.0 ｜ **測試**：84 passing ｜ **DB schema**：v4
+**目前版本**：v0.3.0 ｜ **測試**：133 passing ｜ **DB schema**：v4
 
 ### 已完成功能清單（2026-07-15 驗證）
 
