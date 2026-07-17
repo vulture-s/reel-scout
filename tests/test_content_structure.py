@@ -30,7 +30,7 @@ def test_merge_prompt_declares_content_structure_enum():
 def test_extract_and_save_populate_content_structure():
     conn, path = _fresh_db()
     try:
-        assert db.SCHEMA_VERSION == 6
+        assert db.SCHEMA_VERSION == 7
         full = {"content_type": "educational", "content_structure": "listicle"}
         assert db._extract_tag_columns(full)["content_structure"] == "listicle"
         vid = db.upsert_video(conn, platform="youtube", platform_id="x",
@@ -68,9 +68,10 @@ def test_v5_to_v6_migration_adds_and_backfills_content_structure():
                      ("v1", json.dumps({"content_structure": "story-arc"})))
         conn.commit()
 
-        db.init_db(conn)  # runs v5->v6
+        db.init_db(conn)  # runs the full chain from v5 (v5->v6 adds content_structure)
 
-        assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == 6
+        assert conn.execute(
+            "SELECT version FROM schema_version").fetchone()[0] == db.SCHEMA_VERSION
         cols = {r[1] for r in conn.execute("PRAGMA table_info(analyses)")}
         assert "content_structure" in cols
         assert db.get_analysis(conn, "v1")["content_structure"] == "story-arc"

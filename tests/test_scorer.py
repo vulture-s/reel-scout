@@ -79,6 +79,41 @@ def test_score_video_parses_json():
     os.unlink(path)
 
 
+def test_score_video_injects_measured_metrics():
+    """§4E: when the analysis carries measured pacing signals, they land in the
+    scoring prompt as an explicit block the LLM is told to prefer."""
+    conn, path = _temp_db()
+    vid = db.upsert_video(
+        conn, platform="youtube", platform_id="measured",
+        url="https://youtube.com/shorts/measured",
+        title="Test", duration_sec=30.0,
+    )
+    analysis_data = {
+        "summary": "snappy montage",
+        "measured": {"cuts_per_minute": 18.0, "avg_shot_sec": 3.0, "audio_energy": 0.25},
+    }
+    db.save_analysis(
+        conn, vid,
+        summary="snappy montage", topics_json="[]", hooks_json="{}",
+        style_json="{}", engagement_signals_json="{}",
+        full_json=json.dumps(analysis_data),
+    )
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = json.dumps({
+        "hook_strength": 5.0, "visual_storytelling": 5.0,
+        "pacing": 8.0, "structure": 5.0, "reasoning": "measured-driven",
+    })
+    with patch("reel_scout.scorer.get_llm", return_value=mock_llm):
+        score_video(conn, vid)
+
+    prompt = mock_llm.complete.call_args[0][0]
+    assert "Measured Signals" in prompt
+    assert "cuts_per_minute: 18.0" in prompt
+
+    conn.close()
+    os.unlink(path)
+
+
 def test_score_video_no_analysis():
     conn, path = _temp_db()
     vid = db.upsert_video(

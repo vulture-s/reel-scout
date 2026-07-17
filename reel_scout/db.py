@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from . import config
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -275,6 +275,27 @@ def _migrate_v5_to_v6(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _migrate_v6_to_v7(conn: sqlite3.Connection) -> None:
+    """Add the shot_metrics table (schema v6 -> v7) for §4E evidence-based pacing:
+    measured cut rhythm (cuts/min, shot count, avg shot length) + audio energy/BPM.
+    A dedicated per-video table (like audio_events), not analyses columns — the
+    numbers are measured signals, not derived tags, and stay directly queryable.
+    No backfill: old videos simply have no measured metrics until re-analyzed."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS shot_metrics (
+            video_id        TEXT PRIMARY KEY REFERENCES videos(id),
+            shot_count      INTEGER,
+            cuts_per_minute REAL,
+            avg_shot_sec    REAL,
+            audio_bpm       REAL,
+            audio_energy    REAL,
+            created_at      TEXT DEFAULT (datetime('now'))
+        );
+    """)
+    conn.execute("UPDATE schema_version SET version = 7 WHERE version = 6")
+    conn.commit()
+
+
 def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
     if conn is None:
         conn = get_connection()
@@ -301,6 +322,9 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
             current_ver = 5
         if current_ver < 6:
             _migrate_v5_to_v6(conn)
+            current_ver = 6
+        if current_ver < 7:
+            _migrate_v6_to_v7(conn)
     # Always ensure audio_events table exists for fresh installs
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS audio_events (
@@ -333,6 +357,16 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_analyses_opening_type ON analyses(opening_type);
         CREATE INDEX IF NOT EXISTS idx_analyses_cta_type ON analyses(cta_type);
         CREATE INDEX IF NOT EXISTS idx_analyses_content_structure ON analyses(content_structure);
+
+        CREATE TABLE IF NOT EXISTS shot_metrics (
+            video_id        TEXT PRIMARY KEY REFERENCES videos(id),
+            shot_count      INTEGER,
+            cuts_per_minute REAL,
+            avg_shot_sec    REAL,
+            audio_bpm       REAL,
+            audio_energy    REAL,
+            created_at      TEXT DEFAULT (datetime('now'))
+        );
     """)
     conn.commit()
     return conn
@@ -551,6 +585,32 @@ def get_audio_events(
     ).fetchall()
 
 
+# --- Shot Metrics CRUD (§4E measured pacing) ---
+
+def save_shot_metrics(
+    conn: sqlite3.Connection,
+    video_id: str,
+    shot_count: Optional[int] = None,
+    cuts_per_minute: Optional[float] = None,
+    avg_shot_sec: Optional[float] = None,
+    audio_bpm: Optional[float] = None,
+    audio_energy: Optional[float] = None,
+) -> None:
+    """Insert or replace the measured pacing metrics for a video."""
+    conn.execute(
+        """INSERT OR REPLACE INTO shot_metrics
+           (video_id, shot_count, cuts_per_minute, avg_shot_sec, audio_bpm, audio_energy)
+           VALUES (?,?,?,?,?,?)""",
+        (video_id, shot_count, cuts_per_minute, avg_shot_sec, audio_bpm, audio_energy),
+    )
+    conn.commit()
+
+
+def get_shot_metrics(conn: sqlite3.Connection, video_id: str) -> Optional[sqlite3.Row]:
+    cur = conn.execute("SELECT * FROM shot_metrics WHERE video_id = ?", (video_id,))
+    return cur.fetchone()
+
+
 # --- Score CRUD ---
 
 def save_score(
@@ -706,7 +766,7 @@ def mark_batch_completed(conn: sqlite3.Connection, batch_id: str) -> None:
 
 def db_stats(conn: sqlite3.Connection) -> Dict[str, Any]:
     stats = {}
-    for table in ["videos", "transcripts", "keyframes", "vision_descriptions", "analyses", "audio_events", "scores", "batches"]:
+    for table in ["videos", "transcripts", "keyframes", "vision_descriptions", "analyses", "audio_events", "shot_metrics", "scores", "batches"]:
         cur = conn.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608 - table names are hardcoded
         stats[table] = cur.fetchone()[0]
 
