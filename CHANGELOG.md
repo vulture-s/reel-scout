@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.0 — 2026-07-17
+
+### Added
+- **Read-only viewer** for decoded analyses — two surfaces sharing one renderer:
+  - **`export --format html`** — a self-contained single-file HTML (keyframes
+    base64-embedded, all CSS inline, zero external assets) that opens in any
+    browser, works offline, and survives being moved. Built as a take-home
+    artifact for people who don't install reel-scout. `--video <id|prefix>`
+    exports one video; otherwise all analyzed videos.
+  - **`reel-scout view`** — a local read-only HTTP server rendering the library
+    live (index → per-video pages, keyframes served by URL). `--host/--port/
+    --no-open`.
+  Both show each video's decoded structure (hook/beats/CTA), keyframes + what
+  the VLM saw, craft scores, and transcript. Deliberately read-only — no action
+  surfaces; scores are labelled a reference, not an authority.
+- `db.get_keyframes_with_descriptions` (keyframes ⟕ vision_descriptions).
+
 ## 1.0.0 — 2026-07-17
 
 First stable release. Completes the Batch Intelligence, Content Strategy (4A),
