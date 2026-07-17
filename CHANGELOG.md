@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.0.0 — 2026-07-17
+
+First stable release. Completes the Batch Intelligence, Content Strategy (4A),
+and Tool Hygiene milestones — the tool is now installable, CI-covered, and
+feature-complete for cross-video/-channel analysis.
+
+### Added
+- **`stats`** — corpus statistics: tag distributions (content_type,
+  content_structure, format, pacing, hook/cta type, emotion) + craft-score
+  aggregates (avg/min/max), with `--channel` scoping, `--json`, and `--csv`
+  (roadmap 3D).
+- **`research --niche --channels --depth`** — cross-channel competitor research:
+  lists each channel → analyzes → aggregates per channel and niche-wide → `--out`
+  renders an LLM markdown report (common patterns / differentiation / strategy),
+  falling back to a deterministic data-only report when no LLM is reachable
+  (roadmap 4A). `--json` emits the aggregate; `--no-analyze` reuses the DB.
+- **content-structure classification** — hook-body-cta / problem-solution /
+  listicle / story-arc / raw-moment, emitted by the merger (roadmap 3C).
+- **normalized analysis tags** — content_type / opening_type / cta_type / style
+  format+pacing / emotion / content_structure mirrored from full_json into
+  indexed columns for filtering and stats; migrations backfill existing rows
+  (roadmap 3C, DB schema v4→v6).
+- **GitHub Actions CI** — pytest across Python 3.9–3.13 (roadmap 5B).
+- **MIT LICENSE** file + full PyPI packaging metadata (urls, classifiers,
+  dynamic version); `pip install`-ready (roadmap 5A).
+
+### Changed
+- **`config check`** now covers all *configured* backends: yt-dlp via the
+  resolved binary, LLM reachability keyed off `LLM_BACKEND`, and the optional
+  audio/diarize/instagram groups when enabled (roadmap 5B).
+- Version is single-sourced from `reel_scout/__init__.py` via hatchling dynamic
+  version (fixes the prior 0.2.0/0.3.0 drift).
+
 ## 0.3.0 — 2026-07-17
 
 ### Added

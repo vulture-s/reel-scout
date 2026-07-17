@@ -29,10 +29,10 @@ Phase 2  ████████████████████  ✅ Advan
 Phase 2.5████████████████████  ✅ 品質強化（subtitle-first / keyframe budget / prompt pack / skill / 雙語轉錄）
 Phase 3  ██████████████████░░  🔨 Batch Intelligence — browse ✅、compare ✅、3C ✅、3D stats ✅；patterns ❌
 Phase 4  █████░░░░░░░░░░░░░░░░  🔨 Content Strategy Engine — 4A research ✅；inspire/track/MCP擴充 ❌
-Phase 5  ██████████████████░░  🔨 Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅、CI ✅、config check ✅；PyPI 上架待人工 token
+Phase 5  ██████████████████░░  ✅ Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅、CI ✅、config check ✅；PyPI build 就緒（上架待人工 token）
 ```
 
-**目前版本**：v0.3.0 ｜ **測試**：133 passing ｜ **DB schema**：v4
+**目前版本**：v1.0.0 ｜ **測試**：156 passing ｜ **DB schema**：v6
 
 ### 已完成功能清單（2026-07-15 驗證）
 
@@ -186,4 +186,4 @@ Phase 5  ██████████████████░░  🔨 Tool
 | **v0.3** | ~~3A 補完（`crawl --channel/--playlist`）~~ ✅ 2026-07-15 + ~~3B（`compare`）~~ ✅ 2026-07-17 |
 | **v0.4** | ~~3C 標籤正規化~~ ✅ + ~~3D（`stats`）~~ ✅ 2026-07-17（達成，隨 v1.0 一次發布） |
 | **v0.5** | ~~4A（競品研究報告）~~ ✅ 2026-07-17（達成，隨 v1.0 一次發布） |
-| **v1.0** | 5A + 5B 完成（PyPI 可安裝 + CI 綠 + yt-dlp 健康檢查） |
+| **v1.0** | ~~5A + 5B 完成（PyPI build 就緒 + CI 綠 + yt-dlp 健康檢查 + config check）~~ ✅ 2026-07-17（PyPI 上架待人工 token） |
