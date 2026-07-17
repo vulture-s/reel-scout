@@ -93,6 +93,11 @@ def main(argv: List[str] = None) -> None:
     p_score.add_argument("video_id", help="Video ID to score")
     p_score.add_argument("--backend", help="LLM backend (omlx, ollama, openclaw)")
 
+    # --- compare ---
+    p_compare = sub.add_parser("compare", help="Compare analyzed videos side by side")
+    p_compare.add_argument("video_ids", nargs="+", help="Video IDs (exact or unique prefix)")
+    p_compare.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
+
     # --- db ---
     p_db = sub.add_parser("db", help="Database operations")
     p_db_sub = p_db.add_subparsers(dest="db_command")
@@ -122,6 +127,7 @@ def main(argv: List[str] = None) -> None:
         "show": _cmd_show,
         "export": _cmd_export,
         "score": _cmd_score,
+        "compare": _cmd_compare,
         "db": _cmd_db,
         "config": _cmd_config,
     }
@@ -471,6 +477,22 @@ def _cmd_score(args) -> None:
         print(f"Error: {e}")
 
     conn.close()
+
+
+def _cmd_compare(args) -> None:
+    from . import db
+    from .compare import build_comparison, format_table
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        comparison = build_comparison(conn, args.video_ids)
+        if args.json:
+            print(json.dumps(comparison, ensure_ascii=False, indent=2))
+        else:
+            print(format_table(comparison))
+    finally:
+        conn.close()
 
 
 def _cmd_db(args) -> None:

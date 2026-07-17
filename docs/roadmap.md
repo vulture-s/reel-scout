@@ -72,9 +72,11 @@ Phase 5  ████░░░░░░░░░░░░░░░░  🔨 Tool
 - [ ] `crawl --channel` 傳 VideoMeta 而非 URL — browse 已經帶回 title/uploader/duration，但 `download()` 簽章吃 URL，所以會再打一次 `yt-dlp --dump-json`（每支多一個請求）。改簽章是真 refactor，v1 先付這個代價
 - [ ] `crawl` 的 batch/resume — 目前 `batches` / `batch_items` / `--resume` 全是 `analyze` 專屬（`pipeline.py`）。要給 crawl 用得把 orchestration 從 `pipeline.run` 搬出來
 
-### 3B. 跨影片比較分析 ⬜
+### 3B. 跨影片比較分析 🔨 半套
 
-- [ ] `reel-scout compare <video_id_1> <video_id_2> ...` — 結構化對比表
+- [x] `reel-scout compare <video_id_1> <video_id_2> ...` — 結構化對比表（2026-07-17）。純讀 DB
+      已存的 analyses/scores（duration / format / pacing / hook type / cta type / content type + craft 四維分 + overall），
+      轉置表（欄=影片、列=欄位）+ `--json`；接受 exact id 或唯一 prefix；缺分析欄位留 `—` 不捏造；平台關門也能跑。
 - [ ] `reel-scout patterns --channel <channel_id>` — 頻道模式分析（平均長度、hook 類型分佈、CTA 模式、高分 vs 低分結構差異、發布節奏）
 
 ### 3C. 模式標籤系統 🔨 半套
@@ -181,7 +183,7 @@ Phase 5  ████░░░░░░░░░░░░░░░░  🔨 Tool
 
 | Milestone | 條件 |
 |-----------|------|
-| **v0.3** | ~~3A 補完（`crawl --channel/--playlist`）~~ ✅ 2026-07-15 + 3B（`compare`） |
+| **v0.3** | ~~3A 補完（`crawl --channel/--playlist`）~~ ✅ 2026-07-15 + ~~3B（`compare`）~~ ✅ 2026-07-17 |
 | **v0.4** | 3C 標籤正規化 + 3D（`stats`） |
 | **v0.5** | 4A（競品研究報告） |
 | **v1.0** | 5A + 5B 完成（PyPI 可安裝 + CI 綠 + yt-dlp 健康檢查） |
