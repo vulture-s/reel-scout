@@ -35,7 +35,7 @@ Phase 4  █████░░░░░░░░░░░░░░░░  🔨 C
 Phase 5  ██████████████████░░  ✅ Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅、CI ✅、config check ✅；PyPI build 就緒（上架待人工 token）
 ```
 
-**目前版本**：v1.0.0 ｜ **測試**：156 passing ｜ **DB schema**：v6
+**目前版本**：v1.1.0 ｜ **測試**：162 passing ｜ **DB schema**：v6
 
 ### 已完成功能清單（2026-07-15 驗證）
 
@@ -52,7 +52,8 @@ Phase 5  ██████████████████░░  ✅ Tool 
 - **Prompt pack**: 6 份 reverse-decode prompt（開源，作為預設分析層）
 - **Skill**: cross-surface skill 打包（SKILL.md + manifests）
 - **MCP Server**: stdio NDJSON JSON-RPC, 5 tools
-- **CLI**: browse / crawl / analyze / transcribe / vision / list / show / export / score / db / config
+- **CLI**: browse / crawl / analyze / transcribe / vision / list / show / export（json/csv/**html**）/ score / compare / stats / research / **view** / db / config
+- **Viewer** (v1.1.0): 唯讀檢視器兩面——`export --format html`（自包含單檔、零安裝 take-home）+ `reel-scout view`（本機 server、live demo）；顯示拆解結構+keyframe+分數+逐字，無動作按鈕
 - **DB**: SQLite WAL + batch resume + schema migration（→ v4）
 
 ---
