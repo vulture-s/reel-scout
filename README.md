@@ -21,9 +21,17 @@ reel-scout analyze "https://youtube.com/shorts/xxxxx"
 reel-scout analyze --file urls.txt --skip-vision
 reel-scout list
 reel-scout show <video_id>
+reel-scout inspect <video_id> --open   # interactive single-clip inspector (HTML)
 reel-scout export --format json -o ./export
 reel-scout config check
 ```
+
+`inspect` writes a self-contained HTML file for one clip: keyframes base64-embedded,
+transcript split into its Whisper segments and time-synced to the frames, plus a
+timeline scrubber. Click a transcript segment to jump to the nearest keyframe (and
+vice-versa); click the timeline to seek. Read-only, offline, zero external assets —
+the take-home artifact for a single reel. (`export --format html` remains the
+multi-clip bundle; `view` is the local browsing server.)
 
 ## Bilingual / code-switching audio (中英對照)
 
