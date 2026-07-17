@@ -163,12 +163,17 @@ class TestAudioEventDataclass:
 class TestPannsNoModel:
     def test_panns_no_model_raises(self) -> None:
         """PannsAnalyzer with empty path raises FileNotFoundError."""
+        # _ensure_model imports onnxruntime before it checks the path, so this
+        # only exercises the FileNotFoundError branch when the optional audio
+        # extra is installed (skipped on a base `pip install .[dev]` CI env).
+        pytest.importorskip("onnxruntime")
         analyzer = PannsAnalyzer(model_path="", window_sec=2.0, hop_sec=1.0)
         with pytest.raises(FileNotFoundError):
             analyzer._ensure_model()
 
     def test_panns_missing_model_file_raises(self) -> None:
         """PannsAnalyzer with non-existent path raises FileNotFoundError."""
+        pytest.importorskip("onnxruntime")
         analyzer = PannsAnalyzer(
             model_path="/tmp/nonexistent_model.onnx",
             window_sec=2.0,
