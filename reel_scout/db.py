@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from . import config
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS analyses (
     style_format    TEXT,
     style_pacing    TEXT,
     emotion         TEXT,
+    content_structure TEXT,
     created_at      TEXT DEFAULT (datetime('now'))
 );
 
@@ -123,6 +124,7 @@ def _extract_tag_columns(data: Dict[str, Any]) -> Dict[str, Any]:
         "style_format": style.get("format"),
         "style_pacing": style.get("pacing"),
         "emotion": eng.get("emotion"),
+        "content_structure": data.get("content_structure"),
     }
 
 
@@ -243,6 +245,36 @@ def _migrate_v4_to_v5(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _migrate_v5_to_v6(conn: sqlite3.Connection) -> None:
+    """Add the content_structure classification column + backfill from full_json
+    (schema v5 -> v6). Rows analyzed before the merger emitted content_structure
+    simply stay NULL — nothing to backfill for them."""
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(analyses)")}
+    if "content_structure" not in existing:
+        conn.execute("ALTER TABLE analyses ADD COLUMN content_structure TEXT")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_analyses_content_structure "
+        "ON analyses(content_structure)"
+    )
+    for video_id, full_json in conn.execute(
+        "SELECT video_id, full_json FROM analyses"
+    ).fetchall():
+        if not full_json:
+            continue
+        try:
+            data = json.loads(full_json)
+        except (ValueError, TypeError):
+            continue
+        cs = data.get("content_structure")
+        if cs is not None:
+            conn.execute(
+                "UPDATE analyses SET content_structure=? WHERE video_id=?",
+                (cs, video_id),
+            )
+    conn.execute("UPDATE schema_version SET version = 6 WHERE version = 5")
+    conn.commit()
+
+
 def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
     if conn is None:
         conn = get_connection()
@@ -266,6 +298,9 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
             current_ver = 4
         if current_ver < 5:
             _migrate_v4_to_v5(conn)
+            current_ver = 5
+        if current_ver < 6:
+            _migrate_v5_to_v6(conn)
     # Always ensure audio_events table exists for fresh installs
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS audio_events (
@@ -297,6 +332,7 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_analyses_style_format ON analyses(style_format);
         CREATE INDEX IF NOT EXISTS idx_analyses_opening_type ON analyses(opening_type);
         CREATE INDEX IF NOT EXISTS idx_analyses_cta_type ON analyses(cta_type);
+        CREATE INDEX IF NOT EXISTS idx_analyses_content_structure ON analyses(content_structure);
     """)
     conn.commit()
     return conn
@@ -553,12 +589,14 @@ def save_analysis(
         """INSERT OR REPLACE INTO analyses
            (video_id, summary, topics_json, hooks_json, style_json,
             engagement_signals_json, full_json,
-            content_type, opening_type, cta_type, style_format, style_pacing, emotion)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            content_type, opening_type, cta_type, style_format, style_pacing,
+            emotion, content_structure)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (video_id, summary, topics_json, hooks_json, style_json,
          engagement_signals_json, full_json,
          tags["content_type"], tags["opening_type"], tags["cta_type"],
-         tags["style_format"], tags["style_pacing"], tags["emotion"]),
+         tags["style_format"], tags["style_pacing"], tags["emotion"],
+         tags["content_structure"]),
     )
     update_video_status(conn, video_id, "analyzed")
     conn.commit()
