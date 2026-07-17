@@ -3,6 +3,7 @@
 > 最後校正：2026-07-15（對照實際 code 逐項驗證，非憑記憶）
 > 2026-07-17 增補：crv 對標（§4E pacing/BPM 實測化 + §4F 燒錄字幕 OCR + 參考案例 crv）→ [`docs/crv-vs-reel-scout.md`](./crv-vs-reel-scout.md)
 > 2026-07-18 drift 修正：測試 162→177（實跑驗證）+ 已完成清單補 `inspect`（PR #29 遺漏回寫）
+> 2026-07-18 §4E 實作：evidence-based pacing（shot-table cuts/min + audio energy/BPM）落地，schema v7，測試 →196
 
 ## 定位與 Non-goals
 
@@ -37,7 +38,7 @@ Phase 4  █████░░░░░░░░░░░░░░░░  🔨 C
 Phase 5  ██████████████████░░  ✅ Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅、CI ✅、config check ✅；PyPI build 就緒（上架待人工 token）
 ```
 
-**目前版本**：v1.1.0 ｜ **測試**：177 passing ｜ **DB schema**：v6
+**目前版本**：v1.1.0 ｜ **測試**：196 passing ｜ **DB schema**：v7
 
 ### 已完成功能清單（2026-07-15 驗證）
 
@@ -50,7 +51,8 @@ Phase 5  ██████████████████░░  ✅ Tool 
 - **Diarize**: pyannote speaker diarization（optional）
 - **LLM Backend**: omlx / ollama / **openclaw**（走 proxy 吃訂閱制，無需本機 GPU）
 - **Merger**: 結構化分析 JSON + timeline / narrative arc + hook `opening_type` + `cta_type`（含 `visit` 實體造訪）
-- **Scorer**: craft 四維 LLM 評分 — `hook_strength` / `visual_storytelling` / `pacing` / `structure`
+- **Scorer**: craft 四維 LLM 評分 — `hook_strength` / `visual_storytelling` / `pacing` / `structure`（§4E：`pacing` 以實測 shot-table + audio energy/BPM 為證據）
+- **Shot metrics** (§4E, schema v7): `reel_scout/shots.py` 全片剪點偵測 → `cuts_per_minute`/`shot_count`/`avg_shot_sec` + `audio/rhythm.py` energy/BPM，存 `shot_metrics` 表，merger 折進 `full_json.measured` 供 scorer
 - **Prompt pack**: 6 份 reverse-decode prompt（開源，作為預設分析層）
 - **Skill**: cross-surface skill 打包（SKILL.md + manifests）
 - **MCP Server**: stdio NDJSON JSON-RPC, 5 tools
@@ -128,10 +130,10 @@ Phase 5  ██████████████████░░  ✅ Tool 
 
 **啟發來源**：crv Pro 的 `--motion` 產出 shot table（per-shot duration / cuts per minute / 節奏變化）——客觀測量、可重現，不靠模型主觀。同樣講「節奏」，他量、你猜。
 
-- [ ] vision 階段加**確定性剪點偵測**：ffmpeg scene-change 已在用，cut 邊界本就抓得到 → 算 `cuts_per_minute` / 每鏡頭時長 / 節奏變化，存進 DB（keyframes 或新 shots 欄）
-- [ ] `pacing` 分數改成「**實測 shot-table 當證據，LLM 只在證據上解讀**」，非純主觀；scorer prompt 餵入實測 cuts/min
-- [ ] **音訊 BPM / energy 併進同批 evidence signal**：從 audio 抽 BPM、能量（客觀可測，如 librosa/onset）→ 一併當 pacing/energy 的證據層。**只偷 crv `--senses` 的可測部分**（BPM/energy），情緒曲線 / 色彩 mood 那種 model-dependent 主觀輸出不偷（會放大既有軟肋）
-- [ ] （延伸）把「分數也要能舉證」寫進 rubric——對齊 vibe-reader case study §6.1「舉證護欄機器可驗證」，從「主張舉證」推到「分數舉證」
+- [x] vision 階段加**確定性剪點偵測**（2026-07-18）：新 `reel_scout/shots.py` 專用 ffmpeg pass（`select='gt(scene,T)',showinfo -an -f null -`，全片不設幀上限）算 `cuts_per_minute` / `shot_count` / `avg_shot_sec`，存新 `shot_metrics` 表（schema v7）
+- [x] `pacing` 分數改成「**實測 shot-table 當證據，LLM 只在證據上解讀**」（2026-07-18）：merger 折進 `full_json.measured`，scorer prompt 加「Measured Signals」區塊 + pacing 準則改為 prefer 實測 cuts/min
+- [x] **音訊 BPM / energy 併進同批 evidence signal**（2026-07-18）：新 `reel_scout/audio/rhythm.py`——energy(RMS，純 stdlib) + BPM(純 numpy onset 自相關，best-effort，**不引 librosa**)，獨立於 PANNs optional（只需解碼 WAV）
+- [ ] （延伸）把「分數也要能舉證」寫進 rubric——對齊 vibe-reader case study §6.1「舉證護欄機器可驗證」，從「主張舉證」推到「分數舉證」（部分達成：scorer prompt 已 prefer 實測值；rubric 文件化待補）
 
 > ⚠️ 邊界：crv Pro 閉源、未購未跑，這裡偷的是**概念**（pacing 該用實測 shot-table / BPM 背書），不是抄它 cut 偵測的閾值或宣稱它準。
 

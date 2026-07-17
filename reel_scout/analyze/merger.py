@@ -143,6 +143,22 @@ def merge_analysis(
         else:
             data = {"summary": result_json, "topics": [], "error": "failed to parse JSON"}
 
+    # §4E: fold measured pacing signals (cuts/min, shot count, audio energy/BPM)
+    # into the analysis blob so the scorer reasons on evidence, not LLM vibes.
+    # Only present when Step 3.5 measured them; None values are dropped.
+    sm = db.get_shot_metrics(conn, video_id)
+    if sm is not None:
+        measured = {
+            "cuts_per_minute": sm["cuts_per_minute"],
+            "shot_count": sm["shot_count"],
+            "avg_shot_sec": sm["avg_shot_sec"],
+            "audio_energy": sm["audio_energy"],
+            "audio_bpm": sm["audio_bpm"],
+        }
+        measured = {k: v for k, v in measured.items() if v is not None}
+        if measured:
+            data["measured"] = measured
+
     db.save_analysis(
         conn, video_id,
         summary=data.get("summary", ""),

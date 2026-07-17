@@ -12,11 +12,11 @@ _SCORE_PROMPT = """You are a short-form video content analyst. Based on the anal
 
 ## Video Analysis
 {analysis_json}
-
+{measured_metrics}
 ## Scoring Criteria
 - hook_strength (0-10): How compelling is the opening? Does it grab attention in the first 1-2 seconds? (signal: hook.opening_type, timeline 0-3s)
 - visual_storytelling (0-10): Do the visuals carry the story on their own — shot variety, framing, visual information — readable even with the sound off? (signal: keyframe visual descriptions, style.format, faces)
-- pacing (0-10): Does the rhythm hold attention — cut frequency, beat changes, on-screen text density, no dead air? (signal: style.pacing, text_overlay_count, number of timeline segments)
+- pacing (0-10): Does the rhythm hold attention? When "Measured Signals" are present, PREFER them as evidence: cuts_per_minute and avg_shot_sec are objective measurements of cut rhythm (higher cuts/min and shorter shots = snappier pacing), and audio_energy/audio_bpm indicate musical drive. Only fall back to the qualitative signals (style.pacing, text_overlay_count, timeline segment count) when no measured signal is given. Do not contradict a strong measured cut rhythm with a vibe-based guess.
 - structure (0-10): Is there a complete arc (setup -> build -> payoff) that lands its ending? A clear call-to-action at the close is a plus. (signal: timeline narrative arc, hook.cta_type/cta_text)
 
 ## Output Format (JSON only)
@@ -32,6 +32,32 @@ _SCORE_PROMPT = """You are a short-form video content analyst. Based on the anal
 The overall score is the weighted average: hook_strength*0.3 + visual_storytelling*0.25 + pacing*0.2 + structure*0.25
 
 Return ONLY valid JSON."""
+
+
+def _measured_block(analysis_json: str) -> str:
+    """Render the measured pacing signals (§4E) as an explicit, emphasized prompt
+    section so the LLM anchors the pacing score on evidence. Returns '' when the
+    analysis has no measured metrics (older rows / measurement disabled), leaving
+    the prompt behaviorally identical to before."""
+    try:
+        data = json.loads(analysis_json)
+    except (ValueError, TypeError):
+        return ""
+    m = (data or {}).get("measured") or {}
+    if not m:
+        return ""
+    lines = ["", "## Measured Signals (objective — prefer these for pacing)"]
+    labels = [
+        ("cuts_per_minute", "cuts_per_minute"),
+        ("shot_count", "shot_count"),
+        ("avg_shot_sec", "avg_shot_sec"),
+        ("audio_energy", "audio_energy"),
+        ("audio_bpm", "audio_bpm"),
+    ]
+    for key, label in labels:
+        if m.get(key) is not None:
+            lines.append("- %s: %s" % (label, m[key]))
+    return "\n".join(lines) + "\n"
 
 
 @dataclass
@@ -56,7 +82,10 @@ def score_video(
         raise ValueError("No analysis found for video: %s" % video_id)
 
     analysis_json = analysis["full_json"] or "{}"
-    prompt = _SCORE_PROMPT.format(analysis_json=analysis_json)
+    prompt = _SCORE_PROMPT.format(
+        analysis_json=analysis_json,
+        measured_metrics=_measured_block(analysis_json),
+    )
 
     llm = get_llm(llm_backend)
     result_text = llm.complete(prompt, max_tokens=300, temperature=0.2)

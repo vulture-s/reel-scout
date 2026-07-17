@@ -24,6 +24,54 @@ def test_init_db():
     os.unlink(path)
 
 
+def test_shot_metrics_table_and_roundtrip():
+    conn, path = _temp_db()
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "shot_metrics" in tables
+    vid = db.upsert_video(
+        conn, platform="youtube", platform_id="sm_rt",
+        url="https://youtube.com/shorts/sm_rt",
+    )
+    db.save_shot_metrics(
+        conn, vid, shot_count=10, cuts_per_minute=18.0,
+        avg_shot_sec=3.0, audio_bpm=120.0, audio_energy=0.25,
+    )
+    row = db.get_shot_metrics(conn, vid)
+    assert row["shot_count"] == 10
+    assert row["cuts_per_minute"] == 18.0
+    assert row["audio_bpm"] == 120.0
+    assert row["audio_energy"] == 0.25
+    # Replaceable (re-run overwrites, not duplicates).
+    db.save_shot_metrics(conn, vid, shot_count=5)
+    assert db.get_shot_metrics(conn, vid)["shot_count"] == 5
+    conn.close()
+    os.unlink(path)
+
+
+def test_migrate_v6_to_v7_on_legacy_db():
+    """A DB stamped at v6 without shot_metrics should migrate to v7 and gain the
+    table (exercises the migration chain, not just the fresh-install path)."""
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    db.init_db(conn)
+    # Simulate a pre-v7 DB.
+    conn.execute("DROP TABLE IF EXISTS shot_metrics")
+    conn.execute("UPDATE schema_version SET version = 6")
+    conn.commit()
+
+    db.init_db(conn)  # should run _migrate_v6_to_v7
+
+    assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == 7
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "shot_metrics" in tables
+    conn.close()
+    os.unlink(path)
+
+
 def test_upsert_video():
     conn, path = _temp_db()
     vid = db.upsert_video(

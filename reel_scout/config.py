@@ -111,6 +111,14 @@ PANNS_MODEL_PATH = os.getenv("PANNS_MODEL_PATH", "")
 AUDIO_WINDOW_SEC = float(os.getenv("AUDIO_WINDOW_SEC", "2.0"))
 AUDIO_HOP_SEC = float(os.getenv("AUDIO_HOP_SEC", "1.0"))
 
+# --- Shot metrics (§4E evidence-based pacing) ---
+# Measure cut rhythm (cuts/min) + audio energy/BPM so the pacing score rests on
+# evidence, not LLM vibes. On by default: ffmpeg is already required; energy is
+# pure-stdlib; BPM is numpy-gated best-effort (skipped cleanly without numpy).
+SHOT_METRICS_ENABLED = os.getenv("SHOT_METRICS_ENABLED", "true").lower() in ("true", "1", "yes")
+# Scene-change score threshold for counting a hard cut (matches keyframe scene mode).
+SHOT_SCENE_THRESHOLD = float(os.getenv("SHOT_SCENE_THRESHOLD", "0.3"))
+
 # --- External tools ---
 FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg")
 # yt-dlp binary. Empty = auto-resolve, preferring the copy pinned in this venv
@@ -161,6 +169,8 @@ def show() -> str:
         f"PANNS_MODEL_PATH:     {PANNS_MODEL_PATH or '(not set)'}",
         f"AUDIO_WINDOW_SEC:     {AUDIO_WINDOW_SEC}",
         f"AUDIO_HOP_SEC:        {AUDIO_HOP_SEC}",
+        f"SHOT_METRICS_ENABLED: {SHOT_METRICS_ENABLED}",
+        f"SHOT_SCENE_THRESHOLD: {SHOT_SCENE_THRESHOLD}",
         f"FFMPEG_BIN:           {FFMPEG_BIN}",
         f"YTDLP_BIN:            {YTDLP_BIN or '(auto)'}",
         f"DIARIZE_ENABLED:      {DIARIZE_ENABLED}",

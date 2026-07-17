@@ -401,6 +401,54 @@ def _process_single(
                         file=sys.stderr,
                     )
 
+    # Step 3.5: Shot & audio metrics (§4E measured pacing).
+    # Measures cut rhythm (cuts/min) + audio energy/BPM so the pacing score rests
+    # on evidence, not LLM vibes; merge_analysis folds these into full_json for the
+    # scorer. Best-effort: any failure here must NOT abort the pipeline — pacing
+    # simply falls back to pure LLM judgment. Runs before merge so the metrics are
+    # available to fold in.
+    if config.SHOT_METRICS_ENABLED:
+        if db.get_shot_metrics(conn, video_id):
+            print("  Shot metrics already computed")
+        else:
+            try:
+                from ..shots import compute_shot_metrics
+                print("  Measuring shot rhythm...")
+                sm = compute_shot_metrics(file_path, duration_sec=video["duration_sec"])
+                bpm = energy = None
+                # Audio energy/BPM needs only a decoded WAV (no PANNs model): pure-
+                # stdlib energy + numpy-gated best-effort BPM. Skipped cleanly if
+                # ffmpeg/numpy are unavailable.
+                try:
+                    from ..audio.extract import extract_wav
+                    from ..audio.rhythm import compute_rhythm
+                    import tempfile
+                    wav_path = tempfile.mktemp(suffix=".wav")
+                    try:
+                        extract_wav(file_path, wav_path)
+                        rhythm = compute_rhythm(wav_path)
+                        bpm, energy = rhythm.get("bpm"), rhythm.get("energy")
+                    finally:
+                        import os as _os3
+                        if _os3.path.exists(wav_path):
+                            _os3.unlink(wav_path)
+                except (ImportError, OSError, RuntimeError) as e:
+                    print("  Audio rhythm skipped: %s" % e, file=sys.stderr)
+                if sm is not None or bpm is not None or energy is not None:
+                    db.save_shot_metrics(
+                        conn, video_id,
+                        shot_count=(sm.shot_count if sm else None),
+                        cuts_per_minute=(sm.cuts_per_minute if sm else None),
+                        avg_shot_sec=(sm.avg_shot_sec if sm else None),
+                        audio_bpm=bpm,
+                        audio_energy=energy,
+                    )
+                    if sm:
+                        print("  Shot metrics: %.2f cuts/min, %d shots" % (
+                            sm.cuts_per_minute, sm.shot_count))
+            except Exception as e:  # noqa: BLE001 — measured pacing is best-effort
+                print("  Shot metrics skipped: %s" % e, file=sys.stderr)
+
     # Step 4: Merge analysis
     existing_analysis = db.get_analysis(conn, video_id)
     if existing_analysis:
