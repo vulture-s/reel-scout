@@ -56,7 +56,7 @@ Phase 5  ██████████████████░░  ✅ Tool 
 - **MCP Server**: stdio NDJSON JSON-RPC, 5 tools
 - **CLI**: browse / crawl / analyze / transcribe / vision / list / show / export（json/csv/**html**）/ score / compare / stats / research / **view** / **inspect** / db / config
 - **Viewer** (v1.1.0): 唯讀檢視器三面——`export --format html`（自包含單檔、零安裝 take-home）+ `reel-scout view`（本機 server、live demo）+ `reel-scout inspect`（互動 single-clip：transcript↔keyframe 時間同步、可點時間軸跳播，port 自 arkiv，PR #29）；顯示拆解結構+keyframe+分數+逐字，無動作按鈕
-- **DB**: SQLite WAL + batch resume + schema migration（→ v4）
+- **DB**: SQLite WAL + batch resume + schema migration（→ v6）
 
 ---
 
