@@ -1,6 +1,7 @@
 # Reel Scout — Roadmap
 
 > 最後校正：2026-07-15（對照實際 code 逐項驗證，非憑記憶）
+> 2026-07-17 增補：crv 對標（§4E pacing 實測化 + 參考案例 crv）→ [`docs/crv-vs-reel-scout.md`](./crv-vs-reel-scout.md)
 
 ## 定位與 Non-goals
 
@@ -120,6 +121,18 @@ Phase 5  ██████████████████░░  ✅ Tool 
 - [ ] `reel-scout track --my-video <url> --views 1500 --likes 89` — 記錄實際表現
 - [ ] 對比分析：自己的影片 vs 競品的結構差異 → 迭代建議
 
+### 4E. 評分證據化：pacing 從「LLM 猜」→「實測 shot-table」
+
+**問題**：`scorer` 的 `pacing`（四維之一）目前是 LLM 憑感覺給的，且 **model-dependent**——換一顆 VLM/LLM 分數就飄（見對標 [`docs/crv-vs-reel-scout.md`](./crv-vs-reel-scout.md) §5 與 memory「Reel Scout 評分依賴模型」）。這是評分可信度的已知軟肋。
+
+**啟發來源**：crv Pro 的 `--motion` 產出 shot table（per-shot duration / cuts per minute / 節奏變化）——客觀測量、可重現，不靠模型主觀。同樣講「節奏」，他量、你猜。
+
+- [ ] vision 階段加**確定性剪點偵測**：ffmpeg scene-change 已在用，cut 邊界本就抓得到 → 算 `cuts_per_minute` / 每鏡頭時長 / 節奏變化，存進 DB（keyframes 或新 shots 欄）
+- [ ] `pacing` 分數改成「**實測 shot-table 當證據，LLM 只在證據上解讀**」，非純主觀；scorer prompt 餵入實測 cuts/min
+- [ ] （延伸）把「分數也要能舉證」寫進 rubric——對齊 vibe-reader case study §6.1「舉證護欄機器可驗證」，從「主張舉證」推到「分數舉證」
+
+> ⚠️ 邊界：crv Pro 閉源、未購未跑，這裡偷的是**概念**（pacing 該用實測 shot-table 背書），不是抄它 cut 偵測的閾值或宣稱它準。
+
 ---
 
 ## Phase 5 — Tool Hygiene（工具品質，非社群營運）
@@ -157,6 +170,14 @@ Phase 5  ██████████████████░░  ✅ Tool 
 ---
 
 ## 參考案例（study cases）
+
+### claude-real-video / crv（2026-07-17 對標）
+
+`HUANGCHIHHUNGLeo/claude-real-video` — 「讓 LLM 看得見影片」的擷取工具（Python/MIT，2.5 週衝 1,699★），另有閉源付費 **crv Pro（$19 一次性）**加鏡頭運動/情緒/OCR/變速鑑識。**不同層**：crv（含 Pro）是感知＋測量層（把影片攤平給 LLM 看、量化「怎麼拍的」），Reel Scout 是判讀層（帶 rubric 打分＋反解會不會紅＋競品語料）。重疊只在 ingest。
+
+**完整對照** → [`docs/crv-vs-reel-scout.md`](./crv-vs-reel-scout.md)。
+
+**對本專案的關聯**：唯一 actionable 的一項已開 → §4E（pacing 實測化）。crv 的病毒開源→$19 漏斗**刻意不列為 Reel Scout 該補的功能**（違反「工具不是產品」定位），只當課程/內容的變現 case study 存檔。
 
 ### lapian-notes（2026-07 觀察）
 
