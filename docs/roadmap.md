@@ -151,6 +151,7 @@ Phase 5  ██████████████████░░  ✅ Tool 
 - [x] **兩條 OCR 路都做**（Hevin「都做」）：`OCR_ENGINE=vlm`（預設，復用 VLM `text_in_frame`，零依賴）＋ `OCR_ENGINE=tesseract`（opt-in `ocr` extra，`importlib.util.find_spec` guarded，裝不到退回 vlm）
 
 > ⚠️ 邊界：dedicated OCR 引擎（pytesseract）列為 opt-in extra、預設不啟，守 minimal-deps；PaddleOCR-CJK 更重故未納，需要再評。
+> ⚠️ 契約（codex+harness 雙審確認、非 bug）：OCR captions 只透過 merge prompt 影響分析（跟 transcript/vision/audio 一樣，只在「首次 merge」折入）。重跑已分析的舊片會存 `ocr_captions` 但不會重新 merge → 分析不變，直到真正重新 merge。§4E `measured` 能 backfill 是因為 scorer 直接讀它；OCR 文字沒有下游可 append，故不對稱是刻意的。
 
 ---
 

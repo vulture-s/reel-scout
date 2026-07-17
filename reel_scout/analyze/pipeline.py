@@ -476,6 +476,14 @@ def _process_single(
         # Retrofit §4E measured metrics into a pre-existing analysis: merge is
         # skipped here, so without this a re-analyzed (pre-§4E) video would store
         # shot_metrics the scorer never sees. No-op once the blob already has them.
+        #
+        # Contract note (§4F): on-screen-text (OCR) captions are intentionally NOT
+        # retrofitted the same way. Like transcript/vision/audio, OCR only shapes an
+        # analysis through the merge prompt — a re-analyzed video's stored analysis
+        # won't reflect newly-collected captions until a genuinely fresh merge.
+        # `measured` can backfill because the scorer reads it directly; OCR text has
+        # nothing downstream to append to. This matches how every merge input folds
+        # in only at first merge, so it's a deliberate contract, not a gap.
         from .merger import backfill_measured
         backfill_measured(conn, video_id)
     else:
