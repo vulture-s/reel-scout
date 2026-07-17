@@ -93,14 +93,13 @@ def main(argv: List[str] = None) -> None:
     # --- inspect ---
     p_inspect = sub.add_parser(
         "inspect",
-        help="Interactive single-clip inspector (self-contained HTML, time-synced)")
+        help="Interactive single-clip inspector web app (player + waveform + "
+             "filmstrip + transcript, all time-synced)")
     p_inspect.add_argument("video", help="Video id (exact or unique prefix)")
-    p_inspect.add_argument(
-        "--output", "-o", default=None,
-        help="HTML file to write (default: <data>/inspect-<id>.html)")
-    p_inspect.add_argument(
-        "--open", dest="open_browser", action="store_true",
-        help="Open the written file in the default browser")
+    p_inspect.add_argument("--host", default="127.0.0.1")
+    p_inspect.add_argument("--port", type=int, default=0, help="0 = pick a free port")
+    p_inspect.add_argument("--no-open", dest="open_browser", action="store_false",
+                           help="Don't auto-open the browser")
 
     # --- export ---
     p_export = sub.add_parser("export", help="Export analyses")
@@ -464,42 +463,22 @@ def _cmd_show(args) -> None:
 
 
 def _cmd_inspect(args) -> None:
-    import os
-
     from . import db, inspector
     from .compare import resolve_ref
 
     conn = db.init_db()
     video_id, matches = resolve_ref(conn, args.video)
+    conn.close()
     if video_id is None:
         if matches:
             print("Ambiguous '%s' — matches %d videos: %s"
                   % (args.video, len(matches), ", ".join(matches[:8])))
         else:
             print("No video matches '%s'." % args.video)
-        conn.close()
         sys.exit(1)
 
-    view = inspector.build_inspect_view(conn, video_id)
-    conn.close()
-    if view is None:
-        print("No video matches '%s'." % args.video)
-        sys.exit(1)
-
-    output = args.output or os.path.join(config.DATA_DIR, "inspect-%s.html" % video_id)
-    parent = os.path.dirname(output)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-    with open(output, "w", encoding="utf-8") as f:
-        f.write(inspector.render_inspector(view))
-    print("Wrote inspector for %s to %s" % (view["title"], output))
-
-    if getattr(args, "open_browser", False):
-        try:
-            import webbrowser
-            webbrowser.open("file://" + os.path.abspath(output))
-        except Exception:  # noqa: BLE001 - headless / no browser is fine
-            pass
+    inspector.serve(video_id, host=args.host, port=args.port,
+                    open_browser=args.open_browser)
 
 
 def _cmd_view(args) -> None:

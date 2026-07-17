@@ -1,30 +1,34 @@
-"""Interactive single-clip inspector.
+"""Interactive single-clip inspector — a small local web app.
 
-Where the read-only `viewer` renders a *static* page per video (a flat keyframe
-wall + a plain transcript block), the inspector is a *focused, interactive* view
-of ONE reel: the transcript is split into its Whisper segments and time-synced to
-the keyframes, and a timeline scrubber shows where every frame and spoken segment
-sits across the clip. Clicking a transcript segment highlights the nearest
-keyframe (and scrolls to it); clicking a keyframe highlights the segment being
-spoken over it; clicking the timeline jumps to whatever is nearest that instant.
+Ported from arkiv's live Inspector: the video player is the single source of
+truth, and a waveform, keyframe filmstrip, and transcript all sync to (and seek)
+it. `reel-scout inspect <id>` starts a local server and opens the clip's page.
 
-Like the viewer it is deliberately READ-ONLY and self-contained — keyframes are
-base64-embedded and all CSS/JS is inline, so the output is a single .html file
-that opens offline in any browser with zero install. It is a lens on the decoded
-craft, not a player and not an editor; craft scores are labelled a reference, not
-an authority, per the project's honesty line.
+Unlike the read-only `viewer` (a static bundle / browsing server), this is an
+interactive review surface for ONE reel:
+
+  * a real <video> player streaming the downloaded file (HTTP range requests);
+  * a waveform (ffmpeg peaks, cached) with a playhead and click-to-seek;
+  * a keyframe filmstrip that seeks the player and tracks playback;
+  * transcript segments that seek on click and highlight as they are spoken;
+  * IN/OUT markers you can set/drag, materialized into a trimmed SRT on export.
+
+It needs the video file present + a running server (it is not an offline file).
+Craft scores stay labelled a reference, not an authority, per the honesty line.
 """
 from __future__ import annotations
 
+import array
 import html
 import json
-from typing import Any, Dict, List, Optional
+import os
+import re
+import subprocess
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import config, db
-from .viewer import build_video_view, keyframe_data_uri
+from .viewer import build_video_view
 
-# Craft score dimensions, in display order. Mirrors viewer._SCORE_DIMS but the
-# inspector renders them as a horizontal strip of meters rather than a table.
 _SCORE_DIMS = [
     ("overall", "Overall"),
     ("hook_strength", "Hook"),
@@ -33,14 +37,14 @@ _SCORE_DIMS = [
     ("structure", "Structure"),
 ]
 
+_WAVEFORM_BINS = 200
+
 
 def _e(value: Any) -> str:
-    """HTML-escape any value (None -> empty)."""
     return html.escape("" if value is None else str(value))
 
 
 def _fmt_ts(sec: Any) -> str:
-    """Seconds -> m:ss (tabular). None/negative -> 0:00."""
     try:
         s = int(round(float(sec)))
     except (TypeError, ValueError):
@@ -50,19 +54,30 @@ def _fmt_ts(sec: Any) -> str:
     return "%d:%02d" % (s // 60, s % 60)
 
 
-def build_inspect_view(conn: db.sqlite3.Connection, video_id: str) -> Optional[Dict[str, Any]]:
-    """Assemble one clip's inspector payload, or None if the video is unknown.
+# --- Media file resolution ---
 
-    Reuses viewer.build_video_view for the shared fields and augments it with the
-    per-segment transcript (from transcripts.segments_json) and a resolved clip
-    duration. duration_sec on the video row is often 0.0/None for IG (yt-dlp
-    returns no duration), so we fall back to the largest timestamp we actually
-    have — the last segment end or the last keyframe — so the timeline still
-    scales correctly."""
+def resolve_video_file(file_path: Optional[str]) -> Optional[str]:
+    """Absolute path to a video's file, or None. Stored path is cwd-relative by
+    default; fall back to VIDEOS_DIR by basename if it has moved."""
+    if not file_path:
+        return None
+    for path in (os.path.abspath(file_path),
+                 os.path.join(config.VIDEOS_DIR, os.path.basename(file_path))):
+        if os.path.exists(path):
+            return path
+    return None
+
+
+# --- Data assembly ---
+
+def build_inspect_view(conn: db.sqlite3.Connection, video_id: str) -> Optional[Dict[str, Any]]:
+    """One clip's inspector payload, or None if unknown. Extends the viewer view
+    with per-segment transcript, a resolved duration, and video-file presence."""
     view = build_video_view(conn, video_id)
     if view is None:
         return None
 
+    video = db.get_video(conn, video_id)
     transcript = db.get_transcript(conn, video_id)
     segments: List[Dict[str, Any]] = []
     language = None
@@ -87,7 +102,6 @@ def build_inspect_view(conn: db.sqlite3.Connection, video_id: str) -> Optional[D
                     continue
                 segments.append({"start": start, "end": end, "text": text})
 
-    # Resolve a duration to scale the timeline against.
     candidates = [view.get("duration_sec") or 0.0]
     if segments:
         candidates.append(max(s["end"] for s in segments))
@@ -96,13 +110,84 @@ def build_inspect_view(conn: db.sqlite3.Connection, video_id: str) -> Optional[D
             candidates.append(float(kf["timestamp_sec"]))
     duration = max(candidates) if candidates else 0.0
 
+    file_path = video["file_path"] if video is not None else None
     view["segments"] = segments
     view["language"] = language
     view["duration"] = duration
+    view["file_path"] = file_path
+    view["has_video"] = resolve_video_file(file_path) is not None
     return view
 
 
-# --- Rendering ---
+# --- Waveform ---
+
+def compute_waveform(path: str, bins: int = _WAVEFORM_BINS) -> Optional[List[float]]:
+    """Decode mono 8kHz PCM via ffmpeg and return `bins` peak amplitudes (0..1).
+
+    Ported from arkiv, minus the numpy dependency: s16le samples are little-
+    endian (ffmpeg emits LE; reel-scout's fleet is x86/arm little-endian), read
+    via array('h'). Returns None on ffmpeg failure so the caller degrades to a
+    flat bar rather than erroring."""
+    cmd = [config.FFMPEG_BIN, "-v", "quiet", "-i", path,
+           "-ac", "1", "-ar", "8000", "-f", "s16le", "-"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0 or not r.stdout:
+        return None
+    samples = array.array("h")
+    try:
+        samples.frombytes(r.stdout[: len(r.stdout) - (len(r.stdout) % 2)])
+    except ValueError:
+        return None
+    n = len(samples)
+    if n == 0:
+        return [0.0] * bins
+    peaks: List[float] = []
+    for i in range(bins):
+        a = n * i // bins
+        b = n * (i + 1) // bins
+        if b <= a:
+            peaks.append(0.0)
+            continue
+        hi = 0
+        for x in samples[a:b]:
+            ax = -x if x < 0 else x
+            if ax > hi:
+                hi = ax
+        peaks.append(hi / 32768.0)
+    return peaks
+
+
+def _waveform_payload(conn: db.sqlite3.Connection, video_id: str,
+                      bins: int = _WAVEFORM_BINS) -> Dict[str, Any]:
+    """Peaks for a video, cached under DATA_DIR/waveforms/<id>_<bins>.json."""
+    bins = max(8, min(500, bins))
+    video = db.get_video(conn, video_id)
+    path = resolve_video_file(video["file_path"]) if video is not None else None
+    if path is None:
+        return {"video_id": video_id, "bins": bins, "peaks": [0.0] * bins}
+    cache_dir = os.path.join(config.DATA_DIR, "waveforms")
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_path = os.path.join(cache_dir, "%s_%d.json" % (video_id, bins))
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            pass
+    peaks = compute_waveform(path, bins) or [0.0] * bins
+    payload = {"video_id": video_id, "bins": bins, "peaks": peaks}
+    try:
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+    except OSError:
+        pass
+    return payload
+
+
+# --- HTML rendering ---
 
 def _render_scores(view: Dict[str, Any]) -> str:
     score = view.get("score")
@@ -115,17 +200,16 @@ def _render_scores(view: Dict[str, Any]) -> str:
             continue
         pct = max(0.0, min(100.0, float(val) * 10.0))
         meters.append(
-            '<div class="meter"><div class="mlabel">%s</div>'
-            '<div class="mbar"><span style="width:%.1f%%"></span></div>'
-            '<div class="mval">%.1f</div></div>' % (_e(label), pct, float(val)))
+            '<div class="meter"><span class="mlabel">%s</span>'
+            '<span class="mbar"><i style="width:%.1f%%"></i></span>'
+            '<span class="mval">%.1f</span></div>' % (_e(label), pct, float(val)))
     if not meters:
         return ""
     reasoning = score.get("reasoning")
     note = ('<p class="reasoning">%s</p>' % _e(reasoning)) if reasoning else ""
-    return (
-        '<section class="scores"><h3>Craft scores '
-        '<small>(reference, not authority &mdash; human judgment leads)</small></h3>'
-        '<div class="meters">%s</div>%s</section>' % ("".join(meters), note))
+    return ('<section class="block"><div class="eyebrow">Craft scores '
+            '<span class="q">reference, not authority</span></div>'
+            '<div class="meters">%s</div>%s</section>' % ("".join(meters), note))
 
 
 def _render_structure(view: Dict[str, Any]) -> str:
@@ -133,289 +217,452 @@ def _render_structure(view: Dict[str, Any]) -> str:
     style = view.get("style") or {}
     rows = [
         ("Structure", view.get("content_structure")),
-        ("Content type", view.get("content_type")),
+        ("Content", view.get("content_type")),
         ("Format", style.get("format")),
         ("Pacing", style.get("pacing")),
-        ("Hook type", hook.get("opening_type")),
+        ("Hook", hook.get("opening_type")),
         ("Hook text", hook.get("opening_text")),
-        ("CTA type", hook.get("cta_type")),
+        ("CTA", hook.get("cta_type")),
         ("CTA text", hook.get("cta_text")),
     ]
-    cells = ['<tr><th>%s</th><td>%s</td></tr>' % (_e(k), _e(v)) for k, v in rows if v]
+    cells = ['<div class="mk">%s</div><div class="mv">%s</div>' % (_e(k), _e(v))
+             for k, v in rows if v]
     if not cells:
         return ""
-    return ('<section class="structure"><h3>Decoded structure</h3>'
-            '<table class="kv">%s</table></section>' % "".join(cells))
+    return ('<section class="block"><div class="eyebrow">Decoded structure</div>'
+            '<div class="metagrid">%s</div></section>' % "".join(cells))
 
 
-def _render_timeline(view: Dict[str, Any]) -> str:
-    """A horizontal scrubber: keyframe ticks + spoken-segment spans across the
-    clip, positioned by time. Purely presentational markup; the inline script
-    wires the click/jump behaviour."""
-    dur = view.get("duration") or 0.0
-    if dur <= 0:
-        return ""
-    ticks: List[str] = []
-    for j, kf in enumerate(view["keyframes"]):
-        ts = kf.get("timestamp_sec")
-        if ts is None:
-            continue
-        left = max(0.0, min(100.0, float(ts) / dur * 100.0))
-        ticks.append('<button class="tick" data-frame="%d" style="left:%.3f%%" '
-                     'title="%s" aria-label="keyframe at %s"></button>'
-                     % (j, left, _e(_fmt_ts(ts)), _e(_fmt_ts(ts))))
-    spans: List[str] = []
-    for i, seg in enumerate(view.get("segments", [])):
-        left = max(0.0, min(100.0, seg["start"] / dur * 100.0))
-        width = max(0.4, min(100.0 - left, (seg["end"] - seg["start"]) / dur * 100.0))
-        spans.append('<button class="span" data-seg="%d" style="left:%.3f%%;width:%.3f%%" '
-                     'title="%s"></button>' % (i, left, width, _e(seg["text"][:80])))
-    return (
-        '<section class="timeline"><h3>Timeline <small>%s</small></h3>'
-        '<div class="scrub" id="scrub" role="slider" aria-label="clip timeline">'
-        '<div class="track">%s</div><div class="spans">%s</div>'
-        '<div class="playhead" id="playhead"></div></div>'
-        '<div class="axis"><span>0:00</span><span>%s</span></div></section>'
-        % (_e(_fmt_ts(dur)), "".join(ticks), "".join(spans), _e(_fmt_ts(dur))))
+def render_inspector(view: Dict[str, Any], base: str = "") -> str:
+    """Full inspector page for one clip. `base` prefixes API/asset URLs (empty
+    for the live server; the server mounts everything at root)."""
+    vid = view["video_id"]
+    dur = float(view.get("duration") or 0.0)
 
-
-def _render_keyframes(view: Dict[str, Any]) -> str:
-    if not view["keyframes"]:
-        return '<section class="frames-wrap"><h3>Keyframes</h3><p class="empty">No keyframes.</p></section>'
-    figs: List[str] = []
-    for j, kf in enumerate(view["keyframes"]):
-        ts = kf.get("timestamp_sec")
-        src = keyframe_data_uri(kf.get("file_path")) or ""
-        img = ('<img src="%s" alt="keyframe at %s" loading="lazy">' % (_e(src), _e(_fmt_ts(ts)))
-               if src else '<div class="noimg">image unavailable</div>')
-        desc = kf.get("description") or ""
-        text = kf.get("text_in_frame") or ""
-        onscreen = ('<span class="onscreen">on-screen: %s</span>' % _e(text)) if text else ""
-        figs.append(
-            '<figure class="kf" id="kf-%d" data-frame="%d" data-ts="%.3f" tabindex="0">'
-            '<div class="kfimg">%s<span class="kfts">%s</span></div>'
-            '<figcaption>%s%s</figcaption></figure>'
-            % (j, j, float(ts) if ts is not None else 0.0, img, _e(_fmt_ts(ts)),
-               _e(desc), onscreen))
-    return ('<section class="frames-wrap"><h3>Keyframes <small>%d</small></h3>'
-            '<div class="frames">%s</div></section>' % (len(figs), "".join(figs)))
-
-
-def _render_transcript(view: Dict[str, Any]) -> str:
-    segments = view.get("segments") or []
-    if not segments:
-        # No per-segment timing; fall back to the flat transcript if present.
-        full = view.get("transcript") or ""
-        if not full:
-            return ('<aside class="transcript-wrap"><h3>Transcript</h3>'
-                    '<p class="empty">No transcript.</p></aside>')
-        return ('<aside class="transcript-wrap"><h3>Transcript</h3>'
-                '<div class="transcript-flat">%s</div></aside>' % _e(full))
-    rows: List[str] = []
-    for i, seg in enumerate(segments):
-        rows.append(
-            '<button class="seg" id="seg-%d" data-seg="%d" '
-            'data-start="%.3f" data-end="%.3f">'
-            '<span class="segts">%s</span><span class="segtext">%s</span></button>'
-            % (i, i, seg["start"], seg["end"], _e(_fmt_ts(seg["start"])), _e(seg["text"])))
-    return ('<aside class="transcript-wrap"><h3>Transcript '
-            '<small>click to sync</small></h3>'
-            '<div class="segments">%s</div></aside>' % "".join(rows))
-
-
-def render_inspector(view: Dict[str, Any]) -> str:
-    """Full self-contained inspector HTML for one clip."""
-    dur = view.get("duration") or 0.0
     meta_bits = [_e(view["platform"])]
     if view.get("uploader"):
         meta_bits.append("@%s" % _e(view["uploader"]))
     if view.get("language"):
         meta_bits.append(_e(view["language"]))
     meta_bits.append(_fmt_ts(dur))
-    meta = " &middot; ".join(meta_bits)
+    meta = " / ".join(meta_bits)
+
+    # Preview: a real player when the file is present, else the frames-only note.
+    if view.get("has_video"):
+        preview = ('<video id="player" class="player" preload="metadata" '
+                   'controls playsinline src="%s/api/stream/%s"></video>'
+                   % (base, _e(vid)))
+    else:
+        preview = ('<div class="noplayer">video file not on disk &mdash; '
+                   'keyframes &amp; transcript only</div>')
+
+    # Filmstrip.
+    strip: List[str] = []
+    for j, kf in enumerate(view["keyframes"]):
+        ts = kf.get("timestamp_sec")
+        strip.append(
+            '<button class="cell" data-frame="%d" data-ts="%.3f" title="%s">'
+            '<img src="%s/keyframe/%s" alt="" loading="lazy">'
+            '<span class="ct">%s</span></button>'
+            % (j, float(ts) if ts is not None else 0.0, _e(_fmt_ts(ts)),
+               base, _e(kf["id"]), _e(_fmt_ts(ts))))
+    filmstrip = ('<section class="block"><div class="eyebrow">Keyframes '
+                 '<span class="q">%d &middot; click to seek</span></div>'
+                 '<div class="strip">%s</div></section>' % (len(strip), "".join(strip))) \
+        if strip else ""
+
+    # Transcript.
+    if view.get("segments"):
+        rows = ['<button class="seg" data-start="%.3f" data-end="%.3f">'
+                '<span class="tc">%s</span><span class="tx">%s</span></button>'
+                % (s["start"], s["end"], _e(_fmt_ts(s["start"])), _e(s["text"]))
+                for s in view["segments"]]
+        transcript = ('<section class="block"><div class="eyebrow">Transcript '
+                      '<span class="q">click to seek</span></div>'
+                      '<div class="segs">%s</div></section>' % "".join(rows))
+    elif view.get("transcript"):
+        transcript = ('<section class="block"><div class="eyebrow">Transcript</div>'
+                      '<div class="flat">%s</div></section>' % _e(view["transcript"]))
+    else:
+        transcript = ''
+
     summary = ('<p class="summary">%s</p>' % _e(view["summary"])) if view.get("summary") else ""
-    topics = ('<p class="topics">Topics: %s</p>' % _e(", ".join(view["topics"]))) if view.get("topics") else ""
+
+    # Waveform peaks + segments are handed to JS via a JSON island (escaped).
+    seg_data = [[s["start"], s["end"]] for s in view.get("segments", [])]
+    boot = json.dumps({"id": vid, "dur": dur, "bins": _WAVEFORM_BINS,
+                       "base": base, "segs": seg_data,
+                       "hasVideo": bool(view.get("has_video"))})
 
     body = (
-        '<header class="top">'
-        '<div class="crumb">reel-scout inspect &middot; %s</div>'
-        '<h1>%s</h1>'
+        '<header class="top"><div class="eyebrow">reel-scout inspect '
+        '<span class="q">%s</span></div><h1>%s</h1>'
         '<p class="meta">%s &middot; <a href="%s" rel="noopener">source &#8599;</a></p>'
-        '%s%s</header>'
-        '%s%s%s'
-        '<div class="split">%s%s</div>'
-        % (_e(view["video_id"]), _e(view["title"]), meta, _e(view["url"]),
-           summary, topics,
-           _render_scores(view), _render_structure(view), _render_timeline(view),
-           _render_keyframes(view), _render_transcript(view)))
+        '%s</header>'
+        '<section class="block preview">%s</section>'
+        '<section class="block"><div class="eyebrow">Waveform '
+        '<span class="q" id="io">no in/out</span></div>'
+        '<div class="wf" id="wf"><svg id="wfsvg" viewBox="0 0 %d 60" preserveAspectRatio="none">'
+        '<g id="bars"></g><rect id="sel" class="sel" x="0" y="0" width="0" height="60"></rect>'
+        '<line id="head" class="head" x1="0" y1="0" x2="0" y2="60"></line></svg></div>'
+        '<div class="wfbtns"><button id="setin" class="tbtn">set IN</button>'
+        '<button id="setout" class="tbtn">set OUT</button>'
+        '<button id="clrio" class="tbtn">clear</button>'
+        '<button id="srt" class="tbtn">export SRT (window)</button></div></section>'
+        '%s%s%s%s'
+        % (_e(vid), _e(view["title"]), meta, _e(view["url"]), summary,
+           preview, _WAVEFORM_BINS, filmstrip, transcript,
+           _render_scores(view), _render_structure(view)))
 
     return (
         '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<title>%s &mdash; reel-scout inspect</title>'
-        '<style>%s</style></head><body><main>%s</main><script>%s</script>'
-        '</body></html>' % (_e(view["title"]), _STYLE, body, _SCRIPT))
+        '<title>%s &mdash; reel-scout inspect</title><style>%s</style></head>'
+        '<body><main>%s</main>'
+        '<script id="boot" type="application/json">%s</script>'
+        '<script>%s</script></body></html>'
+        % (_e(view["title"]), _STYLE, body, boot, _SCRIPT))
+
+
+# --- Server ---
+
+_RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)")
+
+
+def _parse_range(header: Optional[str], size: int) -> Optional[Tuple[int, int]]:
+    """Parse a single-range 'bytes=a-b' into (start, end) inclusive, or None."""
+    if not header:
+        return None
+    m = _RANGE_RE.match(header.strip())
+    if not m:
+        return None
+    a, b = m.group(1), m.group(2)
+    if a == "":
+        if b == "":
+            return None
+        length = min(int(b), size)
+        return (size - length, size - 1)
+    start = int(a)
+    end = int(b) if b else size - 1
+    end = min(end, size - 1)
+    if start > end:
+        return None
+    return (start, end)
+
+
+def make_inspect_server(host: str = "127.0.0.1", port: int = 0,
+                        default_id: Optional[str] = None):
+    """Build (but don't start) the inspector HTTP server. Each request opens its
+    own short-lived connection, so the handler is thread-safe. Split from serve()
+    so tests can drive it over a real socket."""
+    import http.server
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):  # keep the console quiet
+            pass
+
+        def _send(self, code, body, ctype="text/html; charset=utf-8", headers=None):
+            data = body.encode("utf-8") if isinstance(body, str) else body
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            for k, v in (headers or {}).items():
+                self.send_header(k, v)
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(data)
+
+        def _stream_file(self, path, ctype):
+            size = os.path.getsize(path)
+            rng = _parse_range(self.headers.get("Range"), size)
+            if rng is None:
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(size))
+                self.send_header("Accept-Ranges", "bytes")
+                self.end_headers()
+                if self.command == "HEAD":
+                    return
+                with open(path, "rb") as f:
+                    self._copy(f, size)
+                return
+            start, end = rng
+            length = end - start + 1
+            self.send_response(206)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(length))
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
+            self.end_headers()
+            if self.command == "HEAD":
+                return
+            with open(path, "rb") as f:
+                f.seek(start)
+                self._copy(f, length)
+
+        def _copy(self, f, remaining):
+            chunk = 64 * 1024
+            while remaining > 0:
+                buf = f.read(min(chunk, remaining))
+                if not buf:
+                    break
+                try:
+                    self.wfile.write(buf)
+                except (BrokenPipeError, ConnectionResetError):
+                    return  # client seeked/closed — normal for <video>
+                remaining -= len(buf)
+
+        def do_HEAD(self):
+            self.do_GET()
+
+        def do_GET(self):
+            path = self.path.split("?", 1)[0]
+            conn = db.get_connection()
+            try:
+                self._route(path, conn)
+            finally:
+                conn.close()
+
+        def _route(self, path, conn):
+            if path in ("/", "/inspect", "/inspect/"):
+                if default_id:
+                    self._inspect(conn, default_id)
+                else:
+                    self._send(404, "specify a video: /inspect/<id>")
+                return
+            if path.startswith("/inspect/"):
+                self._inspect(conn, path[len("/inspect/"):])
+                return
+            if path.startswith("/api/stream/"):
+                self._stream(conn, path[len("/api/stream/"):])
+                return
+            if path.startswith("/api/waveform/"):
+                vid = path[len("/api/waveform/"):]
+                from urllib.parse import parse_qs, urlparse
+                qs = parse_qs(urlparse(self.path).query)
+                bins = int(qs.get("bins", [_WAVEFORM_BINS])[0])
+                self._send(200, json.dumps(_waveform_payload(conn, vid, bins)),
+                           "application/json")
+                return
+            if path.startswith("/keyframe/"):
+                self._keyframe(conn, path[len("/keyframe/"):])
+                return
+            self._send(404, "not found")
+
+        def _inspect(self, conn, vid):
+            from .compare import resolve_ref
+            resolved, _ = resolve_ref(conn, vid)
+            view = build_inspect_view(conn, resolved) if resolved else None
+            if view is None:
+                self._send(404, "no video matches '%s'" % vid)
+                return
+            self._send(200, render_inspector(view))
+
+        def _stream(self, conn, vid):
+            video = db.get_video(conn, vid)
+            path = resolve_video_file(video["file_path"]) if video is not None else None
+            if path is None:
+                self._send(404, "video file not available")
+                return
+            self._stream_file(path, "video/mp4")
+
+        def _keyframe(self, conn, kf_id):
+            from .viewer import _keyframe_path
+            fp = _keyframe_path(conn, kf_id)
+            if not fp:
+                self._send(404, "not found")
+                return
+            with open(fp, "rb") as f:
+                self._send(200, f.read(), "image/jpeg")
+
+    return http.server.ThreadingHTTPServer((host, port), _Handler)
+
+
+def serve(video_id: str, host: str = "127.0.0.1", port: int = 0,
+          open_browser: bool = True) -> None:
+    """Start the inspector server for one clip. Blocks until interrupted."""
+    httpd = make_inspect_server(host=host, port=port, default_id=video_id)
+    actual = httpd.server_address[1]
+    url = "http://%s:%d/inspect/%s" % (host, actual, video_id)
+    print("reel-scout inspect serving at %s  — Ctrl-C to stop" % url)
+    if open_browser:
+        try:
+            import webbrowser
+            webbrowser.open(url)
+        except Exception:  # noqa: BLE001 - headless is fine
+            pass
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\nstopped.")
+    finally:
+        httpd.server_close()
 
 
 _STYLE = """
-:root{color-scheme:light dark;--fg:#1a1a1a;--bg:#fafafa;--mut:#8a8a8a;--line:#8884;
-  --accent:#e0553d;--card:#fff;--activebg:#e0553d1a}
-@media(prefers-color-scheme:dark){:root{--fg:#eaeaea;--bg:#111;--mut:#9a9a9a;
-  --card:#1b1b1b;--activebg:#e0553d33}}
+:root{--bg:#0a0a0c;--surface:#17171a;--rule:#26262a;--rule-hi:#3a3a3f;--ink:#f3f2ee;
+  --ink2:#b6b5b0;--quiet:#6a6a6d;--accent:#18b6dc;--good:#f3f2ee}
+@media(prefers-color-scheme:light){:root{--bg:#f1efe9;--surface:#e7e4dc;--rule:#c9c5bb;
+  --rule-hi:#a8a498;--ink:#1c1a16;--ink2:#3c3a34;--quiet:#8a867a;--good:#1c1a16}}
 *{box-sizing:border-box}
-body{font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans TC",sans-serif;
-  margin:0;background:var(--bg);color:var(--fg)}
-main{max-width:1100px;margin:0 auto;padding:0 1.5rem 4rem}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif}
+main{max-width:720px;margin:0 auto;padding:0 18px 5rem}
 a{color:var(--accent)}
-header.top{padding:1.6rem 0 1rem;border-bottom:1px solid var(--line)}
-.crumb{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
-  font-variant-numeric:tabular-nums}
-header.top h1{margin:.35rem 0 .3rem;font-size:1.5rem;line-height:1.2}
-.meta{margin:.1rem 0 .6rem;color:var(--mut);font-size:.85rem}
-.summary{font-size:1.02rem;margin:.6rem 0}
-.topics{font-size:.82rem;color:var(--mut);margin:.2rem 0}
-h3{margin:1.5rem 0 .5rem;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mut)}
-h3 small{text-transform:none;letter-spacing:0;font-weight:400;opacity:.8}
-.empty{color:var(--mut);font-size:.9rem}
-/* scores */
-.meters{display:flex;flex-wrap:wrap;gap:.5rem 1.4rem}
-.meter{display:flex;align-items:center;gap:.5rem;min-width:170px}
-.mlabel{font-size:.8rem;color:var(--mut);width:4.2rem}
-.mbar{flex:1;height:.5rem;background:var(--line);border-radius:99px;overflow:hidden}
-.mbar span{display:block;height:100%;background:var(--accent);border-radius:99px}
-.mval{font-variant-numeric:tabular-nums;font-weight:600;font-size:.85rem;width:2rem;text-align:right}
-.reasoning{font-size:.85rem;color:var(--mut);margin:.6rem 0 0;max-width:70ch}
-/* structure */
-table.kv{border-collapse:collapse;font-size:.88rem}
-table.kv th{text-align:left;padding:.15rem 1rem .15rem 0;font-weight:600;color:var(--mut);
-  vertical-align:top;white-space:nowrap}
-table.kv td{padding:.15rem 0}
-/* timeline */
-.scrub{position:relative;height:34px;margin:.3rem 0 .2rem;cursor:pointer;
-  background:var(--line);border-radius:6px;user-select:none}
-.track,.spans{position:absolute;left:0;right:0}
-.track{top:0;height:20px}
-.spans{bottom:0;height:12px}
-.tick{position:absolute;top:2px;width:3px;height:16px;padding:0;border:0;border-radius:2px;
-  background:var(--fg);opacity:.55;transform:translateX(-1px);cursor:pointer}
-.tick:hover,.tick.active{opacity:1;background:var(--accent);width:5px}
-.span{position:absolute;bottom:0;height:10px;padding:0;border:0;border-radius:2px;
-  background:var(--accent);opacity:.28;cursor:pointer}
-.span:hover,.span.active{opacity:.85}
-.playhead{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--fg);
-  left:0;opacity:0;pointer-events:none;transition:left .08s linear}
-.playhead.on{opacity:.9}
-.axis{display:flex;justify-content:space-between;font-size:.72rem;color:var(--mut);
-  font-variant-numeric:tabular-nums}
-/* split layout */
-.split{display:grid;grid-template-columns:1fr 20rem;gap:1.5rem;align-items:start}
-@media(max-width:760px){.split{grid-template-columns:1fr}}
-.frames{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:.9rem}
-figure.kf{margin:0;border-radius:6px;padding:.35rem;background:var(--card);
-  border:1px solid transparent;transition:border-color .12s,box-shadow .12s;cursor:pointer}
-figure.kf.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--activebg)}
-figure.kf:focus{outline:2px solid var(--accent);outline-offset:1px}
-.kfimg{position:relative}
-.kfimg img,.noimg{width:100%;border-radius:4px;display:block}
-.noimg{aspect-ratio:9/16;background:var(--line);display:grid;place-items:center;
-  font-size:.75rem;color:var(--mut)}
-.kfts{position:absolute;left:.3rem;bottom:.3rem;background:#000a;color:#fff;
-  font-size:.7rem;padding:.05rem .3rem;border-radius:3px;font-variant-numeric:tabular-nums}
-figcaption{font-size:.76rem;color:var(--mut);margin-top:.35rem;line-height:1.35}
-.onscreen{display:block;margin-top:.2rem;color:var(--fg);opacity:.8}
+.eyebrow{font:11px/1.2 "JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  text-transform:uppercase;letter-spacing:.08em;color:var(--quiet)}
+.eyebrow .q{color:var(--quiet);opacity:.75;text-transform:none;letter-spacing:0}
+.top{padding:1.5rem 0 1rem;border-bottom:1px solid var(--rule)}
+.top h1{margin:.4rem 0 .3rem;font-size:1.4rem;font-weight:600;line-height:1.2}
+.meta{margin:.1rem 0;color:var(--ink2);
+  font:11.5px "JetBrains Mono",ui-monospace,monospace}
+.summary{margin:.6rem 0 0;color:var(--ink2)}
+.block{padding:14px 0;border-bottom:1px solid var(--rule)}
+.block .eyebrow{margin-bottom:.5rem}
+.preview{display:flex;justify-content:center}
+.player{width:100%;max-height:62vh;background:#000;border-radius:4px}
+.noplayer{width:100%;aspect-ratio:16/9;background:var(--surface);border-radius:4px;
+  display:grid;place-items:center;color:var(--quiet);
+  font:11.5px "JetBrains Mono",monospace}
+/* waveform */
+.wf{height:60px;cursor:pointer;user-select:none}
+.wf svg{width:100%;height:60px;display:block}
+.wf rect.bar{fill:var(--ink2)}
+.wf rect.bar.in{fill:var(--ink)}
+.wf .sel{fill:var(--ink);opacity:.10}
+.wf .head{stroke:var(--accent);stroke-width:1}
+.wfbtns{display:flex;gap:.4rem;margin-top:.5rem;flex-wrap:wrap}
+.tbtn{font:10px "JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--ink2);background:var(--surface);border:1px solid var(--rule);
+  padding:.3rem .55rem;border-radius:3px;cursor:pointer}
+.tbtn:hover{border-color:var(--rule-hi);color:var(--ink)}
+.tbtn.on{background:var(--good);color:var(--bg);border-color:var(--good)}
+/* filmstrip */
+.strip{display:flex;gap:2px;overflow-x:auto;padding-bottom:4px}
+.strip .cell{position:relative;flex:0 0 auto;padding:0;border:1px solid transparent;
+  background:none;cursor:pointer;border-radius:3px;overflow:hidden}
+.strip .cell img{height:82px;width:auto;display:block}
+.strip .cell.active{border-color:var(--accent)}
+.strip .ct{position:absolute;left:2px;bottom:2px;background:#000a;color:#fff;
+  font:9px "JetBrains Mono",monospace;padding:0 3px;border-radius:2px}
 /* transcript */
-.transcript-wrap{position:sticky;top:1rem}
-.segments{max-height:70vh;overflow:auto;border:1px solid var(--line);border-radius:6px}
-.seg{display:flex;gap:.5rem;width:100%;text-align:left;padding:.4rem .6rem;border:0;
-  background:transparent;color:inherit;font:inherit;font-size:.85rem;cursor:pointer;
-  border-bottom:1px solid var(--line)}
+.segs{max-height:44vh;overflow:auto;border:1px solid var(--rule);border-radius:4px}
+.seg{display:flex;gap:.5rem;width:100%;text-align:left;padding:.35rem .5rem;border:0;
+  border-bottom:1px solid var(--rule);background:none;color:inherit;font:inherit;cursor:pointer}
 .seg:last-child{border-bottom:0}
-.seg:hover{background:var(--activebg)}
-.seg.active{background:var(--activebg);box-shadow:inset 3px 0 0 var(--accent)}
-.segts{color:var(--mut);font-variant-numeric:tabular-nums;flex:0 0 2.6rem}
-.transcript-flat{white-space:pre-wrap;font-size:.85rem;color:var(--fg);opacity:.85;
-  max-height:70vh;overflow:auto;padding:.6rem;border:1px solid var(--line);border-radius:6px}
+.seg:hover{background:var(--surface)}
+.seg.active{background:var(--surface);box-shadow:inset 2px 0 0 var(--accent)}
+.seg .tc{flex:0 0 2.6rem;color:var(--quiet);
+  font:11px "JetBrains Mono",monospace}
+.flat{white-space:pre-wrap;color:var(--ink2);font-size:13px;max-height:44vh;overflow:auto;
+  padding:.6rem;border:1px solid var(--rule);border-radius:4px}
+/* scores */
+.meters{display:flex;flex-direction:column;gap:.35rem;max-width:420px}
+.meter{display:flex;align-items:center;gap:.6rem}
+.mlabel{width:4.5rem;color:var(--quiet);
+  font:10px "JetBrains Mono",monospace;text-transform:uppercase}
+.mbar{flex:1;height:6px;background:var(--rule);border-radius:99px;overflow:hidden}
+.mbar i{display:block;height:100%;background:var(--ink);border-radius:99px}
+.mval{width:2rem;text-align:right;font:12px "JetBrains Mono",monospace}
+.reasoning{margin:.6rem 0 0;color:var(--quiet);font-size:12.5px;max-width:60ch}
+/* structure */
+.metagrid{display:grid;grid-template-columns:5rem 1fr;gap:.15rem .8rem;font-size:12.5px}
+.mk{color:var(--quiet);font:10.5px "JetBrains Mono",monospace;text-transform:uppercase;
+  padding-top:2px}
+.mv{color:var(--ink)}
 """
 
-# Vanilla JS, no dependencies. Wires the three-way sync between the timeline
-# scrubber, keyframes, and transcript segments. All timing data lives in data-*
-# attributes so there is no separate JSON blob to keep in step.
 _SCRIPT = r"""
 (function(){
-  var frames=[].slice.call(document.querySelectorAll('figure.kf'));
-  var segs=[].slice.call(document.querySelectorAll('.seg'));
-  var ticks=[].slice.call(document.querySelectorAll('.tick'));
-  var spans=[].slice.call(document.querySelectorAll('.span'));
-  var scrub=document.getElementById('scrub');
-  var playhead=document.getElementById('playhead');
-  var dur=0;
-  frames.forEach(function(f){dur=Math.max(dur,parseFloat(f.dataset.ts)||0);});
-  segs.forEach(function(s){dur=Math.max(dur,parseFloat(s.dataset.end)||0);});
+  var boot=JSON.parse(document.getElementById('boot').textContent);
+  var dur=boot.dur||0, base=boot.base||'';
+  var player=document.getElementById('player');
+  var wf=document.getElementById('wf'), svg=document.getElementById('wfsvg');
+  var bars=document.getElementById('bars'), sel=document.getElementById('sel'), head=document.getElementById('head');
+  var segEls=[].slice.call(document.querySelectorAll('.seg'));
+  var cells=[].slice.call(document.querySelectorAll('.cell'));
+  var ioLabel=document.getElementById('io');
+  var inSec=null, outSec=null;
+  var BINS=boot.bins||200;
 
-  function clearActive(list){list.forEach(function(el){el.classList.remove('active');});}
-  function frameTs(f){return parseFloat(f.dataset.ts)||0;}
+  function fmt(t){t=Math.max(0,t|0);return (t/60|0)+':'+('0'+(t%60)).slice(-2);}
+  function cur(){return player?player.currentTime:0;}
+  function seek(t){ if(!player)return; player.currentTime=Math.max(0,Math.min(dur||t,t)); player.play&&player.play().catch(function(){}); }
 
-  function nearestFrame(t){
-    var best=null,bd=Infinity;
-    frames.forEach(function(f){var d=Math.abs(frameTs(f)-t);if(d<bd){bd=d;best=f;}});
-    return best;
+  // --- waveform bars from /api/waveform ---
+  fetch(base+'/api/waveform/'+boot.id+'?bins='+BINS).then(function(r){return r.json();}).then(function(d){
+    var peaks=d.peaks||[]; var n=peaks.length||1; var w=1; // viewBox width == n via unit bars
+    svg.setAttribute('viewBox','0 0 '+n+' 60');
+    var frag='';
+    for(var i=0;i<peaks.length;i++){
+      var h=Math.max(1, peaks[i]*56); var y=(60-h)/2;
+      frag+='<rect class="bar" x="'+(i+0.1)+'" y="'+y.toFixed(2)+'" width="0.8" height="'+h.toFixed(2)+'"></rect>';
+    }
+    bars.innerHTML=frag;
+    paintWindow();
+  }).catch(function(){});
+
+  function xToFrac(clientX){var r=wf.getBoundingClientRect();return Math.max(0,Math.min(1,(clientX-r.left)/r.width));}
+  function paintHead(){ if(dur<=0||!svg)return; var n=svg.viewBox.baseVal.width||1; var x=cur()/dur*n; head.setAttribute('x1',x);head.setAttribute('x2',x); }
+  function paintWindow(){
+    var n=svg.viewBox.baseVal.width||1;
+    if(inSec!=null&&outSec!=null&&dur>0){
+      var a=inSec/dur*n, b=outSec/dur*n; sel.setAttribute('x',a); sel.setAttribute('width',Math.max(0,b-a));
+    } else { sel.setAttribute('width',0); }
+    // in-window bars get .in
+    var rects=bars.querySelectorAll('rect');
+    for(var i=0;i<rects.length;i++){
+      var t=(i+0.5)/rects.length*dur;
+      var inw = (inSec!=null&&outSec!=null)? (t>=inSec&&t<=outSec) : false;
+      rects[i].classList.toggle('in', inw);
+    }
+    ioLabel.textContent = (inSec!=null||outSec!=null)
+      ? ('IN '+(inSec!=null?fmt(inSec):'—')+'  OUT '+(outSec!=null?fmt(outSec):'—')) : 'no in/out';
   }
-  function segAt(t){
-    // segment covering t, else nearest by midpoint
-    var cover=null,best=null,bd=Infinity;
-    segs.forEach(function(s){
-      var a=parseFloat(s.dataset.start)||0,b=parseFloat(s.dataset.end)||0;
-      if(t>=a&&t<=b){cover=s;}
-      var mid=(a+b)/2,d=Math.abs(mid-t);if(d<bd){bd=d;best=s;}
+
+  wf.addEventListener('click',function(e){ if(dur<=0)return; seek(xToFrac(e.clientX)*dur); });
+
+  // --- player as source of truth ---
+  if(player){
+    player.addEventListener('loadedmetadata',function(){ if(player.duration&&isFinite(player.duration)) dur=player.duration; });
+    player.addEventListener('timeupdate',function(){ paintHead(); syncActive(); });
+  }
+  function syncActive(){
+    var t=cur();
+    segEls.forEach(function(s){
+      var a=+s.dataset.start,b=+s.dataset.end; s.classList.toggle('active', t>=a&&t<b);
     });
-    return cover||best;
-  }
-  function movePlayhead(t){
-    if(!playhead||dur<=0)return;
-    playhead.style.left=Math.max(0,Math.min(100,t/dur*100))+'%';
-    playhead.classList.add('on');
-  }
-  function highlightFrame(f,scroll){
-    if(!f)return;
-    clearActive(frames);clearActive(ticks);
-    f.classList.add('active');
-    var i=frames.indexOf(f);
-    if(ticks[i])ticks[i].classList.add('active');
-    if(scroll)f.scrollIntoView({behavior:'smooth',block:'nearest'});
-  }
-  function highlightSeg(s,scroll){
-    if(!s)return;
-    clearActive(segs);clearActive(spans);
-    s.classList.add('active');
-    var i=segs.indexOf(s);
-    if(spans[i])spans[i].classList.add('active');
-    if(scroll)s.scrollIntoView({behavior:'smooth',block:'nearest'});
-  }
-  function syncTo(t){
-    movePlayhead(t);
-    highlightFrame(nearestFrame(t),true);
-    highlightSeg(segAt(t),true);
+    var bestIdx=-1,bd=1e9;
+    cells.forEach(function(c,i){var d=Math.abs((+c.dataset.ts)-t); if(d<bd){bd=d;bestIdx=i;}});
+    cells.forEach(function(c,i){c.classList.toggle('active', i===bestIdx);});
   }
 
-  segs.forEach(function(s){s.addEventListener('click',function(){
-    var t=parseFloat(s.dataset.start)||0;
-    movePlayhead(t);highlightSeg(s,false);highlightFrame(nearestFrame(t),true);
-  });});
-  frames.forEach(function(f){
-    function go(){var t=frameTs(f);movePlayhead(t);highlightFrame(f,false);highlightSeg(segAt(t),true);}
-    f.addEventListener('click',go);
-    f.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}});
+  segEls.forEach(function(s){ s.addEventListener('click',function(){ seek(+s.dataset.start); }); });
+  cells.forEach(function(c){ c.addEventListener('click',function(){ seek(+c.dataset.ts); }); });
+
+  // --- IN / OUT ---
+  function setIn(){ inSec=cur(); if(outSec!=null&&inSec>outSec) outSec=null; paintWindow(); }
+  function setOut(){ outSec=cur(); if(inSec!=null&&outSec<inSec) inSec=null; paintWindow(); }
+  var bIn=document.getElementById('setin'),bOut=document.getElementById('setout'),bClr=document.getElementById('clrio'),bSrt=document.getElementById('srt');
+  if(bIn)bIn.addEventListener('click',setIn);
+  if(bOut)bOut.addEventListener('click',setOut);
+  if(bClr)bClr.addEventListener('click',function(){inSec=outSec=null;paintWindow();});
+
+  // --- SRT export of the [IN,OUT] window, rebased to the IN point ---
+  function srtTime(t){t=Math.max(0,t);var h=t/3600|0,m=(t%3600)/60|0,s=t%60|0,ms=Math.round((t-(t|0))*1000);
+    return ('0'+h).slice(-2)+':'+('0'+m).slice(-2)+':'+('0'+s).slice(-2)+','+('00'+ms).slice(-3);}
+  if(bSrt)bSrt.addEventListener('click',function(){
+    var lo=inSec!=null?inSec:0, hi=outSec!=null?outSec:(dur||1e9);
+    var segs=boot.segs||[], out='', k=1;
+    for(var i=0;i<segEls.length;i++){
+      var a=+segEls[i].dataset.start,b=+segEls[i].dataset.end;
+      if(b<lo||a>hi)continue;
+      var txt=segEls[i].querySelector('.tx')?segEls[i].querySelector('.tx').textContent:'';
+      out+=(k++)+'\n'+srtTime(Math.max(a,lo)-lo)+' --> '+srtTime(Math.min(b,hi)-lo)+'\n'+txt+'\n\n';
+    }
+    var blob=new Blob([out||'(no segments in window)'],{type:'text/plain'});
+    var a2=document.createElement('a'); a2.href=URL.createObjectURL(blob);
+    a2.download='inspect-'+boot.id+'.srt'; a2.click();
   });
-  ticks.forEach(function(t){t.addEventListener('click',function(e){
-    e.stopPropagation();var f=frames[parseInt(t.dataset.frame,10)];if(f)f.click();
-  });});
-  spans.forEach(function(sp){sp.addEventListener('click',function(e){
-    e.stopPropagation();var s=segs[parseInt(sp.dataset.seg,10)];if(s)s.click();
-  });});
-  if(scrub){scrub.addEventListener('click',function(e){
-    var r=scrub.getBoundingClientRect();
-    var t=dur*Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
-    syncTo(t);
-  });}
 })();
 """

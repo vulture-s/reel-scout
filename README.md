@@ -21,17 +21,19 @@ reel-scout analyze "https://youtube.com/shorts/xxxxx"
 reel-scout analyze --file urls.txt --skip-vision
 reel-scout list
 reel-scout show <video_id>
-reel-scout inspect <video_id> --open   # interactive single-clip inspector (HTML)
+reel-scout inspect <video_id>          # interactive single-clip inspector web app
 reel-scout export --format json -o ./export
 reel-scout config check
 ```
 
-`inspect` writes a self-contained HTML file for one clip: keyframes base64-embedded,
-transcript split into its Whisper segments and time-synced to the frames, plus a
-timeline scrubber. Click a transcript segment to jump to the nearest keyframe (and
-vice-versa); click the timeline to seek. Read-only, offline, zero external assets —
-the take-home artifact for a single reel. (`export --format html` remains the
-multi-clip bundle; `view` is the local browsing server.)
+`inspect` starts a small local web app for one clip and opens it in the browser.
+The **video player is the single source of truth**: a **waveform** (ffmpeg peaks,
+cached) with a click-to-seek playhead, a **keyframe filmstrip**, and the
+**transcript** all seek the player and highlight as it plays. Set **IN/OUT**
+markers on the waveform and export the trimmed window as SRT. Needs the downloaded
+video file on disk. (Design ported from arkiv's live inspector.) `export --format
+html` remains the offline multi-clip bundle; `view` is the read-only browsing
+server.
 
 ## Bilingual / code-switching audio (中英對照)
 
