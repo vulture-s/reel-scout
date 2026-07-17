@@ -98,6 +98,16 @@ def main(argv: List[str] = None) -> None:
     p_compare.add_argument("video_ids", nargs="+", help="Video IDs (exact or unique prefix)")
     p_compare.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
 
+    # --- research ---
+    p_research = sub.add_parser("research", help="Competitor research across channels → aggregate")
+    p_research.add_argument("--niche", required=True, help="Niche label for the report")
+    p_research.add_argument("--channels", nargs="+", required=True, help="Channel/profile URLs")
+    p_research.add_argument("--depth", type=int, default=20, help="Videos per channel (default 20)")
+    p_research.add_argument("--llm-backend", help="LLM backend (omlx, ollama, openclaw)")
+    p_research.add_argument("--no-analyze", dest="analyze", action="store_false",
+                            help="Skip crawl+analyze; aggregate only what's already in the DB")
+    p_research.add_argument("--json", action="store_true", help="Emit the aggregate as JSON")
+
     # --- stats ---
     p_stats = sub.add_parser("stats", help="Corpus statistics (tag distributions + score aggregates)")
     p_stats.add_argument("--channel", help="Scope to one channel (matches videos.uploader substring)")
@@ -135,6 +145,7 @@ def main(argv: List[str] = None) -> None:
         "score": _cmd_score,
         "compare": _cmd_compare,
         "stats": _cmd_stats,
+        "research": _cmd_research,
         "db": _cmd_db,
         "config": _cmd_config,
     }
@@ -500,6 +511,44 @@ def _cmd_compare(args) -> None:
             print(format_table(comparison))
     finally:
         conn.close()
+
+
+def _cmd_research(args) -> None:
+    from . import db, research
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        report = research.run_research(
+            conn, niche=args.niche, channel_urls=args.channels,
+            depth=args.depth, llm_backend=args.llm_backend,
+            do_analyze=args.analyze,
+        )
+        if args.json:
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+        else:
+            print(_format_research_summary(report))
+    finally:
+        conn.close()
+
+
+def _format_research_summary(report) -> str:
+    lines = ["Research: %s" % report["niche"],
+             "=" * 40,
+             "Channels: %d | niche videos: %d (analyzed %d)" % (
+                 report["channel_count"],
+                 report["niche_wide"]["video_count"],
+                 report["niche_wide"]["analyzed_count"])]
+    for ch in report["channels"]:
+        lines.append("\n- %s (%s)" % (ch.get("uploader") or "?", ch["channel_url"]))
+        lines.append("  videos=%d analyzed=%d modal_format=%s modal_pacing=%s avg_overall=%s" % (
+            ch["video_count"], ch["analyzed_count"],
+            ch["modal_format"], ch["modal_pacing"], ch["avg_overall"]))
+    nw = report["niche_wide"]
+    lines.append("\n-- niche-wide --")
+    lines.append("modal_format=%s modal_structure=%s avg_overall=%s" % (
+        nw["modal_format"], nw["modal_structure"], nw["avg_overall"]))
+    return "\n".join(lines)
 
 
 def _cmd_stats(args) -> None:
