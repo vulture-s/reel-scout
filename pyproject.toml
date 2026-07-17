@@ -1,20 +1,41 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "reel-scout"
-version = "0.3.0"
+dynamic = ["version"]
 description = "Short-form video analysis tool — crawl, transcribe, and visually analyze YouTube Shorts, Instagram Reels, and TikTok"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.9"
-authors = [{ name = "Hevin Yeh" }]
+authors = [{ name = "Hevin Yeh (vulture.s)" }]
 keywords = ["video", "analysis", "shorts", "reels", "tiktok", "whisper", "vlm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 
 dependencies = [
     "yt-dlp>=2024.1.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/vulture-s/reel-scout"
+Repository = "https://github.com/vulture-s/reel-scout"
+Issues = "https://github.com/vulture-s/reel-scout/issues"
+Changelog = "https://github.com/vulture-s/reel-scout/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
 whisper = ["faster-whisper>=1.1.0"]
@@ -27,6 +48,9 @@ dev = ["pytest>=7.0"]
 [project.scripts]
 reel-scout = "reel_scout.cli:main"
 reel-scout-mcp = "reel_scout.mcp.server:main"
+
+[tool.hatch.version]
+path = "reel_scout/__init__.py"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
