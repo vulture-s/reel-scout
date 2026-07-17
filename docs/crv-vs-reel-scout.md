@@ -53,7 +53,7 @@ cssclasses:
 |---|---|---|
 | Frame 取法 | **場景變化偵測＋滑窗像素去重**（全域 RGB＋局部細節）＋adaptive 慢變模式＋text-anchor 對齊字幕 | keyframe（scene／interval／motion／hybrid＋首尾保底） |
 | 說話者 | 內建 diarization（pyannote） | diarization（pyannote,optional) |
-| 呈現 | contact sheet 對照表＋viewer.html＋MANIFEST for LLM | `export --format html`＋`view` 本機 server |
+| 呈現 | contact sheet 對照表＋viewer.html＋MANIFEST for LLM | `export --format html`＋`view` server＋**`inspect`（可點時間軸跳播，port 自 arkiv）** |
 | 判讀 | ❌ 全交給下游 LLM | ✅ VLM 逐幀描述 |
 
 誠實講:**光看「把影片變成 LLM 看得懂的東西」,crv free 這一件事做得比 Reel Scout 前段更精緻也更聚焦**——場景偵測＋去重比固定間隔／keyframe 更成熟,還多了 adaptive／text-anchor／contact sheet。但它**到此為止**:沒有 VLM 描述、沒有評分、沒有反解、沒有語料庫。它是把原料備好,不動判斷。
@@ -98,6 +98,7 @@ README teaser 那句 "and why it works" 是行銷話術;付費頁本身收斂成
 | 反解「為什麼會紅」 | ❌ | ⚠️ 技法報告,非 engagement | ✅ reverse-decode prompt pack | **Reel Scout** |
 | 跨影片模式 / 競品 | ❌ | ❌ | ✅ compare／research／stats | **Reel Scout** |
 | 語料沉澱 | ❌ 資料夾 | ❌ 資料夾 | ✅ SQLite 可累積 | **Reel Scout** |
+| 互動 viewer(可點時間軸跳播) | ❌(靜態 viewer.html) | ✅ `--viewer` event timeline | ✅ `inspect` transcript↔keyframe 時間同步(port 自 arkiv,#29) | 平手 |
 | 分發 / 熱度 | ✅ 1,699★＋npx 一鍵 | ✅ 病毒核心→付費漏斗 | ❌ 刻意不追(見 §6) | **crv**(但見 §6) |
 | 易安裝 | ✅ pip／npx | ✅ pip | ⚠️ CLI＋ffmpeg／yt-dlp | **crv** |
 
