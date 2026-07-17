@@ -83,6 +83,13 @@ def main(argv: List[str] = None) -> None:
     p_show = sub.add_parser("show", help="Show full analysis for a video")
     p_show.add_argument("video_id", help="Video ID")
 
+    # --- view ---
+    p_view = sub.add_parser("view", help="Serve a read-only local viewer of analyzed videos")
+    p_view.add_argument("--host", default="127.0.0.1")
+    p_view.add_argument("--port", type=int, default=0, help="0 = pick a free port")
+    p_view.add_argument("--no-open", dest="open_browser", action="store_false",
+                        help="Don't auto-open the browser")
+
     # --- export ---
     p_export = sub.add_parser("export", help="Export analyses")
     p_export.add_argument("--format", choices=["json", "csv", "html"], default="json")
@@ -144,6 +151,7 @@ def main(argv: List[str] = None) -> None:
         "list": _cmd_list,
         "show": _cmd_show,
         "export": _cmd_export,
+        "view": _cmd_view,
         "score": _cmd_score,
         "compare": _cmd_compare,
         "stats": _cmd_stats,
@@ -440,6 +448,14 @@ def _cmd_show(args) -> None:
         print(json.dumps(full, ensure_ascii=False, indent=2))
 
     conn.close()
+
+
+def _cmd_view(args) -> None:
+    from . import db, viewer
+
+    config.ensure_dirs()
+    db.init_db().close()  # ensure schema/migrations, then serve per-request conns
+    viewer.serve(host=args.host, port=args.port, open_browser=args.open_browser)
 
 
 def _cmd_export(args) -> None:
