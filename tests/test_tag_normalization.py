@@ -35,14 +35,12 @@ def _seed_video(conn, pid="abc"):
 
 def test_extract_tag_columns_pulls_from_nested_blobs():
     tags = db._extract_tag_columns(_FULL)
-    assert tags == {
-        "content_type": "educational",
-        "opening_type": "question",
-        "cta_type": "visit",
-        "style_format": "talking_head",
-        "style_pacing": "fast",
-        "emotion": "enthusiastic",
-    }
+    assert tags["content_type"] == "educational"
+    assert tags["opening_type"] == "question"
+    assert tags["cta_type"] == "visit"
+    assert tags["style_format"] == "talking_head"
+    assert tags["style_pacing"] == "fast"
+    assert tags["emotion"] == "enthusiastic"
 
 
 def test_extract_tag_columns_missing_blobs_are_none():
@@ -50,11 +48,12 @@ def test_extract_tag_columns_missing_blobs_are_none():
     assert all(v is None for v in tags.values())
 
 
-def test_fresh_install_has_tag_columns_at_v5():
+def test_fresh_install_has_tag_columns():
     conn, path = _fresh_db()
     try:
-        assert db.SCHEMA_VERSION == 5
-        assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == 5
+        assert db.SCHEMA_VERSION >= 5
+        version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
+        assert version == db.SCHEMA_VERSION
         cols = {r[1] for r in conn.execute("PRAGMA table_info(analyses)")}
         for c in ("content_type", "opening_type", "cta_type",
                   "style_format", "style_pacing", "emotion"):
@@ -132,9 +131,11 @@ def test_v4_to_v5_migration_backfills_from_full_json():
         )
         conn.commit()
 
-        db.init_db(conn)  # runs _migrate_v4_to_v5
+        db.init_db(conn)  # runs the migration ladder from v4
 
-        assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == 5
+        assert conn.execute(
+            "SELECT version FROM schema_version"
+        ).fetchone()[0] == db.SCHEMA_VERSION
         row = db.get_analysis(conn, "vid1")
         assert row["content_type"] == "educational"
         assert row["cta_type"] == "visit"

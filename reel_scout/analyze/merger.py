@@ -53,8 +53,17 @@ _MERGE_PROMPT_TEMPLATE = """You are analyzing a short-form video. Based on the t
     "spoken_language": "language code",
     "subtitle_language": "language code or empty"
   }},
-  "content_type": "educational|entertainment|promotional|review|story|news"
+  "content_type": "educational|entertainment|promotional|review|story|news",
+  "content_structure": "hook-body-cta|problem-solution|listicle|story-arc|raw-moment"
 }}
+
+IMPORTANT — content_structure: classify the video's overall structural template.
+  - "hook-body-cta": grabs attention, delivers content, ends with a call to action.
+  - "problem-solution": names a pain point then resolves it.
+  - "listicle": enumerated points / steps / tips ("3 ways to…", "top 5…").
+  - "story-arc": a narrative with setup → tension → payoff.
+  - "raw-moment": an unstructured clip / candid moment with no deliberate arc.
+  Pick the single best fit.
 
 IMPORTANT — cta_type: read the LAST transcript segments and final frames before deciding. If the video closes by urging a real-world action — visit a shop, go try/eat somewhere, go check it out (e.g. "快去試試看", "大家快去吃", "就在XX路上") — set "cta_type": "visit" and copy the phrase into cta_text. follow/like/comment/link are ONLY for on-platform engagement. Use "none" ONLY when there is genuinely no closing call to action at all. Do not default to "none" for offline/visit CTAs.
 

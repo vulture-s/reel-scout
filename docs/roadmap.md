@@ -27,7 +27,7 @@
 Phase 1  ████████████████████  ✅ Core Pipeline（crawl + transcribe + vision + merger + DB + CLI + MCP）
 Phase 2  ████████████████████  ✅ Advanced Analysis（audio/PANNs + diarize/pyannote + scorer + LLM backends）
 Phase 2.5████████████████████  ✅ 品質強化（subtitle-first / keyframe budget / prompt pack / skill / 雙語轉錄）
-Phase 3  ██████████░░░░░░░░░░  🔨 Batch Intelligence — browse ✅、compare ✅、3C 半套；patterns/stats ❌
+Phase 3  ██████████████░░░░░░  🔨 Batch Intelligence — browse ✅、compare ✅、3C ✅；patterns/stats ❌
 Phase 4  ░░░░░░░░░░░░░░░░░░░░  ⬜ Content Strategy Engine — 從分析到行動
 Phase 5  ██████████░░░░░░░░░░  🔨 Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅；PyPI ❌、CI ❌
 ```
@@ -79,12 +79,12 @@ Phase 5  ██████████░░░░░░░░░░  🔨 Tool
       轉置表（欄=影片、列=欄位）+ `--json`；接受 exact id 或唯一 prefix；缺分析欄位留 `—` 不捏造；平台關門也能跑。
 - [ ] `reel-scout patterns --channel <channel_id>` — 頻道模式分析（平均長度、hook 類型分佈、CTA 模式、高分 vs 低分結構差異、發布節奏）
 
-### 3C. 模式標籤系統 🔨 半套
+### 3C. 模式標籤系統 ✅
 
 - [x] Hook 類型分類：`question|statement|visual|music|none`（merger 產出，存 `analyses.hooks_json`）
 - [x] CTA 類型分類：`follow|like|comment|link|visit|none`
-- [ ] 內容結構分類：hook-body-cta / problem-solution / listicle / story-arc / raw-moment
-- [ ] 標籤正規化進可查詢欄位（目前埋在 JSON blob，無法直接篩選/統計）
+- [x] 內容結構分類：hook-body-cta / problem-solution / listicle / story-arc / raw-moment（2026-07-17，schema v6；merger prompt 新增 `content_structure` 欄位）
+- [x] 標籤正規化進可查詢欄位（2026-07-17，schema v5）：`content_type / opening_type / cta_type / style_format / style_pacing / emotion / content_structure` 從 `full_json` 鏡射進 `analyses` 索引欄，`full_json` 仍為 SSOT；舊資料 migration 自動 backfill
 
 ### 3D. 統計 ⬜
 
