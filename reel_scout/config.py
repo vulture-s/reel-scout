@@ -4,11 +4,7 @@ import os
 from pathlib import Path
 
 
-def _load_env(env_path: str = ".env") -> None:
-    """Load .env file into os.environ (no external dependency)."""
-    p = Path(env_path)
-    if not p.exists():
-        return
+def _parse_env_file(p: Path) -> None:
     with open(p, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -18,6 +14,38 @@ def _load_env(env_path: str = ".env") -> None:
             key = key.strip()
             value = value.strip().strip("\"'")
             os.environ.setdefault(key, value)
+
+
+def _env_candidates(env_path: str = ".env"):
+    """.env search paths: the CWD (back-compat) then the project root.
+
+    The project-root path is resolved from __file__ (the dir above this
+    package), so it is independent of the current working directory.
+    """
+    return [Path(env_path), Path(__file__).resolve().parent.parent / ".env"]
+
+
+def _load_env(env_path: str = ".env") -> None:
+    """Load .env into os.environ (no external dependency).
+
+    Searches the CWD (back-compat) then the project root. Without the
+    project-root fallback, launching the MCP server or the CLI from any other
+    CWD silently missed the project's .env, so every backend fell back to the
+    built-in defaults (dead omlx:8000) and all VLM/LLM calls failed with
+    Connection refused — the "reel-scout MCP cwd footgun". os.environ.setdefault
+    keeps real env vars (e.g. REEL_SCOUT_DATA from .mcp.json) authoritative, and
+    the first file found wins per key.
+    """
+    seen = set()
+    for p in _env_candidates(env_path):
+        try:
+            rp = p.resolve()
+        except OSError:
+            continue
+        if rp in seen or not p.exists():
+            continue
+        seen.add(rp)
+        _parse_env_file(p)
 
 
 # Load .env on import
