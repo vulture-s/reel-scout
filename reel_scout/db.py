@@ -468,6 +468,23 @@ def get_keyframes(conn: sqlite3.Connection, video_id: str) -> List[sqlite3.Row]:
     ).fetchall()
 
 
+def get_keyframes_with_descriptions(
+    conn: sqlite3.Connection, video_id: str
+) -> List[sqlite3.Row]:
+    """Keyframes joined with their vision descriptions (LEFT JOIN, so frames
+    without a description still appear), ordered by timestamp. Used by the
+    read-only viewer to render each frame + what the VLM saw in it."""
+    return conn.execute(
+        """SELECT k.id, k.frame_index, k.timestamp_sec, k.file_path, k.strategy,
+                  vd.description, vd.text_in_frame, vd.objects_json
+           FROM keyframes k
+           LEFT JOIN vision_descriptions vd ON vd.keyframe_id = k.id
+           WHERE k.video_id = ?
+           ORDER BY k.timestamp_sec""",
+        (video_id,),
+    ).fetchall()
+
+
 def get_described_keyframe_ids(conn: sqlite3.Connection, video_id: str) -> set:
     """Keyframe ids for this video that already have a vision description.
     Used to backfill only the missing frames on re-run."""

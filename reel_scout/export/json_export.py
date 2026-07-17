@@ -8,6 +8,29 @@ from typing import Optional
 from .. import db
 
 
+def export_html(
+    conn: sqlite3.Connection,
+    output_path: str,
+    video_id: Optional[str] = None,
+) -> str:
+    """Write a self-contained HTML viewer (keyframes base64-embedded, zero
+    external assets) for one or all analyzed videos. If output_path is a
+    directory (or lacks a .html suffix) the file is named reel-scout-viewer.html
+    inside it. Returns the file path written."""
+    from ..viewer import render_bundle
+
+    if not output_path.endswith(".html"):
+        os.makedirs(output_path, exist_ok=True)
+        output_path = os.path.join(output_path, "reel-scout-viewer.html")
+    else:
+        parent = os.path.dirname(output_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(render_bundle(conn, video_id=video_id))
+    return output_path
+
+
 def export_json(
     conn: sqlite3.Connection,
     output_dir: str,
