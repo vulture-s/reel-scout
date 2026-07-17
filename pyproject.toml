@@ -43,6 +43,7 @@ audio = ["onnxruntime>=1.15.0", "numpy>=1.21.0"]
 vector = ["lancedb>=0.4.0", "chromadb>=0.4.0"]
 diarize = ["pyannote.audio>=3.1", "torch>=2.0"]
 instagram = ["instaloader>=4.10"]
+ocr = ["pytesseract>=0.3.10", "Pillow>=9.0"]
 dev = ["pytest>=7.0"]
 
 [project.scripts]

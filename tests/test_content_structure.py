@@ -30,7 +30,7 @@ def test_merge_prompt_declares_content_structure_enum():
 def test_extract_and_save_populate_content_structure():
     conn, path = _fresh_db()
     try:
-        assert db.SCHEMA_VERSION == 7
+        assert db.SCHEMA_VERSION >= 6  # content_structure exists from v6 onward
         full = {"content_type": "educational", "content_structure": "listicle"}
         assert db._extract_tag_columns(full)["content_structure"] == "listicle"
         vid = db.upsert_video(conn, platform="youtube", platform_id="x",

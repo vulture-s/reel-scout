@@ -452,6 +452,23 @@ def _process_single(
             except Exception as e:  # noqa: BLE001 — measured pacing is best-effort
                 print("  Shot metrics skipped: %s" % e, file=sys.stderr)
 
+    # Step 3.6: On-screen text (§4F, L3.5). Collect burned-in captions (the VLM's
+    # text_in_frame, or a dedicated OCR engine) with timestamps so merge can fold
+    # them in — the only textual signal for low-dialogue / pure-visual reels.
+    # Best-effort: never aborts the run.
+    if config.OCR_ENABLED:
+        if db.get_ocr_captions(conn, video_id):
+            print("  On-screen text already collected")
+        else:
+            try:
+                from ..ocr import collect_captions
+                caps = collect_captions(conn, video_id)
+                if caps:
+                    db.save_ocr_captions(conn, video_id, caps)
+                    print("  On-screen text: %d caption(s) (L3.5)" % len(caps))
+            except Exception as e:  # noqa: BLE001 — best-effort
+                print("  On-screen text skipped: %s" % e, file=sys.stderr)
+
     # Step 4: Merge analysis
     existing_analysis = db.get_analysis(conn, video_id)
     if existing_analysis:

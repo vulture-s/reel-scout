@@ -4,6 +4,7 @@
 > 2026-07-17 增補：crv 對標（§4E pacing/BPM 實測化 + §4F 燒錄字幕 OCR + 參考案例 crv）→ [`docs/crv-vs-reel-scout.md`](./crv-vs-reel-scout.md)
 > 2026-07-18 drift 修正：測試 162→177（實跑驗證）+ 已完成清單補 `inspect`（PR #29 遺漏回寫）
 > 2026-07-18 §4E 實作：evidence-based pacing（shot-table cuts/min + audio energy/BPM）落地，schema v7，測試 →200（含 codex+harness 雙審修正）
+> 2026-07-18 §4F 實作：燒錄字幕 OCR / L3.5（vlm 復用 + tesseract opt-in）落地，schema v8，測試 →207
 
 ## 定位與 Non-goals
 
@@ -38,7 +39,7 @@ Phase 4  █████░░░░░░░░░░░░░░░░  🔨 C
 Phase 5  ██████████████████░░  ✅ Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅、CI ✅、config check ✅；PyPI build 就緒（上架待人工 token）
 ```
 
-**目前版本**：v1.1.0 ｜ **測試**：200 passing ｜ **DB schema**：v7
+**目前版本**：v1.1.0 ｜ **測試**：207 passing ｜ **DB schema**：v8
 
 ### 已完成功能清單（2026-07-15 驗證）
 
@@ -53,6 +54,7 @@ Phase 5  ██████████████████░░  ✅ Tool 
 - **Merger**: 結構化分析 JSON + timeline / narrative arc + hook `opening_type` + `cta_type`（含 `visit` 實體造訪）
 - **Scorer**: craft 四維 LLM 評分 — `hook_strength` / `visual_storytelling` / `pacing` / `structure`（§4E：`pacing` 以實測 shot-table + audio energy/BPM 為證據）
 - **Shot metrics** (§4E, schema v7): `reel_scout/shots.py` 全片剪點偵測 → `cuts_per_minute`/`shot_count`/`avg_shot_sec` + `audio/rhythm.py` energy/BPM，存 `shot_metrics` 表，merger 折進 `full_json.measured` 供 scorer
+- **On-screen text / L3.5** (§4F, schema v8): `reel_scout/ocr.py` 收集帶時間戳的燒錄字幕（`OCR_ENGINE=vlm` 復用 `text_in_frame`／`tesseract` opt-in guarded），存 `ocr_captions` 表，merger 加「On-screen Text」區塊；cheatsheet 新增 L3.5 層
 - **Prompt pack**: 6 份 reverse-decode prompt（開源，作為預設分析層）
 - **Skill**: cross-surface skill 打包（SKILL.md + manifests）
 - **MCP Server**: stdio NDJSON JSON-RPC, 5 tools
@@ -143,11 +145,12 @@ Phase 5  ██████████████████░░  ✅ Tool 
 
 **啟發來源**：crv Pro 的 `--ocr`——帶時間戳、可搜尋的螢幕文字，且**用畫面燒錄字幕反過來校正 STT**（CJK 特別強）。這等於在 L3↔L4 之間補一層**可實測的文字證據**，不是抄功能，是補你信號可靠度模型的真空。
 
-- [ ] keyframe 上跑時間戳 OCR（畫面燒錄字幕 / 大字 caption），存進 DB（可搜尋）
-- [ ] **用 OCR 到的燒錄字幕校正 / 補強 whisper transcript**：字幕與 STT 衝突時標記；STT 空（純視覺片）時 OCR 字幕補位
-- [ ] 併進 signal-reliability cheatsheet：OCR 燒錄字幕定位在 L3.5（比 L2 caption 可靠、可時間戳對齊，比 VLM 語意描述更硬）
+- [x] keyframe 上跑時間戳 OCR，存進 DB（2026-07-18）：新 `ocr_captions` 表（schema v8，帶 `timestamp_sec` + `engine` 出處）；`reel_scout/ocr.py` `collect_captions`，pipeline Step 3.6 收集
+- [x] **用燒錄字幕補強 transcript**（2026-07-18）：merger 新增「On-screen Text (L3.5)」區塊餵進分析——STT 空（純視覺片）時 on-screen text 仍給料。（校正走 merge context 讓 LLM 交叉判讀，非直接改 transcripts row）
+- [x] 併進 signal-reliability cheatsheet（2026-07-18）：新增 L3.5 層（主表 + 專節），定位在 L3 與 L4 之間
+- [x] **兩條 OCR 路都做**（Hevin「都做」）：`OCR_ENGINE=vlm`（預設，復用 VLM `text_in_frame`，零依賴）＋ `OCR_ENGINE=tesseract`（opt-in `ocr` extra，`importlib.util.find_spec` guarded，裝不到退回 vlm）
 
-> ⚠️ 邊界：同 §4E，偷概念不抄實作；OCR 引擎選型（tesseract / PaddleOCR-CJK / VLM-as-OCR）另評，維持 Python 3.9 + minimal deps 原則。
+> ⚠️ 邊界：dedicated OCR 引擎（pytesseract）列為 opt-in extra、預設不啟，守 minimal-deps；PaddleOCR-CJK 更重故未納，需要再評。
 
 ---
 

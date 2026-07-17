@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from . import config
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -296,6 +296,26 @@ def _migrate_v6_to_v7(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _migrate_v7_to_v8(conn: sqlite3.Connection) -> None:
+    """Add the ocr_captions table (schema v7 -> v8) for §4F: burned-in on-screen
+    text (L3.5) with timestamps + engine provenance. Per-video, many rows (like
+    keyframes/audio_events). No backfill — populated on (re-)analysis."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS ocr_captions (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_id        TEXT REFERENCES videos(id),
+            timestamp_sec   REAL,
+            text            TEXT,
+            engine          TEXT,
+            created_at      TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_ocr_captions_video ON ocr_captions(video_id);
+    """)
+    conn.execute("UPDATE schema_version SET version = 8 WHERE version = 7")
+    conn.commit()
+
+
 def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
     if conn is None:
         conn = get_connection()
@@ -325,6 +345,9 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
             current_ver = 6
         if current_ver < 7:
             _migrate_v6_to_v7(conn)
+            current_ver = 7
+        if current_ver < 8:
+            _migrate_v7_to_v8(conn)
     # Always ensure audio_events table exists for fresh installs
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS audio_events (
@@ -367,6 +390,17 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
             audio_energy    REAL,
             created_at      TEXT DEFAULT (datetime('now'))
         );
+
+        CREATE TABLE IF NOT EXISTS ocr_captions (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_id        TEXT REFERENCES videos(id),
+            timestamp_sec   REAL,
+            text            TEXT,
+            engine          TEXT,
+            created_at      TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_ocr_captions_video ON ocr_captions(video_id);
     """)
     conn.commit()
     return conn
@@ -611,6 +645,31 @@ def get_shot_metrics(conn: sqlite3.Connection, video_id: str) -> Optional[sqlite
     return cur.fetchone()
 
 
+# --- OCR Captions CRUD (§4F on-screen text / L3.5) ---
+
+def save_ocr_captions(
+    conn: sqlite3.Connection,
+    video_id: str,
+    captions: List[Dict[str, Any]],
+) -> None:
+    """Replace the on-screen captions for a video (idempotent re-run)."""
+    conn.execute("DELETE FROM ocr_captions WHERE video_id = ?", (video_id,))
+    for c in captions:
+        conn.execute(
+            """INSERT INTO ocr_captions (video_id, timestamp_sec, text, engine)
+               VALUES (?,?,?,?)""",
+            (video_id, c.get("timestamp_sec"), c.get("text", ""), c.get("engine", "")),
+        )
+    conn.commit()
+
+
+def get_ocr_captions(conn: sqlite3.Connection, video_id: str) -> List[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM ocr_captions WHERE video_id = ? ORDER BY timestamp_sec",
+        (video_id,),
+    ).fetchall()
+
+
 # --- Score CRUD ---
 
 def save_score(
@@ -766,7 +825,7 @@ def mark_batch_completed(conn: sqlite3.Connection, batch_id: str) -> None:
 
 def db_stats(conn: sqlite3.Connection) -> Dict[str, Any]:
     stats = {}
-    for table in ["videos", "transcripts", "keyframes", "vision_descriptions", "analyses", "audio_events", "shot_metrics", "scores", "batches"]:
+    for table in ["videos", "transcripts", "keyframes", "vision_descriptions", "analyses", "audio_events", "shot_metrics", "ocr_captions", "scores", "batches"]:
         cur = conn.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608 - table names are hardcoded
         stats[table] = cur.fetchone()[0]
 

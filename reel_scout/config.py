@@ -111,6 +111,17 @@ PANNS_MODEL_PATH = os.getenv("PANNS_MODEL_PATH", "")
 AUDIO_WINDOW_SEC = float(os.getenv("AUDIO_WINDOW_SEC", "2.0"))
 AUDIO_HOP_SEC = float(os.getenv("AUDIO_HOP_SEC", "1.0"))
 
+# --- OCR / on-screen text (§4F, L3.5) ---
+# Collect burned-in on-screen captions with timestamps as an extra signal layer
+# (stronger than L2 caption, fills the L3 gap for low-dialogue/visual reels).
+OCR_ENABLED = os.getenv("OCR_ENABLED", "true").lower() in ("true", "1", "yes")
+# Which engine reads on-screen text:
+#   "vlm"       -> reuse what the VLM already read into text_in_frame (zero new deps)
+#   "tesseract" -> dedicated OCR of keyframe JPEGs (opt-in; needs the `ocr` extra +
+#                  a tesseract binary; falls back to vlm if unavailable). Stronger
+#                  CJK, but violates minimal-deps, hence off by default.
+OCR_ENGINE = os.getenv("OCR_ENGINE", "vlm")
+
 # --- Shot metrics (§4E evidence-based pacing) ---
 # Measure cut rhythm (cuts/min) + audio energy/BPM so the pacing score rests on
 # evidence, not LLM vibes. On by default: ffmpeg is already required; energy is
@@ -171,6 +182,8 @@ def show() -> str:
         f"AUDIO_HOP_SEC:        {AUDIO_HOP_SEC}",
         f"SHOT_METRICS_ENABLED: {SHOT_METRICS_ENABLED}",
         f"SHOT_SCENE_THRESHOLD: {SHOT_SCENE_THRESHOLD}",
+        f"OCR_ENABLED:          {OCR_ENABLED}",
+        f"OCR_ENGINE:           {OCR_ENGINE}",
         f"FFMPEG_BIN:           {FFMPEG_BIN}",
         f"YTDLP_BIN:            {YTDLP_BIN or '(auto)'}",
         f"DIARIZE_ENABLED:      {DIARIZE_ENABLED}",

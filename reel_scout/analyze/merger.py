@@ -24,6 +24,9 @@ _MERGE_PROMPT_TEMPLATE = """You are analyzing a short-form video. Based on the t
 ## Audio Events
 {audio_events}
 
+## On-screen Text (burned-in captions, L3.5)
+{onscreen_text}
+
 ## Output Format (JSON only, no markdown)
 {{
   "summary": "1-2 sentence summary of the video content",
@@ -160,6 +163,16 @@ def merge_analysis(
                 ae["label"], ae["confidence"] * 100))
         audio_text = "\n".join(audio_lines)
 
+    # On-screen text (§4F, L3.5): burned-in captions read by the VLM/OCR, with
+    # timestamps — carries the message for low-dialogue / pure-visual reels.
+    ocr_rows = db.get_ocr_captions(conn, video_id)
+    if ocr_rows:
+        onscreen_text = "\n".join(
+            "[%.1fs] %s" % (o["timestamp_sec"] or 0.0, o["text"]) for o in ocr_rows
+        )
+    else:
+        onscreen_text = "(no on-screen text detected)"
+
     prompt = _MERGE_PROMPT_TEMPLATE.format(
         title=video["title"] or "(untitled)",
         platform=video["platform"],
@@ -168,6 +181,7 @@ def merge_analysis(
         transcript=transcript_text,
         vision_descriptions=vision_text,
         audio_events=audio_text,
+        onscreen_text=onscreen_text,
     )
 
     llm = get_llm()

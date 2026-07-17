@@ -62,12 +62,61 @@ def test_migrate_v6_to_v7_on_legacy_db():
     conn.execute("UPDATE schema_version SET version = 6")
     conn.commit()
 
-    db.init_db(conn)  # should run _migrate_v6_to_v7
+    db.init_db(conn)  # runs the chain from v6 up to the current schema
 
-    assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == 7
+    assert conn.execute(
+        "SELECT version FROM schema_version").fetchone()[0] == db.SCHEMA_VERSION
     tables = {r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'")}
     assert "shot_metrics" in tables
+    conn.close()
+    os.unlink(path)
+
+
+def test_ocr_captions_roundtrip_and_replace():
+    conn, path = _temp_db()
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "ocr_captions" in tables
+    vid = db.upsert_video(
+        conn, platform="youtube", platform_id="ocr_rt",
+        url="https://youtube.com/shorts/ocr_rt",
+    )
+    db.save_ocr_captions(conn, vid, [
+        {"timestamp_sec": 2.0, "text": "B", "engine": "vlm"},
+        {"timestamp_sec": 1.0, "text": "A", "engine": "vlm"},
+    ])
+    rows = db.get_ocr_captions(conn, vid)
+    assert [r["text"] for r in rows] == ["A", "B"]  # ordered by timestamp
+    # Re-save replaces (idempotent), not appends.
+    db.save_ocr_captions(conn, vid, [
+        {"timestamp_sec": 0.5, "text": "C", "engine": "tesseract"},
+    ])
+    rows = db.get_ocr_captions(conn, vid)
+    assert len(rows) == 1
+    assert rows[0]["text"] == "C"
+    assert rows[0]["engine"] == "tesseract"
+    conn.close()
+    os.unlink(path)
+
+
+def test_migrate_v7_to_v8_adds_ocr_captions():
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    db.init_db(conn)
+    conn.execute("DROP TABLE IF EXISTS ocr_captions")
+    conn.execute("UPDATE schema_version SET version = 7")
+    conn.commit()
+
+    db.init_db(conn)  # should run _migrate_v7_to_v8
+
+    assert conn.execute(
+        "SELECT version FROM schema_version").fetchone()[0] == db.SCHEMA_VERSION
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "ocr_captions" in tables
     conn.close()
     os.unlink(path)
 
