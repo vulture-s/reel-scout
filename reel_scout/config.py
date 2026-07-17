@@ -85,6 +85,10 @@ AUDIO_HOP_SEC = float(os.getenv("AUDIO_HOP_SEC", "1.0"))
 
 # --- External tools ---
 FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg")
+# yt-dlp binary. Empty = auto-resolve, preferring the copy pinned in this venv
+# (`python -m yt_dlp`) over whatever `yt-dlp` is first on PATH — a stale PATH
+# build silently produces baffling extractor errors. See crawl/ytdlp.py.
+YTDLP_BIN = os.getenv("YTDLP_BIN", "")
 
 # --- Diarization ---
 DIARIZE_ENABLED = os.getenv("DIARIZE_ENABLED", "false").lower() in ("true", "1", "yes")
@@ -130,6 +134,7 @@ def show() -> str:
         f"AUDIO_WINDOW_SEC:     {AUDIO_WINDOW_SEC}",
         f"AUDIO_HOP_SEC:        {AUDIO_HOP_SEC}",
         f"FFMPEG_BIN:           {FFMPEG_BIN}",
+        f"YTDLP_BIN:            {YTDLP_BIN or '(auto)'}",
         f"DIARIZE_ENABLED:      {DIARIZE_ENABLED}",
         f"PYANNOTE_AUTH_TOKEN:  {'***' if PYANNOTE_AUTH_TOKEN else '(not set)'}",
         f"WEBHOOK_URL:          {WEBHOOK_URL or '(not set)'}",
