@@ -1,7 +1,7 @@
 # Reel Scout — Roadmap
 
 > 最後校正：2026-07-15（對照實際 code 逐項驗證，非憑記憶）
-> 2026-07-17 增補：crv 對標（§4E pacing 實測化 + 參考案例 crv）→ [`docs/crv-vs-reel-scout.md`](./crv-vs-reel-scout.md)
+> 2026-07-17 增補：crv 對標（§4E pacing/BPM 實測化 + §4F 燒錄字幕 OCR + 參考案例 crv）→ [`docs/crv-vs-reel-scout.md`](./crv-vs-reel-scout.md)
 
 ## 定位與 Non-goals
 
@@ -129,9 +129,22 @@ Phase 5  ██████████████████░░  ✅ Tool 
 
 - [ ] vision 階段加**確定性剪點偵測**：ffmpeg scene-change 已在用，cut 邊界本就抓得到 → 算 `cuts_per_minute` / 每鏡頭時長 / 節奏變化，存進 DB（keyframes 或新 shots 欄）
 - [ ] `pacing` 分數改成「**實測 shot-table 當證據，LLM 只在證據上解讀**」，非純主觀；scorer prompt 餵入實測 cuts/min
+- [ ] **音訊 BPM / energy 併進同批 evidence signal**：從 audio 抽 BPM、能量（客觀可測，如 librosa/onset）→ 一併當 pacing/energy 的證據層。**只偷 crv `--senses` 的可測部分**（BPM/energy），情緒曲線 / 色彩 mood 那種 model-dependent 主觀輸出不偷（會放大既有軟肋）
 - [ ] （延伸）把「分數也要能舉證」寫進 rubric——對齊 vibe-reader case study §6.1「舉證護欄機器可驗證」，從「主張舉證」推到「分數舉證」
 
-> ⚠️ 邊界：crv Pro 閉源、未購未跑，這裡偷的是**概念**（pacing 該用實測 shot-table 背書），不是抄它 cut 偵測的閾值或宣稱它準。
+> ⚠️ 邊界：crv Pro 閉源、未購未跑，這裡偷的是**概念**（pacing 該用實測 shot-table / BPM 背書），不是抄它 cut 偵測的閾值或宣稱它準。
+
+### 4F. 燒錄字幕 OCR → 補強 transcript / 信號可靠度
+
+**問題**：純視覺 / 零口白 / 吵雜片，L3（transcript）給不出料或不可靠（見 `prompts/signal-reliability-cheatsheet.md` 4 層信號模型）。目前只靠 L4 VLM「讀招牌字」，沒有專門的時間戳 OCR。
+
+**啟發來源**：crv Pro 的 `--ocr`——帶時間戳、可搜尋的螢幕文字，且**用畫面燒錄字幕反過來校正 STT**（CJK 特別強）。這等於在 L3↔L4 之間補一層**可實測的文字證據**，不是抄功能，是補你信號可靠度模型的真空。
+
+- [ ] keyframe 上跑時間戳 OCR（畫面燒錄字幕 / 大字 caption），存進 DB（可搜尋）
+- [ ] **用 OCR 到的燒錄字幕校正 / 補強 whisper transcript**：字幕與 STT 衝突時標記；STT 空（純視覺片）時 OCR 字幕補位
+- [ ] 併進 signal-reliability cheatsheet：OCR 燒錄字幕定位在 L3.5（比 L2 caption 可靠、可時間戳對齊，比 VLM 語意描述更硬）
+
+> ⚠️ 邊界：同 §4E，偷概念不抄實作；OCR 引擎選型（tesseract / PaddleOCR-CJK / VLM-as-OCR）另評，維持 Python 3.9 + minimal deps 原則。
 
 ---
 
@@ -177,7 +190,7 @@ Phase 5  ██████████████████░░  ✅ Tool 
 
 **完整對照** → [`docs/crv-vs-reel-scout.md`](./crv-vs-reel-scout.md)。
 
-**對本專案的關聯**：唯一 actionable 的一項已開 → §4E（pacing 實測化）。crv 的病毒開源→$19 漏斗**刻意不列為 Reel Scout 該補的功能**（違反「工具不是產品」定位），只當課程/內容的變現 case study 存檔。
+**對本專案的關聯**：可偷的實測強化已開兩條 → §4E（pacing/BPM 實測化）、§4F（燒錄字幕 OCR 補 transcript）。原則是**只偷讓判讀更可實測的部分**，crv 另一半 model-dependent 主觀輸出（情緒/mood/ai-report）、變速鑑識、病毒開源→$19 漏斗**刻意不偷**（前者放大既有軟肋、後者違反「工具不是產品」定位，只當課程 case study 存檔）。
 
 ### lapian-notes（2026-07 觀察）
 
