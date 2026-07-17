@@ -432,7 +432,10 @@ def _process_single(
                         import os as _os3
                         if _os3.path.exists(wav_path):
                             _os3.unlink(wav_path)
-                except (ImportError, OSError, RuntimeError) as e:
+                except Exception as e:  # noqa: BLE001
+                    # Audio is optional evidence — swallow ANY failure (incl.
+                    # subprocess.TimeoutExpired from a slow extract_wav) so it never
+                    # discards the shot metrics we already measured below.
                     print("  Audio rhythm skipped: %s" % e, file=sys.stderr)
                 if sm is not None or bpm is not None or energy is not None:
                     db.save_shot_metrics(
@@ -453,6 +456,11 @@ def _process_single(
     existing_analysis = db.get_analysis(conn, video_id)
     if existing_analysis:
         print("  Skipping analysis (already done)")
+        # Retrofit §4E measured metrics into a pre-existing analysis: merge is
+        # skipped here, so without this a re-analyzed (pre-§4E) video would store
+        # shot_metrics the scorer never sees. No-op once the blob already has them.
+        from .merger import backfill_measured
+        backfill_measured(conn, video_id)
     else:
         print("  Merging analysis...")
         merge_analysis(conn, video_id)

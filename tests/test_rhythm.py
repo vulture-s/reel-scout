@@ -49,6 +49,19 @@ def test_compute_rhythm_bad_path():
     assert rhythm.compute_rhythm("/nonexistent-xyz.wav") == {"energy": None, "bpm": None}
 
 
+def test_compute_rhythm_corrupt_wav_returns_none():
+    # A text file with a .wav name makes wave.open raise wave.Error, which must be
+    # swallowed into the None result rather than propagating.
+    fd, path = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    try:
+        with open(path, "w") as f:
+            f.write("definitely not a RIFF/WAV file")
+        assert rhythm.compute_rhythm(path) == {"energy": None, "bpm": None}
+    finally:
+        os.unlink(path)
+
+
 def test_estimate_bpm_in_range_when_present():
     pytest.importorskip("numpy")
     sr = 16000

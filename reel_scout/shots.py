@@ -102,6 +102,10 @@ def compute_shot_metrics(
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
     except (OSError, subprocess.SubprocessError):
         return None
+    # A nonzero exit (corrupt/unreadable video) means the scene pass never ran —
+    # returning it as a 0-cut clip would fabricate shot_count=1. Emit None instead.
+    if result.returncode != 0:
+        return None
 
     cuts = parse_cut_count(result.stderr)
     return metrics_from_cuts(cuts, duration)

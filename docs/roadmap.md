@@ -3,7 +3,7 @@
 > 最後校正：2026-07-15（對照實際 code 逐項驗證，非憑記憶）
 > 2026-07-17 增補：crv 對標（§4E pacing/BPM 實測化 + §4F 燒錄字幕 OCR + 參考案例 crv）→ [`docs/crv-vs-reel-scout.md`](./crv-vs-reel-scout.md)
 > 2026-07-18 drift 修正：測試 162→177（實跑驗證）+ 已完成清單補 `inspect`（PR #29 遺漏回寫）
-> 2026-07-18 §4E 實作：evidence-based pacing（shot-table cuts/min + audio energy/BPM）落地，schema v7，測試 →196
+> 2026-07-18 §4E 實作：evidence-based pacing（shot-table cuts/min + audio energy/BPM）落地，schema v7，測試 →200（含 codex+harness 雙審修正）
 
 ## 定位與 Non-goals
 
@@ -38,7 +38,7 @@ Phase 4  █████░░░░░░░░░░░░░░░░  🔨 C
 Phase 5  ██████████████████░░  ✅ Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅、CI ✅、config check ✅；PyPI build 就緒（上架待人工 token）
 ```
 
-**目前版本**：v1.1.0 ｜ **測試**：196 passing ｜ **DB schema**：v7
+**目前版本**：v1.1.0 ｜ **測試**：200 passing ｜ **DB schema**：v7
 
 ### 已完成功能清單（2026-07-15 驗證）
 

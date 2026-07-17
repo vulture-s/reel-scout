@@ -72,6 +72,47 @@ The timeline should capture the narrative arc: how the video progresses from hoo
 Return ONLY valid JSON, no explanation."""
 
 
+_MEASURED_FIELDS = ("cuts_per_minute", "shot_count", "avg_shot_sec",
+                    "audio_energy", "audio_bpm")
+
+
+def _measured_from_metrics(sm) -> dict:
+    """§4E measured pacing signals as a dict, dropping None fields; {} when there
+    is no shot_metrics row."""
+    if sm is None:
+        return {}
+    return {k: sm[k] for k in _MEASURED_FIELDS if sm[k] is not None}
+
+
+def backfill_measured(conn: sqlite3.Connection, video_id: str) -> None:
+    """Fold measured metrics into an EXISTING analysis when the merge step is
+    skipped (re-analyzing a video whose analysis predates §4E). Without this a
+    fresh Step 3.5 stores shot_metrics the scorer never sees — it only reads
+    full_json.measured, and merge_analysis doesn't re-run for analyzed videos."""
+    analysis = db.get_analysis(conn, video_id)
+    if analysis is None:
+        return
+    measured = _measured_from_metrics(db.get_shot_metrics(conn, video_id))
+    if not measured:
+        return
+    try:
+        data = json.loads(analysis["full_json"] or "{}")
+    except (ValueError, TypeError):
+        return
+    if data.get("measured") == measured:
+        return  # already current — don't rewrite
+    data["measured"] = measured
+    db.save_analysis(
+        conn, video_id,
+        summary=analysis["summary"] or "",
+        topics_json=analysis["topics_json"] or "[]",
+        hooks_json=analysis["hooks_json"] or "{}",
+        style_json=analysis["style_json"] or "{}",
+        engagement_signals_json=analysis["engagement_signals_json"] or "{}",
+        full_json=json.dumps(data, ensure_ascii=False),
+    )
+
+
 def merge_analysis(
     conn: sqlite3.Connection,
     video_id: str,
@@ -146,18 +187,9 @@ def merge_analysis(
     # §4E: fold measured pacing signals (cuts/min, shot count, audio energy/BPM)
     # into the analysis blob so the scorer reasons on evidence, not LLM vibes.
     # Only present when Step 3.5 measured them; None values are dropped.
-    sm = db.get_shot_metrics(conn, video_id)
-    if sm is not None:
-        measured = {
-            "cuts_per_minute": sm["cuts_per_minute"],
-            "shot_count": sm["shot_count"],
-            "avg_shot_sec": sm["avg_shot_sec"],
-            "audio_energy": sm["audio_energy"],
-            "audio_bpm": sm["audio_bpm"],
-        }
-        measured = {k: v for k, v in measured.items() if v is not None}
-        if measured:
-            data["measured"] = measured
+    measured = _measured_from_metrics(db.get_shot_metrics(conn, video_id))
+    if measured:
+        data["measured"] = measured
 
     db.save_analysis(
         conn, video_id,

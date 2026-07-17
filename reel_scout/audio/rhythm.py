@@ -12,6 +12,7 @@ No librosa/scipy: that would drag numba+scipy and break the repo's minimal-deps
 from __future__ import annotations
 
 import math
+import wave
 from typing import Dict, List, Optional
 
 from .panns import _read_wav_samples
@@ -61,6 +62,13 @@ def estimate_bpm(samples: List[float], sr: int) -> Optional[float]:
         window = ac[min_lag: max_lag + 1]
         if window.size == 0:
             return None
+        # Require the tempo peak to stand clearly above the autocorrelation floor
+        # (a fraction of the zero-lag energy). Flat autocorrelation — speech, noise,
+        # no beat — yields None rather than a confident-looking artifact.
+        zero_lag = float(ac[0])
+        peak = float(window.max())
+        if zero_lag <= 0.0 or peak < 0.1 * zero_lag:
+            return None
         best_lag = int(np.argmax(window)) + min_lag
         if best_lag <= 0:
             return None
@@ -73,7 +81,8 @@ def compute_rhythm(wav_path: str) -> Dict[str, Optional[float]]:
     """Read a mono WAV and return {'energy': float|None, 'bpm': float|None}."""
     try:
         samples, sr = _read_wav_samples(wav_path)
-    except (OSError, ValueError, EOFError):
+    except (OSError, ValueError, EOFError, wave.Error):
+        # wave.Error covers a text/corrupt file that isn't a real RIFF/WAV.
         return {"energy": None, "bpm": None}
     if not samples:
         return {"energy": None, "bpm": None}

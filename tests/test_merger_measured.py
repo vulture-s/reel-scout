@@ -49,6 +49,57 @@ def test_merge_folds_measured_metrics_into_full_json():
         os.unlink(path)
 
 
+def test_backfill_measured_retrofits_existing_analysis():
+    """Re-analyzing a pre-§4E video: analysis already exists (merge skipped), fresh
+    shot_metrics land — backfill must fold them into full_json so the scorer sees them."""
+    conn, path = _temp_db()
+    try:
+        vid = db.upsert_video(
+            conn, platform="youtube", platform_id="backfill",
+            url="https://youtube.com/shorts/backfill", title="T", duration_sec=30.0,
+        )
+        db.save_analysis(
+            conn, vid, summary="s", topics_json="[]", hooks_json="{}",
+            style_json="{}", engagement_signals_json="{}",
+            full_json=json.dumps({"summary": "s"}),  # pre-§4E shape (no measured)
+        )
+        db.save_shot_metrics(conn, vid, shot_count=8, cuts_per_minute=16.0, avg_shot_sec=3.75)
+
+        merger.backfill_measured(conn, vid)
+
+        full = json.loads(db.get_analysis(conn, vid)["full_json"])
+        assert full["measured"]["cuts_per_minute"] == 16.0
+        assert full["measured"]["shot_count"] == 8
+
+        # Idempotent — a second call is a no-op, not a crash or a change.
+        merger.backfill_measured(conn, vid)
+        assert json.loads(
+            db.get_analysis(conn, vid)["full_json"])["measured"]["cuts_per_minute"] == 16.0
+    finally:
+        conn.close()
+        os.unlink(path)
+
+
+def test_backfill_measured_noop_without_metrics():
+    conn, path = _temp_db()
+    try:
+        vid = db.upsert_video(
+            conn, platform="youtube", platform_id="nobf",
+            url="https://youtube.com/shorts/nobf", title="T",
+        )
+        db.save_analysis(
+            conn, vid, summary="s", topics_json="[]", hooks_json="{}",
+            style_json="{}", engagement_signals_json="{}",
+            full_json=json.dumps({"summary": "s"}),
+        )
+        merger.backfill_measured(conn, vid)  # no shot_metrics -> clean no-op
+        full = json.loads(db.get_analysis(conn, vid)["full_json"])
+        assert "measured" not in full
+    finally:
+        conn.close()
+        os.unlink(path)
+
+
 def test_merge_without_metrics_omits_measured():
     conn, path = _temp_db()
     try:

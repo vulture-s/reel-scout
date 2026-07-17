@@ -35,6 +35,7 @@ def test_metrics_from_cuts_multi():
 
 def test_compute_shot_metrics_mocked():
     fake = MagicMock()
+    fake.returncode = 0
     fake.stderr = "pts_time:1.0\npts_time:2.0\npts_time:3.0\n"
     with patch("reel_scout.shots.subprocess.run", return_value=fake), \
          patch("reel_scout.shots._probe_duration", return_value=60.0):
@@ -47,6 +48,7 @@ def test_compute_shot_metrics_mocked():
 
 def test_compute_shot_metrics_uses_passed_duration():
     fake = MagicMock()
+    fake.returncode = 0
     fake.stderr = "pts_time:1.0\n"
     with patch("reel_scout.shots.subprocess.run", return_value=fake) as run, \
          patch("reel_scout.shots._probe_duration") as probe:
@@ -54,6 +56,16 @@ def test_compute_shot_metrics_uses_passed_duration():
     probe.assert_not_called()  # no re-probe when duration is supplied
     assert m.cuts_per_minute == 0.5  # 1 cut in 2 minutes
     assert run.called
+
+
+def test_compute_shot_metrics_ffmpeg_nonzero_returns_none():
+    # A corrupt video makes ffmpeg exit nonzero; must NOT be read as a 0-cut clip.
+    fake = MagicMock()
+    fake.returncode = 1
+    fake.stderr = "moov atom not found\n"
+    with patch("reel_scout.shots._probe_duration", return_value=30.0), \
+         patch("reel_scout.shots.subprocess.run", return_value=fake):
+        assert compute_shot_metrics("/corrupt.mp4") is None
 
 
 def test_compute_shot_metrics_no_duration_returns_none():
