@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from .base import BaseCrawler, VideoMeta
 from .rate_limiter import get_limiter
+from . import ytdlp
 from .. import config
 
 
@@ -41,7 +42,7 @@ class InstagramCrawler(BaseCrawler):
         output_template = os.path.join(output_dir, f"ig_{post_id}.%(ext)s")
 
         # Build command with cookies if available
-        base_cmd = ["yt-dlp"]
+        base_cmd = list(ytdlp.base_cmd())
         cookies = config.IG_COOKIES_FILE
         if cookies and os.path.exists(cookies):
             base_cmd.extend(["--cookies", cookies])
@@ -53,7 +54,7 @@ class InstagramCrawler(BaseCrawler):
         )
         if result.returncode != 0:
             raise RuntimeError(
-                f"yt-dlp IG metadata failed (need cookies?): {result.stderr[:500]}"
+                f"yt-dlp IG metadata failed (need cookies?): {ytdlp.format_error(result.stderr)}"
             )
 
         info = json.loads(result.stdout)
@@ -69,7 +70,7 @@ class InstagramCrawler(BaseCrawler):
             dl_cmd, capture_output=True, text=True, timeout=300,
         )
         if result.returncode != 0:
-            raise RuntimeError(f"yt-dlp IG download failed: {result.stderr[:500]}")
+            raise RuntimeError(f"yt-dlp IG download failed: {ytdlp.format_error(result.stderr)}")
 
         expected = os.path.join(output_dir, f"ig_{post_id}.mp4")
         file_path = expected if os.path.exists(expected) else ""
@@ -93,7 +94,7 @@ class InstagramCrawler(BaseCrawler):
         Returns VideoMeta entries with metadata only (no downloaded files).
         Requires cookies for most profiles.
         """
-        base_cmd = ["yt-dlp"]
+        base_cmd = list(ytdlp.base_cmd())
         cookies = config.IG_COOKIES_FILE
         if cookies and os.path.exists(cookies):
             base_cmd.extend(["--cookies", cookies])
@@ -111,7 +112,7 @@ class InstagramCrawler(BaseCrawler):
         )
         if result.returncode != 0:
             raise RuntimeError(
-                f"yt-dlp browse failed (need cookies?): {result.stderr[:500]}"
+                f"yt-dlp browse failed (need cookies?): {ytdlp.format_error(result.stderr)}"
             )
 
         entries = []

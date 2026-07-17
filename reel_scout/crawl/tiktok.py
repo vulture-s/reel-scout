@@ -8,6 +8,7 @@ from typing import Optional
 
 from .base import BaseCrawler, VideoMeta
 from .rate_limiter import get_limiter
+from . import ytdlp
 from .. import config
 
 
@@ -38,12 +39,12 @@ class TikTokCrawler(BaseCrawler):
         output_template = os.path.join(output_dir, f"tt_{vid}.%(ext)s")
 
         # Get metadata
-        meta_cmd = ["yt-dlp", "--dump-json", "--no-download", url]
+        meta_cmd = ytdlp.cmd("--dump-json", "--no-download", url)
         result = subprocess.run(
             meta_cmd, capture_output=True, text=True, timeout=60,
         )
         if result.returncode != 0:
-            raise RuntimeError(f"yt-dlp TikTok metadata failed: {result.stderr[:500]}")
+            raise RuntimeError(f"yt-dlp TikTok metadata failed: {ytdlp.format_error(result.stderr)}")
 
         info = json.loads(result.stdout)
 
@@ -54,18 +55,17 @@ class TikTokCrawler(BaseCrawler):
             output_template = os.path.join(output_dir, f"tt_{vid}.%(ext)s")
 
         # Download
-        dl_cmd = [
-            "yt-dlp",
+        dl_cmd = ytdlp.cmd(
             "-f", "bestvideo+bestaudio/best",
             "--merge-output-format", "mp4",
             "-o", output_template,
             url,
-        ]
+        )
         result = subprocess.run(
             dl_cmd, capture_output=True, text=True, timeout=300,
         )
         if result.returncode != 0:
-            raise RuntimeError(f"yt-dlp TikTok download failed: {result.stderr[:500]}")
+            raise RuntimeError(f"yt-dlp TikTok download failed: {ytdlp.format_error(result.stderr)}")
 
         expected = os.path.join(output_dir, f"tt_{vid}.mp4")
         file_path = expected if os.path.exists(expected) else ""

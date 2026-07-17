@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from .base import BaseCrawler, VideoMeta
 from .rate_limiter import get_limiter
+from . import ytdlp
 from .. import config
 
 
@@ -39,8 +40,7 @@ class YouTubeCrawler(BaseCrawler):
         likelier the more videos you pull, which is exactly what channel crawling
         does, so it must never cost us media we already downloaded.
         """
-        cmd = [
-            "yt-dlp",
+        cmd = ytdlp.cmd(
             "--skip-download",
             "--write-subs",
             "--write-auto-subs",
@@ -50,7 +50,7 @@ class YouTubeCrawler(BaseCrawler):
             "--no-playlist",
             "--remote-components", "ejs:github",
             url,
-        ]
+        )
         try:
             subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         except Exception:
@@ -67,18 +67,17 @@ class YouTubeCrawler(BaseCrawler):
         output_template = os.path.join(output_dir, f"yt_{vid}.%(ext)s")
 
         # First get metadata
-        meta_cmd = [
-            "yt-dlp",
+        meta_cmd = ytdlp.cmd(
             "--dump-json",
             "--no-download",
             "--remote-components", "ejs:github",
             url,
-        ]
+        )
         result = subprocess.run(
             meta_cmd, capture_output=True, text=True, timeout=60,
         )
         if result.returncode != 0:
-            raise RuntimeError(f"yt-dlp metadata failed: {result.stderr[:500]}")
+            raise RuntimeError(f"yt-dlp metadata failed: {ytdlp.format_error(result.stderr)}")
 
         info = json.loads(result.stdout)
 
@@ -87,15 +86,14 @@ class YouTubeCrawler(BaseCrawler):
         # down with it. --no-abort-on-error does not prevent that: it governs
         # whether yt-dlp continues to the *next* playlist entry, not whether one
         # entry survives a partial failure.
-        dl_cmd = [
-            "yt-dlp",
+        dl_cmd = ytdlp.cmd(
             "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
             "--merge-output-format", "mp4",
             "-o", output_template,
             "--no-playlist",
             "--remote-components", "ejs:github",
             url,
-        ]
+        )
         result = subprocess.run(
             dl_cmd, capture_output=True, text=True, timeout=300,
         )
@@ -104,7 +102,7 @@ class YouTubeCrawler(BaseCrawler):
         expected = os.path.join(output_dir, f"yt_{vid}.mp4")
         if not os.path.exists(expected):
             # No media produced -> genuine download failure (not a subtitle hiccup).
-            raise RuntimeError(f"yt-dlp download failed: {result.stderr[:500]}")
+            raise RuntimeError(f"yt-dlp download failed: {ytdlp.format_error(result.stderr)}")
         file_path = expected
         file_size = os.path.getsize(file_path) if file_path else 0
 
@@ -131,21 +129,20 @@ class YouTubeCrawler(BaseCrawler):
 
     def browse(self, url: str, limit: int = 30) -> List[VideoMeta]:
         """List videos from a YouTube channel/playlist page."""
-        cmd = [
-            "yt-dlp",
+        cmd = ytdlp.cmd(
             "--flat-playlist",
             "--dump-json",
             "--no-download",
             "--playlist-end", str(limit),
             "--remote-components", "ejs:github",
             url,
-        ]
+        )
 
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=120,
         )
         if result.returncode != 0:
-            raise RuntimeError(f"yt-dlp browse failed: {result.stderr[:500]}")
+            raise RuntimeError(f"yt-dlp browse failed: {ytdlp.format_error(result.stderr)}")
 
         entries = []
         for line in result.stdout.strip().splitlines():

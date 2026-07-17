@@ -134,14 +134,13 @@ Phase 5  ████░░░░░░░░░░░░░░░░  🔨 Tool
 - [x] **`analyze <local-path>` — 平台關門的唯一實際保險**（見 Non-goals #1 的實測爆炸半徑）。2026-07-17 完成：
       `analyze` 的 URL 引數現在也吃本機檔路徑 → 註冊一列 `platform="local"`、`url == file_path == abspath`、`platform_id` 用內容 hash（同內容不同路徑會 dedup 到同一 video_id）的 row，Steps 2-5 完全不用改。
       duration 用獨立 probe，失敗留 `None`（**不**寫 `60.0` 謊言）；路徑打錯給 `FileNotFoundError: Local file not found` 而非 crawler 的 opaque「Unsupported platform」。
-- [ ] **yt-dlp 從 PATH 解析，不是用自己 pin 的那支**（2026-07-15 實測）：所有 crawler 都 `subprocess.run(["yt-dlp", ...])`，
-      吃到的是 PATH 上第一支。本機實測 PATH 上是 homebrew 的 `2026.03.17`、venv 裡是 `2026.07.04` — **`pyproject.toml` 的 yt-dlp 相依對 crawl 路徑等於裝飾**。
-      使用者裝了 reel-scout 卻配一支過期 yt-dlp 時，會得到一堆看不懂的 extractor 錯誤。
-      修法參考既有 `FFMPEG_BIN` 慣例（加 `YTDLP_BIN` config），但預設值要能優先解析到套件自己那支。
-- [ ] yt-dlp 相依健康檢查：平台 extractor 壞掉時給明確錯誤 + fallback 指引（這是本專案最脆弱的一環，見 Non-goals #1）
-- [ ] **錯誤訊息只印 `stderr[:500]`，真因常被前 500 字的 warning 淹掉**：2026-07-15 追字幕 429 時，畫面上是
-      「Deprecated Feature: Support for Python version 3.10 has been deprecated」，真正的 `ERROR: ... HTTP Error 429` 在後面。
-      截尾應該優先留 `ERROR:` 開頭的行，而不是盲切前 500 字元。
+- [x] **yt-dlp 從 PATH 解析，不是用自己 pin 的那支**（2026-07-15 實測）。2026-07-17 完成：新增 `crawl/ytdlp.py`，
+      所有 crawler 改走 `ytdlp.cmd(...)` — 預設用 `python -m yt_dlp`（本 venv 那支），可用 `YTDLP_BIN` 覆寫。
+      實測驗證：PATH 上是 homebrew `2026.03.17`、resolved 是 venv `2026.07.04`（先前 crawl 靜默吃到過期那支）。
+- [x] yt-dlp 相依健康檢查：平台 extractor 壞掉時給明確錯誤 + fallback 指引。2026-07-17：`ytdlp.format_error` 偵測
+      extractor-類失敗（Unable to extract / Unsupported URL / …）時附上 `<resolved> -U` / `pip install -U yt-dlp` 更新提示。
+- [x] **錯誤訊息只印 `stderr[:500]`，真因常被前 500 字的 warning 淹掉**（2026-07-15 追字幕 429 case）。2026-07-17：
+      `ytdlp.format_error` 優先留 `ERROR:` 開頭的行；無 ERROR 行才退回取 stderr 尾段（真因通常在尾不在頭）。
 - [ ] `config check` 涵蓋所有後端可達性
 
 ### 5C. 文件
