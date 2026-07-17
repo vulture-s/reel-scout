@@ -90,6 +90,17 @@ def main(argv: List[str] = None) -> None:
     p_view.add_argument("--no-open", dest="open_browser", action="store_false",
                         help="Don't auto-open the browser")
 
+    # --- inspect ---
+    p_inspect = sub.add_parser(
+        "inspect",
+        help="Interactive single-clip inspector web app (player + waveform + "
+             "filmstrip + transcript, all time-synced)")
+    p_inspect.add_argument("video", help="Video id (exact or unique prefix)")
+    p_inspect.add_argument("--host", default="127.0.0.1")
+    p_inspect.add_argument("--port", type=int, default=0, help="0 = pick a free port")
+    p_inspect.add_argument("--no-open", dest="open_browser", action="store_false",
+                           help="Don't auto-open the browser")
+
     # --- export ---
     p_export = sub.add_parser("export", help="Export analyses")
     p_export.add_argument("--format", choices=["json", "csv", "html"], default="json")
@@ -151,6 +162,7 @@ def main(argv: List[str] = None) -> None:
         "list": _cmd_list,
         "show": _cmd_show,
         "export": _cmd_export,
+        "inspect": _cmd_inspect,
         "view": _cmd_view,
         "score": _cmd_score,
         "compare": _cmd_compare,
@@ -448,6 +460,25 @@ def _cmd_show(args) -> None:
         print(json.dumps(full, ensure_ascii=False, indent=2))
 
     conn.close()
+
+
+def _cmd_inspect(args) -> None:
+    from . import db, inspector
+    from .compare import resolve_ref
+
+    conn = db.init_db()
+    video_id, matches = resolve_ref(conn, args.video)
+    conn.close()
+    if video_id is None:
+        if matches:
+            print("Ambiguous '%s' — matches %d videos: %s"
+                  % (args.video, len(matches), ", ".join(matches[:8])))
+        else:
+            print("No video matches '%s'." % args.video)
+        sys.exit(1)
+
+    inspector.serve(video_id, host=args.host, port=args.port,
+                    open_browser=args.open_browser)
 
 
 def _cmd_view(args) -> None:
