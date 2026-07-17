@@ -107,6 +107,7 @@ def main(argv: List[str] = None) -> None:
     p_research.add_argument("--no-analyze", dest="analyze", action="store_false",
                             help="Skip crawl+analyze; aggregate only what's already in the DB")
     p_research.add_argument("--json", action="store_true", help="Emit the aggregate as JSON")
+    p_research.add_argument("--out", help="Write a synthesized markdown report to this path")
 
     # --- stats ---
     p_stats = sub.add_parser("stats", help="Corpus statistics (tag distributions + score aggregates)")
@@ -524,7 +525,12 @@ def _cmd_research(args) -> None:
             depth=args.depth, llm_backend=args.llm_backend,
             do_analyze=args.analyze,
         )
-        if args.json:
+        if args.out:
+            md = research.render_report(report, llm_backend=args.llm_backend)
+            with open(args.out, "w", encoding="utf-8") as f:
+                f.write(md)
+            print("Wrote research report to %s (%d chars)" % (args.out, len(md)))
+        elif args.json:
             print(json.dumps(report, ensure_ascii=False, indent=2))
         else:
             print(_format_research_summary(report))

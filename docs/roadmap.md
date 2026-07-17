@@ -28,7 +28,7 @@ Phase 1  ████████████████████  ✅ Core 
 Phase 2  ████████████████████  ✅ Advanced Analysis（audio/PANNs + diarize/pyannote + scorer + LLM backends）
 Phase 2.5████████████████████  ✅ 品質強化（subtitle-first / keyframe budget / prompt pack / skill / 雙語轉錄）
 Phase 3  ██████████████████░░  🔨 Batch Intelligence — browse ✅、compare ✅、3C ✅、3D stats ✅；patterns ❌
-Phase 4  ░░░░░░░░░░░░░░░░░░░░  ⬜ Content Strategy Engine — 從分析到行動
+Phase 4  █████░░░░░░░░░░░░░░░░  🔨 Content Strategy Engine — 4A research ✅；inspire/track/MCP擴充 ❌
 Phase 5  ██████████░░░░░░░░░░  🔨 Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅；PyPI ❌、CI ❌
 ```
 
@@ -98,9 +98,9 @@ Phase 5  ██████████░░░░░░░░░░  🔨 Tool
 
 **目標**：把分析資料變成可執行的產出。全部維持 CLI/MCP 形態。
 
-### 4A. 競品研究報告
+### 4A. 競品研究報告 ✅（2026-07-17）
 
-- [ ] `reel-scout research --niche "<niche>" --channels 5 --depth 20` — 爬取 → 全部 analyze → 跨頻道比較 → 產出 markdown 報告（niche 共通模式、差異化機會、內容策略）
+- [x] `reel-scout research --niche "<niche>" --channels <urls...> --depth 20` — 爬取 → 全部 analyze → 跨頻道聚合 → 產出 markdown 報告（niche 共通模式、差異化機會、內容策略）。編排復用 browse + `pipeline.run(score=True)` + `compare.collect_video`；channel 歸屬記憶體映射（無 channel 表）；`aggregate()` 純函式；LLM 合成走 `get_llm().complete()`，不可達時退回 deterministic data-only 報告；`--out` 落檔、`--json` 出聚合、`--no-analyze` 只吃現有 DB
 
 ### 4B. 內容靈感產生器
 
@@ -185,5 +185,5 @@ Phase 5  ██████████░░░░░░░░░░  🔨 Tool
 |-----------|------|
 | **v0.3** | ~~3A 補完（`crawl --channel/--playlist`）~~ ✅ 2026-07-15 + ~~3B（`compare`）~~ ✅ 2026-07-17 |
 | **v0.4** | ~~3C 標籤正規化~~ ✅ + ~~3D（`stats`）~~ ✅ 2026-07-17（達成，隨 v1.0 一次發布） |
-| **v0.5** | 4A（競品研究報告） |
+| **v0.5** | ~~4A（競品研究報告）~~ ✅ 2026-07-17（達成，隨 v1.0 一次發布） |
 | **v1.0** | 5A + 5B 完成（PyPI 可安裝 + CI 綠 + yt-dlp 健康檢查） |

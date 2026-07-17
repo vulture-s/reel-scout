@@ -12,10 +12,12 @@ from after the fact.
 """
 from __future__ import annotations
 
+import json as _json
 from collections import Counter
 from typing import Any, Dict, List, Optional
 
 from . import compare, db
+from .llm import get_llm
 
 # Tag fields aggregated per channel / niche (from compare.collect_video + the
 # normalized content_structure column).
@@ -148,3 +150,77 @@ def run_research(
         channel_to_ids[channel_url] = ids
 
     return aggregate(conn, channel_to_ids, niche)
+
+
+# --- Markdown report synthesis (PR-E) ---
+
+_REPORT_PROMPT = """You are a short-form video content strategist. Using ONLY the \
+aggregated competitor-analysis data below, write a concise markdown report for the \
+niche "{niche}".
+
+## Aggregated data (per channel + niche-wide)
+{data}
+
+Write markdown with exactly these sections:
+# {niche} — Competitor Research
+## Common patterns
+Which formats, pacing, hook types, content structures and CTAs recur across the \
+niche — cite the distributions.
+## Differentiation opportunities
+Under-used angles and gaps; where high performers (higher avg_overall) differ from \
+the rest.
+## Content strategy recommendations
+3-5 concrete, actionable recommendations, each grounded in the numbers above.
+
+Ground every claim in the data. Output ONLY the markdown report, no preamble."""
+
+
+def _build_report_prompt(report: Dict[str, Any]) -> str:
+    return _REPORT_PROMPT.format(
+        niche=report["niche"],
+        data=_json.dumps(report, ensure_ascii=False, indent=2),
+    )
+
+
+def _fallback_report(report: Dict[str, Any]) -> str:
+    """Deterministic data-only report, used when no LLM is reachable so the
+    command still yields something useful instead of erroring."""
+    nw = report["niche_wide"]
+    lines = ["# %s — Competitor Research" % report["niche"], ""]
+    lines.append("_LLM synthesis unavailable — data-only report._\n")
+    lines.append("## Niche-wide")
+    lines.append("- Channels: %d | videos: %d (analyzed %d)" % (
+        report["channel_count"], nw["video_count"], nw["analyzed_count"]))
+    lines.append("- Modal format: %s | modal structure: %s | avg overall: %s" % (
+        nw["modal_format"], nw["modal_structure"], nw["avg_overall"]))
+    for field, dist in nw["distributions"].items():
+        if dist:
+            lines.append("- %s: %s" % (
+                field, ", ".join("%s=%d" % (k, v) for k, v in dist.items())))
+    lines.append("\n## Per channel")
+    for ch in report["channels"]:
+        lines.append("- **%s** (%s): %d videos, modal_format=%s, avg_overall=%s" % (
+            ch.get("uploader") or "?", ch["channel_url"],
+            ch["video_count"], ch["modal_format"], ch["avg_overall"]))
+    return "\n".join(lines)
+
+
+def render_report(
+    report: Dict[str, Any],
+    llm_backend: Optional[str] = None,
+    max_tokens: int = 2000,
+) -> str:
+    """Synthesize a markdown report from the structured aggregate. Falls back to
+    a deterministic data-only report if the LLM is unreachable/empty.
+
+    Note: a multi-channel report can be large; max_tokens defaults high (2000)
+    and omlx/openclaw impose a 120s urllib timeout — feed the aggregate (compact
+    structured data), never raw transcripts.
+    """
+    prompt = _build_report_prompt(report)
+    try:
+        md = get_llm(llm_backend).complete(prompt, max_tokens=max_tokens, temperature=0.3).strip()
+    except Exception as e:  # noqa: BLE001 - any backend failure → data-only report
+        print("  ! LLM report synthesis failed (%s); writing data-only report" % e)
+        md = ""
+    return md or _fallback_report(report)

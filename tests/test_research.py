@@ -119,3 +119,49 @@ def test_run_research_no_analyze_aggregates_existing_db():
     finally:
         conn.close()
         os.unlink(path)
+
+
+def test_render_report_uses_llm_and_carries_data(monkeypatch):
+    conn, path = _fresh_db()
+    try:
+        mapping = _two_channel_corpus(conn)
+        report = research.aggregate(conn, mapping, niche="test-niche")
+
+        captured = {}
+
+        class _FakeLLM:
+            def complete(self, prompt, max_tokens=800, temperature=0.1):
+                captured["prompt"] = prompt
+                captured["max_tokens"] = max_tokens
+                return "# test-niche — Competitor Research\n\nMocked body."
+
+        monkeypatch.setattr(research, "get_llm", lambda backend=None: _FakeLLM())
+        md = research.render_report(report, max_tokens=1500)
+        assert md.startswith("# test-niche — Competitor Research")
+        assert "Mocked body." in md
+        # prompt must carry the aggregated numbers, not raw transcripts
+        assert "niche_wide" in captured["prompt"]
+        assert "talking_head" in captured["prompt"]
+        assert captured["max_tokens"] == 1500
+    finally:
+        conn.close()
+        os.unlink(path)
+
+
+def test_render_report_falls_back_when_llm_unavailable(monkeypatch):
+    conn, path = _fresh_db()
+    try:
+        report = research.aggregate(conn, _two_channel_corpus(conn), niche="n")
+
+        def _boom(backend=None):
+            raise RuntimeError("no backend")
+
+        monkeypatch.setattr(research, "get_llm", _boom)
+        md = research.render_report(report)
+        # data-only fallback still produces a usable, grounded report
+        assert md.startswith("# n — Competitor Research")
+        assert "data-only report" in md
+        assert "avg overall" in md
+    finally:
+        conn.close()
+        os.unlink(path)
