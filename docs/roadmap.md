@@ -29,7 +29,7 @@ Phase 2  ████████████████████  ✅ Advan
 Phase 2.5████████████████████  ✅ 品質強化（subtitle-first / keyframe budget / prompt pack / skill / 雙語轉錄）
 Phase 3  ██████████████████░░  🔨 Batch Intelligence — browse ✅、compare ✅、3C ✅、3D stats ✅；patterns ❌
 Phase 4  █████░░░░░░░░░░░░░░░░  🔨 Content Strategy Engine — 4A research ✅；inspire/track/MCP擴充 ❌
-Phase 5  ██████████░░░░░░░░░░  🔨 Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅；PyPI ❌、CI ❌
+Phase 5  ██████████████████░░  🔨 Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅、CI ✅、config check ✅；PyPI 上架待人工 token
 ```
 
 **目前版本**：v0.3.0 ｜ **測試**：133 passing ｜ **DB schema**：v4
@@ -132,7 +132,7 @@ Phase 5  ██████████░░░░░░░░░░  🔨 Tool
 
 ### 5B. 不會安靜爛掉
 
-- [ ] **GitHub Actions CI** — pytest matrix（目前無 `.github/workflows`，84 測只在本機跑）
+- [x] **GitHub Actions CI** — pytest matrix Python 3.9–3.13（2026-07-17，`.github/workflows/ci.yml`）；push master + 每個 PR 觸發，只裝 base+dev（suite 全 headless，2 個 onnxruntime 測改 `importorskip`）。實測 5 條 leg 全綠
 - [x] **`analyze <local-path>` — 平台關門的唯一實際保險**（見 Non-goals #1 的實測爆炸半徑）。2026-07-17 完成：
       `analyze` 的 URL 引數現在也吃本機檔路徑 → 註冊一列 `platform="local"`、`url == file_path == abspath`、`platform_id` 用內容 hash（同內容不同路徑會 dedup 到同一 video_id）的 row，Steps 2-5 完全不用改。
       duration 用獨立 probe，失敗留 `None`（**不**寫 `60.0` 謊言）；路徑打錯給 `FileNotFoundError: Local file not found` 而非 crawler 的 opaque「Unsupported platform」。
@@ -143,7 +143,7 @@ Phase 5  ██████████░░░░░░░░░░  🔨 Tool
       extractor-類失敗（Unable to extract / Unsupported URL / …）時附上 `<resolved> -U` / `pip install -U yt-dlp` 更新提示。
 - [x] **錯誤訊息只印 `stderr[:500]`，真因常被前 500 字的 warning 淹掉**（2026-07-15 追字幕 429 case）。2026-07-17：
       `ytdlp.format_error` 優先留 `ERROR:` 開頭的行；無 ERROR 行才退回取 stderr 尾段（真因通常在尾不在頭）。
-- [ ] `config check` 涵蓋所有後端可達性
+- [x] `config check` 涵蓋所有後端可達性（2026-07-17）：yt-dlp 改用 `ytdlp.base_cmd()`（跟 runtime 一致，非硬寫）、LLM 可達性依 `LLM_BACKEND` 查、補 audio/diarize/instagram optional 後端（已配置才查，diarize 缺 token 標紅）；`_run_config_checks()` 抽成結構化可測函式
 
 ### 5C. 文件
 

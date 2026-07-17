@@ -614,65 +614,95 @@ def _cmd_db(args) -> None:
         print("Use: reel-scout db {stats|reset|migrate}")
 
 
+def _probe_cmd(cmd, timeout=5):
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if r.returncode == 0:
+            first = (r.stdout.strip().split("\n") or [""])[0]
+            return True, first or "ok"
+        return False, "exit %d" % r.returncode
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)
+
+
+def _probe_http(url, timeout=3):
+    import urllib.request
+    try:
+        urllib.request.urlopen(url, timeout=timeout)
+        return True, "%s (reachable)" % url
+    except Exception as e:  # noqa: BLE001
+        return False, "%s (NOT reachable: %s)" % (url, e)
+
+
+def _probe_import(module):
+    import importlib.util
+    try:
+        return importlib.util.find_spec(module) is not None
+    except Exception:  # noqa: BLE001 - a broken parent package shouldn't crash the check
+        return False
+
+
+def _run_config_checks():
+    """Return [(name, ok, detail)] for every backend the current config selects.
+
+    Only the *configured* backends are probed (VLM/LLM keyed off their backend
+    setting; the optional audio/diarize/instagram groups only when enabled), and
+    yt-dlp is resolved the same way the runtime resolves it (crawl/ytdlp)."""
+    from .crawl import ytdlp
+    checks = []
+
+    checks.append(("ffmpeg", *_probe_cmd([config.FFMPEG_BIN, "-version"])))
+    # yt-dlp: probe the SAME binary the crawlers use, not a hardcoded "yt-dlp".
+    checks.append(("yt-dlp", *_probe_cmd(list(ytdlp.base_cmd()) + ["--version"])))
+
+    if config.WHISPER_BACKEND == "faster-whisper":
+        ok = _probe_import("faster_whisper")
+        checks.append(("whisper", ok, "faster-whisper %s" % ("installed" if ok else "NOT installed")))
+    else:
+        ok, _ = _probe_cmd(["whisper", "--help"])
+        checks.append(("whisper", ok, "whisper.cpp %s" % ("found" if ok else "NOT found")))
+
+    vlm_url = config.OMLX_BASE_URL if config.VLM_BACKEND == "omlx" else config.OLLAMA_BASE_URL
+    checks.append(("VLM (%s)" % config.VLM_BACKEND, *_probe_http(vlm_url)))
+
+    # LLM reachability keyed off LLM_BACKEND (previously never checked as such).
+    llm_url = {
+        "omlx": config.OMLX_BASE_URL,
+        "ollama": config.OLLAMA_BASE_URL,
+        "openclaw": config.OPENCLAW_BASE_URL,
+    }.get(config.LLM_BACKEND)
+    if llm_url:
+        checks.append(("LLM (%s)" % config.LLM_BACKEND, *_probe_http(llm_url)))
+    else:
+        checks.append(("LLM (%s)" % config.LLM_BACKEND, False, "unknown backend"))
+
+    # Optional backends — only probed when configured/enabled.
+    if config.PANNS_MODEL_PATH:
+        ok = _probe_import("onnxruntime")
+        checks.append(("audio/PANNs", ok, "onnxruntime %s" % ("installed" if ok else "NOT installed")))
+    if config.DIARIZE_ENABLED:
+        ok = _probe_import("pyannote.audio")
+        tok = "token set" if config.PYANNOTE_AUTH_TOKEN else "TOKEN MISSING"
+        checks.append(("diarize", ok and bool(config.PYANNOTE_AUTH_TOKEN),
+                       "pyannote.audio %s, %s" % ("installed" if ok else "NOT installed", tok)))
+    if config.IG_COOKIES_FILE:
+        ok = _probe_import("instaloader")
+        cookies_ok = os.path.exists(config.IG_COOKIES_FILE)
+        checks.append(("instagram", ok and cookies_ok,
+                       "instaloader %s, cookies %s" % (
+                           "installed" if ok else "NOT installed",
+                           "found" if cookies_ok else "NOT found")))
+    return checks
+
+
 def _cmd_config(args) -> None:
     if args.config_command == "show":
         print(config.show())
 
     elif args.config_command == "check":
-        print("Checking external tools...\n")
-        # ffmpeg
-        try:
-            r = subprocess.run(
-                [config.FFMPEG_BIN, "-version"],
-                capture_output=True, text=True, timeout=5,
-            )
-            ver = r.stdout.split("\n")[0] if r.returncode == 0 else "ERROR"
-            print(f"  ffmpeg:    {ver}")
-        except Exception as e:
-            print(f"  ffmpeg:    NOT FOUND ({e})")
-
-        # yt-dlp
-        try:
-            r = subprocess.run(
-                ["yt-dlp", "--version"],
-                capture_output=True, text=True, timeout=5,
-            )
-            print(f"  yt-dlp:    {r.stdout.strip()}")
-        except Exception as e:
-            print(f"  yt-dlp:    NOT FOUND ({e})")
-
-        # Whisper
-        if config.WHISPER_BACKEND == "faster-whisper":
-            try:
-                import faster_whisper
-                print(f"  whisper:   faster-whisper (installed)")
-            except ImportError:
-                print(f"  whisper:   faster-whisper NOT installed")
-        else:
-            try:
-                r = subprocess.run(
-                    ["whisper", "--help"],
-                    capture_output=True, text=True, timeout=5,
-                )
-                print(f"  whisper:   whisper.cpp (found)")
-            except Exception:
-                print(f"  whisper:   whisper.cpp NOT found")
-
-        # VLM endpoint
-        import urllib.request
-        vlm_url = config.OMLX_BASE_URL if config.VLM_BACKEND == "omlx" else config.OLLAMA_BASE_URL
-        try:
-            urllib.request.urlopen(vlm_url, timeout=3)
-            print(f"  VLM:       {config.VLM_BACKEND} @ {vlm_url} (reachable)")
-        except Exception:
-            print(f"  VLM:       {config.VLM_BACKEND} @ {vlm_url} (NOT reachable)")
-
-        # OpenClaw endpoint
-        try:
-            urllib.request.urlopen(config.OPENCLAW_BASE_URL, timeout=3)
-            print(f"  OpenClaw:  {config.OPENCLAW_BASE_URL} (reachable)")
-        except Exception:
-            print(f"  OpenClaw:  {config.OPENCLAW_BASE_URL} (NOT reachable)")
+        print("Checking configured backends...\n")
+        for name, ok, detail in _run_config_checks():
+            print("  %s %-14s %s" % ("OK" if ok else "!!", name + ":", detail))
 
     else:
         print("Use: reel-scout config {show|check}")
