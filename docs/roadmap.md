@@ -5,6 +5,7 @@
 > 2026-07-18 drift 修正：測試 162→177（實跑驗證）+ 已完成清單補 `inspect`（PR #29 遺漏回寫）
 > 2026-07-18 §4E 實作：evidence-based pacing（shot-table cuts/min + audio energy/BPM）落地，schema v7，測試 →200（含 codex+harness 雙審修正）
 > 2026-07-18 §4F 實作：燒錄字幕 OCR / L3.5（vlm 復用 + tesseract opt-in）落地，schema v8，測試 →207
+> 2026-07-18 Wave 3 一波：3B patterns / 3A instaloader / 4B inspire / 4D track（schema v9）/ 4C MCP(8 tools) / 5A CHANGELOG + 5C docs 全落地，測試 →225
 
 ## 定位與 Non-goals
 
@@ -39,7 +40,7 @@ Phase 4  █████░░░░░░░░░░░░░░░░  🔨 C
 Phase 5  ██████████████████░░  ✅ Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅、CI ✅、config check ✅；PyPI build 就緒（上架待人工 token）
 ```
 
-**目前版本**：v1.1.0 ｜ **測試**：207 passing ｜ **DB schema**：v8
+**目前版本**：v1.1.0 ｜ **測試**：225 passing ｜ **DB schema**：v9
 
 ### 已完成功能清單（2026-07-15 驗證）
 
@@ -57,8 +58,8 @@ Phase 5  ██████████████████░░  ✅ Tool 
 - **On-screen text / L3.5** (§4F, schema v8): `reel_scout/ocr.py` 收集帶時間戳的燒錄字幕（`OCR_ENGINE=vlm` 復用 `text_in_frame`／`tesseract` opt-in guarded），存 `ocr_captions` 表，merger 加「On-screen Text」區塊；cheatsheet 新增 L3.5 層
 - **Prompt pack**: 6 份 reverse-decode prompt（開源，作為預設分析層）
 - **Skill**: cross-surface skill 打包（SKILL.md + manifests）
-- **MCP Server**: stdio NDJSON JSON-RPC, 5 tools
-- **CLI**: browse / crawl / analyze / transcribe / vision / list / show / export（json/csv/**html**）/ score / compare / stats / research / **view** / **inspect** / db / config
+- **MCP Server**: stdio NDJSON JSON-RPC, 8 tools（crawl/analyze/list_videos/show_video/export + patterns/inspire/research）
+- **CLI**: browse / crawl / analyze / transcribe / vision / list / show / export（json/csv/**html**）/ score / compare / stats / **patterns** / **inspire** / **track** / research / **view** / **inspect** / db / config
 - **Viewer** (v1.1.0): 唯讀檢視器三面——`export --format html`（自包含單檔、零安裝 take-home）+ `reel-scout view`（本機 server、live demo）+ `reel-scout inspect`（互動 single-clip：transcript↔keyframe 時間同步、可點時間軸跳播，port 自 arkiv，PR #29）；顯示拆解結構+keyframe+分數+逐字，無動作按鈕
 - **DB**: SQLite WAL + batch resume + schema migration（→ v6）
 
@@ -71,7 +72,7 @@ Phase 5  ██████████████████░░  ✅ Tool 
 ### 3A. 批量爬取 + 頻道模式 🔨 半套（2026-07-15 補完主體）
 
 - [x] `reel-scout browse <profile_url>` — 帳號頁瀏覽（2026-04-16）
-- [ ] IG browse: instaloader fallback — **未實作**（2026-07-15 查證：`git log --all -S instaloader -- reel_scout/` 零 commit；`pyproject.toml` 有 `instagram` optional extra 但 `reel_scout/` 零引用；`InstagramCrawler.browse` 是純 yt-dlp，失敗即 `RuntimeError`。此項先前誤標已完成）
+- [x] IG browse: instaloader fallback（2026-07-18）：`InstagramCrawler.browse` yt-dlp 失敗時試 instaloader（`instagram` extra，guarded；裝不到就把原 yt-dlp 錯誤帶提示丟出）
 - [x] browse 三種輸出模式：human / `--json` / `--urls-only`（2026-04-16）
 - [x] pyproject: `instagram` optional dependency group（2026-04-16）
 - [x] `crawl --channel <URL> --limit N` — browse → crawl 串起來（2026-07-15，PR #9）
@@ -87,7 +88,7 @@ Phase 5  ██████████████████░░  ✅ Tool 
 - [x] `reel-scout compare <video_id_1> <video_id_2> ...` — 結構化對比表（2026-07-17）。純讀 DB
       已存的 analyses/scores（duration / format / pacing / hook type / cta type / content type + craft 四維分 + overall），
       轉置表（欄=影片、列=欄位）+ `--json`；接受 exact id 或唯一 prefix；缺分析欄位留 `—` 不捏造；平台關門也能跑。
-- [ ] `reel-scout patterns --channel <channel_id>` — 頻道模式分析（平均長度、hook 類型分佈、CTA 模式、高分 vs 低分結構差異、發布節奏）
+- [x] `reel-scout patterns --channel` — 頻道模式分析（2026-07-18）：`patterns.py`，平均長度、hook/CTA/structure 分佈、高分 vs 低分半結構對比（median split）、發布節奏（upload_date gap）。純讀 DB。key on uploader substring
 
 ### 3C. 模式標籤系統 ✅
 
@@ -114,17 +115,17 @@ Phase 5  ██████████████████░░  ✅ Tool 
 
 ### 4B. 內容靈感產生器
 
-- [ ] `reel-scout inspire --based-on <video_id> --angle <twist>` — 基於高分影片的變體
+- [x] `reel-scout inspire --based-on <ref> --angle <twist>` — 基於高分影片的變體（2026-07-18）：`inspire.py`，一次 LLM call 產 titles/hook script/structure outline/長度建議，non-JSON 退回 raw
 - [ ] 輸出：標題建議 + hook 腳本 + 結構大綱 + 推薦長度
 
 ### 4C. MCP 擴充
 
-- [ ] MCP tool 擴充：`reel_scout_research`、`reel_scout_inspire`（讓 agent 直接呼叫，不用經 bash）
+- [x] MCP tool 擴充（2026-07-18）：`patterns`、`inspire`、`research` 三個新 tool（5→8），LLM/network tool redirect stdout→stderr
 
 ### 4D. 表現回填 + A/B 結構比較
 
-- [ ] `reel-scout track --my-video <url> --views 1500 --likes 89` — 記錄實際表現
-- [ ] 對比分析：自己的影片 vs 競品的結構差異 → 迭代建議
+- [x] `reel-scout track --my-video <ref> --views --likes --comments` — 記錄實際表現（2026-07-18）：`track.py` + `performance` 表（schema v9），接受 URL 或 id/prefix
+- [x] 對比分析：自己的影片 vs 競品的結構差異 → 迭代建議（2026-07-18）：`compare_to_corpus` **確定性**（非 LLM）比對高分語料（overall≥7）的 modal structure/pacing + avg cuts/min，產具體迭代建議
 
 ### 4E. 評分證據化：pacing 從「LLM 猜」→「實測 shot-table」
 
@@ -165,7 +166,7 @@ Phase 5  ██████████████████░░  ✅ Tool 
 - [x] README（EN + 繁中）+ 安裝/使用說明
 - [x] `pyproject.toml` 完整（entry points、optional deps 分組）
 - [ ] **PyPI 發布** — `pip install reel-scout`（目前 PyPI 404）
-- [ ] 版本/CHANGELOG 流程固定（v0.2.0 已建 CHANGELOG.md）
+- [x] 版本/CHANGELOG 流程固定（2026-07-18）：CHANGELOG 加 Unreleased 段，Wave 3 每 feature 一條 + schema v6→v9 記錄
 
 ### 5B. 不會安靜爛掉
 
@@ -184,8 +185,8 @@ Phase 5  ██████████████████░░  ✅ Tool 
 
 ### 5C. 文件
 
-- [ ] `docs/`：MCP 整合、LLM backend 設定、prompt pack 用法
-- [ ] 範例輸入 → 範例輸出（不含版權素材）
+- [x] `docs/`：命令 + MCP + backend + config 參考（2026-07-18）→ [`docs/commands.md`](./commands.md)
+- [ ] 範例輸入 → 範例輸出（不含版權素材）— 待補（需非版權素材樣本）
 
 ---
 

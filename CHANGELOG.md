@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **§4E evidence-based pacing** — `shots.py` measures cut rhythm (cuts/min, shot
+  count, avg shot length) via a dedicated full-clip ffmpeg scene pass; `audio/rhythm.py`
+  adds RMS energy + best-effort BPM (numpy-gated, no librosa). Stored in the new
+  `shot_metrics` table and folded into the analysis so the `pacing` craft score
+  rests on measured evidence, not LLM vibes. Config `SHOT_METRICS_ENABLED`.
+- **§4F on-screen text (L3.5)** — `ocr.py` collects burned-in captions with
+  timestamps: `OCR_ENGINE=vlm` (default) reuses the VLM's `text_in_frame`;
+  `tesseract` is an opt-in engine (`ocr` extra, guarded). Stored in `ocr_captions`,
+  fed into merge as an L3.5 signal layer; new L3.5 tier in the reliability cheatsheet.
+- **`patterns --channel`** — per-channel pattern analysis: length, hook/CTA/structure
+  mix, top-vs-bottom-half structural contrast, posting cadence. (3B)
+- **`inspire --based-on [--angle]`** — generate a fresh content variant (titles,
+  hook script, structure outline, length) from a high-scoring video. (4B)
+- **`track --my-video --views --likes`** — record real performance and get
+  deterministic structural iteration suggestions vs the top-scored corpus. (4D)
+- **IG browse instaloader fallback** when yt-dlp's Instagram extractor breaks. (3A)
+- **MCP tools** `patterns`, `inspire`, `research` (5 → 8 tools). (4C)
+
+### Changed
+- DB schema v6 → v9 (added `shot_metrics`, `ocr_captions`, `performance` tables).
+
 ## 1.1.0 — 2026-07-17
 
 ### Added
