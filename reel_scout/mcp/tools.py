@@ -72,6 +72,41 @@ def list_tools() -> List[Dict[str, Any]]:
                 },
             },
         },
+        {
+            "name": "patterns",
+            "description": "Per-channel pattern analysis (length, hook/CTA/structure mix, high-vs-low, cadence). Read-only.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"channel": {"type": "string"}},
+                "required": ["channel"],
+            },
+        },
+        {
+            "name": "inspire",
+            "description": "Generate a fresh content variant (titles/hook/structure) from a high-scoring video",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "based_on": {"type": "string"},
+                    "angle": {"type": "string"},
+                },
+                "required": ["based_on"],
+            },
+        },
+        {
+            "name": "research",
+            "description": "Competitor research: expand channels, aggregate niche patterns, return the report data. analyze=true crawls+analyzes (slow, network); default reads existing DB.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "niche": {"type": "string"},
+                    "channels": {"type": "array", "items": {"type": "string"}},
+                    "depth": {"type": "integer", "default": 20},
+                    "analyze": {"type": "boolean", "default": False},
+                },
+                "required": ["niche", "channels"],
+            },
+        },
     ]
 
 
@@ -82,6 +117,9 @@ def call_tool(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         "list_videos": _tool_list_videos,
         "show_video": _tool_show_video,
         "export": _tool_export,
+        "patterns": _tool_patterns,
+        "inspire": _tool_inspire,
+        "research": _tool_research,
     }
     handler = handlers.get(name)
     if handler is None:
@@ -290,6 +328,57 @@ def _tool_show_video(args: Dict[str, Any]) -> Dict[str, Any]:
                 }
             )
         return _text_result(payload)
+    finally:
+        conn.close()
+
+
+def _tool_patterns(args: Dict[str, Any]) -> Dict[str, Any]:
+    channel = args.get("channel", "")
+    if not channel:
+        return _error_result("channel is required")
+    from .. import patterns as patterns_mod
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        return _text_result(patterns_mod.compute_patterns(conn, channel))
+    finally:
+        conn.close()
+
+
+def _tool_inspire(args: Dict[str, Any]) -> Dict[str, Any]:
+    based_on = args.get("based_on", "")
+    if not based_on:
+        return _error_result("based_on is required")
+    from .. import inspire as inspire_mod
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        with contextlib.redirect_stdout(sys.stderr):
+            data = inspire_mod.generate_inspiration(conn, based_on, angle=args.get("angle", ""))
+        return _text_result(data)
+    finally:
+        conn.close()
+
+
+def _tool_research(args: Dict[str, Any]) -> Dict[str, Any]:
+    niche = args.get("niche", "")
+    channels = args.get("channels") or []
+    if not niche or not channels:
+        return _error_result("niche and channels are required")
+    from .. import research as research_mod
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        with contextlib.redirect_stdout(sys.stderr):
+            agg = research_mod.run_research(
+                conn, niche, channels,
+                depth=int(args.get("depth", 20)),
+                do_analyze=bool(args.get("analyze", False)),
+            )
+        return _text_result(agg)
     finally:
         conn.close()
 
