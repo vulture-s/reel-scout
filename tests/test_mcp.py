@@ -21,7 +21,7 @@ def _parse_result(result: Any) -> Any:
 
 def test_list_tools_count():
     tool_defs = tools.list_tools()
-    assert len(tool_defs) == 5
+    assert len(tool_defs) == 8
 
 
 def test_list_tools_schema():
@@ -36,6 +36,62 @@ def test_call_list_videos_empty(temp_db):
     result = tools.call_tool("list_videos", {})
     assert "isError" not in result
     assert _parse_result(result) == []
+
+
+def test_call_patterns_requires_channel(temp_db):
+    assert tools.call_tool("patterns", {}).get("isError")
+
+
+def test_call_patterns_reads_channel(temp_db):
+    conn = sqlite3.connect(temp_db)
+    conn.row_factory = sqlite3.Row
+    vid = db.upsert_video(conn, platform="youtube", platform_id="mp",
+                          url="https://youtube.com/shorts/mp", uploader="Chan", duration_sec=20.0)
+    db.save_analysis(conn, vid, summary="s", topics_json="[]", hooks_json="{}",
+                     style_json="{}", engagement_signals_json="{}",
+                     full_json=json.dumps({"content_structure": "listicle",
+                                           "hook": {"opening_type": "question"}}))
+    conn.commit()
+    conn.close()
+    result = tools.call_tool("patterns", {"channel": "Chan"})
+    assert "isError" not in result
+    assert _parse_result(result)["total_videos"] == 1
+
+
+def test_call_inspire(temp_db):
+    from unittest.mock import MagicMock, patch
+    conn = sqlite3.connect(temp_db)
+    conn.row_factory = sqlite3.Row
+    vid = db.upsert_video(conn, platform="youtube", platform_id="mi",
+                          url="https://youtube.com/shorts/mi", title="T")
+    db.save_analysis(conn, vid, summary="s", topics_json="[]", hooks_json="{}",
+                     style_json="{}", engagement_signals_json="{}",
+                     full_json=json.dumps({"summary": "s"}))
+    conn.commit()
+    conn.close()
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = json.dumps({"titles": ["A"]})
+    with patch("reel_scout.inspire.get_llm", return_value=mock_llm):
+        result = tools.call_tool("inspire", {"based_on": vid})
+    assert "isError" not in result
+    assert _parse_result(result)["titles"] == ["A"]
+
+
+def test_call_research_mocked(temp_db):
+    from unittest.mock import patch
+    with patch("reel_scout.research.run_research",
+               return_value={"niche": "coffee", "channels": {}}) as rr:
+        result = tools.call_tool(
+            "research", {"niche": "coffee", "channels": ["https://y/c"], "analyze": False})
+    rr.assert_called_once()
+    assert "isError" not in result
+    assert _parse_result(result)["niche"] == "coffee"
+
+
+def test_call_research_rejects_non_array_channels(temp_db):
+    # A string 'channels' would otherwise be iterated char-by-char downstream.
+    result = tools.call_tool("research", {"niche": "x", "channels": "abc"})
+    assert result.get("isError")
 
 
 def test_call_show_video_not_found(temp_db):
@@ -62,7 +118,7 @@ def test_handle_tools_list():
     response = server.handle_request(
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
     )
-    assert len(response["result"]["tools"]) == 5
+    assert len(response["result"]["tools"]) == 8
 
 
 def test_message_framing_round_trip():

@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from . import config
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -316,6 +316,24 @@ def _migrate_v7_to_v8(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _migrate_v8_to_v9(conn: sqlite3.Connection) -> None:
+    """Add the performance table (schema v8 -> v9) for roadmap 4D: my own video's
+    actual views/likes/comments, so its structure can be contrasted with the
+    high-scoring corpus. One row per video (INSERT OR REPLACE)."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS performance (
+            video_id        TEXT PRIMARY KEY REFERENCES videos(id),
+            views           INTEGER,
+            likes           INTEGER,
+            comments        INTEGER,
+            notes           TEXT,
+            recorded_at     TEXT DEFAULT (datetime('now'))
+        );
+    """)
+    conn.execute("UPDATE schema_version SET version = 9 WHERE version = 8")
+    conn.commit()
+
+
 def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
     if conn is None:
         conn = get_connection()
@@ -348,6 +366,9 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
             current_ver = 7
         if current_ver < 8:
             _migrate_v7_to_v8(conn)
+            current_ver = 8
+        if current_ver < 9:
+            _migrate_v8_to_v9(conn)
     # Always ensure audio_events table exists for fresh installs
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS audio_events (
@@ -401,6 +422,15 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
         );
 
         CREATE INDEX IF NOT EXISTS idx_ocr_captions_video ON ocr_captions(video_id);
+
+        CREATE TABLE IF NOT EXISTS performance (
+            video_id        TEXT PRIMARY KEY REFERENCES videos(id),
+            views           INTEGER,
+            likes           INTEGER,
+            comments        INTEGER,
+            notes           TEXT,
+            recorded_at     TEXT DEFAULT (datetime('now'))
+        );
     """)
     conn.commit()
     return conn
@@ -670,6 +700,41 @@ def get_ocr_captions(conn: sqlite3.Connection, video_id: str) -> List[sqlite3.Ro
     ).fetchall()
 
 
+# --- Performance CRUD (roadmap 4D: my own video's actual metrics) ---
+
+def save_performance(
+    conn: sqlite3.Connection,
+    video_id: str,
+    views: Optional[int] = None,
+    likes: Optional[int] = None,
+    comments: Optional[int] = None,
+    notes: Optional[str] = None,
+) -> None:
+    # Upsert that PRESERVES fields you don't pass this call (COALESCE), so
+    # `track --views 1000` then `track --likes 50` keeps both, rather than the
+    # second call wiping views back to NULL (INSERT OR REPLACE would).
+    if get_performance(conn, video_id) is not None:
+        conn.execute(
+            """UPDATE performance SET
+               views=COALESCE(?, views), likes=COALESCE(?, likes),
+               comments=COALESCE(?, comments), notes=COALESCE(?, notes),
+               recorded_at=datetime('now') WHERE video_id=?""",
+            (views, likes, comments, notes, video_id),
+        )
+    else:
+        conn.execute(
+            """INSERT INTO performance (video_id, views, likes, comments, notes)
+               VALUES (?,?,?,?,?)""",
+            (video_id, views, likes, comments, notes),
+        )
+    conn.commit()
+
+
+def get_performance(conn: sqlite3.Connection, video_id: str) -> Optional[sqlite3.Row]:
+    cur = conn.execute("SELECT * FROM performance WHERE video_id = ?", (video_id,))
+    return cur.fetchone()
+
+
 # --- Score CRUD ---
 
 def save_score(
@@ -825,7 +890,7 @@ def mark_batch_completed(conn: sqlite3.Connection, batch_id: str) -> None:
 
 def db_stats(conn: sqlite3.Connection) -> Dict[str, Any]:
     stats = {}
-    for table in ["videos", "transcripts", "keyframes", "vision_descriptions", "analyses", "audio_events", "shot_metrics", "ocr_captions", "scores", "batches"]:
+    for table in ["videos", "transcripts", "keyframes", "vision_descriptions", "analyses", "audio_events", "shot_metrics", "ocr_captions", "performance", "scores", "batches"]:
         cur = conn.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608 - table names are hardcoded
         stats[table] = cur.fetchone()[0]
 
