@@ -142,6 +142,14 @@ def main(argv: List[str] = None) -> None:
         help="Channel to analyze (matches videos.uploader substring)")
     p_patterns.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
 
+    p_inspire = sub.add_parser(
+        "inspire", help="Generate a fresh variant from a high-scoring video (LLM)")
+    p_inspire.add_argument(
+        "--based-on", required=True, dest="based_on",
+        help="Video id or unique prefix to base the variant on")
+    p_inspire.add_argument("--angle", default="", help="Optional twist/angle for the variant")
+    p_inspire.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
+
     # --- db ---
     p_db = sub.add_parser("db", help="Database operations")
     p_db_sub = p_db.add_subparsers(dest="db_command")
@@ -176,6 +184,7 @@ def main(argv: List[str] = None) -> None:
         "compare": _cmd_compare,
         "stats": _cmd_stats,
         "patterns": _cmd_patterns,
+        "inspire": _cmd_inspire,
         "research": _cmd_research,
         "db": _cmd_db,
         "config": _cmd_config,
@@ -639,6 +648,21 @@ def _cmd_stats(args) -> None:
             print(json.dumps(result, ensure_ascii=False, indent=2))
         else:
             print(stats_mod.format_stats(result))
+    finally:
+        conn.close()
+
+
+def _cmd_inspire(args) -> None:
+    from . import db, inspire as inspire_mod
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        result = inspire_mod.generate_inspiration(conn, args.based_on, angle=args.angle)
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        else:
+            print(inspire_mod.format_inspiration(result))
     finally:
         conn.close()
 
