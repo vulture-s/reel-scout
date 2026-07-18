@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 — 2026-07-19
+
+> ⚠️ **Craft scores are not comparable across this boundary.** §4E changes how
+> `pacing` is scored — it now reasons on measured cut rhythm instead of pure LLM
+> judgment, so the same video can score differently than it did on 1.1.0. Re-score
+> a video before comparing it with anything scored on an older version.
 
 ### Added
 - **§4E evidence-based pacing** — `shots.py` measures cut rhythm (cuts/min, shot
