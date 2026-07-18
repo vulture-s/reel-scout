@@ -95,7 +95,7 @@ def list_tools() -> List[Dict[str, Any]]:
         },
         {
             "name": "research",
-            "description": "Competitor research: expand channels, aggregate niche patterns, return the report data. analyze=true crawls+analyzes (slow, network); default reads existing DB.",
+            "description": "Competitor research: browse the given channels, aggregate niche patterns, return the report data. analyze=true also analyzes each video first (slow); analyze=false skips per-video analysis but still browses the channels (needs network), aggregating from the existing DB.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -367,6 +367,8 @@ def _tool_research(args: Dict[str, Any]) -> Dict[str, Any]:
     channels = args.get("channels") or []
     if not niche or not channels:
         return _error_result("niche and channels are required")
+    if not isinstance(channels, list):
+        return _error_result("channels must be an array of URLs")
     from .. import research as research_mod
 
     config.ensure_dirs()

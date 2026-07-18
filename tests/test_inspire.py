@@ -59,6 +59,23 @@ def test_generate_inspiration_parses():
         os.unlink(path)
 
 
+def test_generate_inspiration_non_json_fallback():
+    """LLM prose containing braces that aren't valid JSON must degrade to raw,
+    not crash the second json.loads in the fallback path."""
+    conn, path = _temp_db()
+    try:
+        vid = _video_with_analysis(conn)
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = "Sure — try {this hook} for it"
+        with patch("reel_scout.inspire.get_llm", return_value=mock_llm):
+            data = inspire.generate_inspiration(conn, vid)
+        assert data["raw"] == "Sure — try {this hook} for it"
+        assert data["based_on"] == vid
+    finally:
+        conn.close()
+        os.unlink(path)
+
+
 def test_generate_inspiration_no_analysis():
     conn, path = _temp_db()
     try:

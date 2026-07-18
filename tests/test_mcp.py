@@ -88,6 +88,12 @@ def test_call_research_mocked(temp_db):
     assert _parse_result(result)["niche"] == "coffee"
 
 
+def test_call_research_rejects_non_array_channels(temp_db):
+    # A string 'channels' would otherwise be iterated char-by-char downstream.
+    result = tools.call_tool("research", {"niche": "x", "channels": "abc"})
+    assert result.get("isError")
+
+
 def test_call_show_video_not_found(temp_db):
     result = tools.call_tool("show_video", {"video_id": "missing"})
     assert result["isError"] is True

@@ -92,6 +92,22 @@ def test_compare_empty_corpus():
         os.unlink(path)
 
 
+def test_partial_performance_update_preserves():
+    """A later track call that sets only some fields must keep the earlier ones
+    (COALESCE upsert), not wipe them (INSERT OR REPLACE would)."""
+    conn, path = _temp_db()
+    try:
+        vid = _add_scored(conn, "pp", "listicle", "slow", 5.0)
+        db.save_performance(conn, vid, views=1000)
+        db.save_performance(conn, vid, likes=50)  # only likes this call
+        perf = db.get_performance(conn, vid)
+        assert perf["views"] == 1000  # preserved
+        assert perf["likes"] == 50
+    finally:
+        conn.close()
+        os.unlink(path)
+
+
 def test_resolve_my_video_by_url_and_prefix_and_missing():
     conn, path = _temp_db()
     try:

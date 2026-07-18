@@ -172,6 +172,8 @@ class InstagramCrawler(BaseCrawler):
         profile = instaloader.Profile.from_username(loader.context, username)
         entries: List[VideoMeta] = []
         for post in profile.get_posts():
+            if len(entries) >= limit:  # checked first so limit=0 yields 0, not 1
+                break
             if not getattr(post, "is_video", False):
                 continue
             entries.append(VideoMeta(
@@ -183,6 +185,4 @@ class InstagramCrawler(BaseCrawler):
                 duration_sec=float(getattr(post, "video_duration", 0) or 0),
                 upload_date=post.date_utc.strftime("%Y%m%d"),
             ))
-            if len(entries) >= limit:
-                break
         return entries

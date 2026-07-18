@@ -64,8 +64,13 @@ def generate_inspiration(
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
+        data = {"raw": text}
         m = re.search(r"\{[\s\S]*\}", text)
-        data = json.loads(m.group()) if m else {"raw": text}
+        if m:
+            try:
+                data = json.loads(m.group())
+            except json.JSONDecodeError:
+                data = {"raw": text}  # braced text that still isn't valid JSON
 
     data["based_on"] = video_id
     data["angle"] = angle or ""

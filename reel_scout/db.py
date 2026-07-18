@@ -710,12 +710,23 @@ def save_performance(
     comments: Optional[int] = None,
     notes: Optional[str] = None,
 ) -> None:
-    conn.execute(
-        """INSERT OR REPLACE INTO performance
-           (video_id, views, likes, comments, notes, recorded_at)
-           VALUES (?,?,?,?,?, datetime('now'))""",
-        (video_id, views, likes, comments, notes),
-    )
+    # Upsert that PRESERVES fields you don't pass this call (COALESCE), so
+    # `track --views 1000` then `track --likes 50` keeps both, rather than the
+    # second call wiping views back to NULL (INSERT OR REPLACE would).
+    if get_performance(conn, video_id) is not None:
+        conn.execute(
+            """UPDATE performance SET
+               views=COALESCE(?, views), likes=COALESCE(?, likes),
+               comments=COALESCE(?, comments), notes=COALESCE(?, notes),
+               recorded_at=datetime('now') WHERE video_id=?""",
+            (views, likes, comments, notes, video_id),
+        )
+    else:
+        conn.execute(
+            """INSERT INTO performance (video_id, views, likes, comments, notes)
+               VALUES (?,?,?,?,?)""",
+            (video_id, views, likes, comments, notes),
+        )
     conn.commit()
 
 
