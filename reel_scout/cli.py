@@ -150,6 +150,17 @@ def main(argv: List[str] = None) -> None:
     p_inspire.add_argument("--angle", default="", help="Optional twist/angle for the variant")
     p_inspire.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
 
+    p_track = sub.add_parser(
+        "track", help="Record your video's real metrics + structural diff vs the top corpus")
+    p_track.add_argument(
+        "--my-video", required=True, dest="my_video",
+        help="Your video: a URL already in the DB, or a video id / unique prefix")
+    p_track.add_argument("--views", type=int, default=None)
+    p_track.add_argument("--likes", type=int, default=None)
+    p_track.add_argument("--comments", type=int, default=None)
+    p_track.add_argument("--notes", default=None, help="Free-text note")
+    p_track.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
+
     # --- db ---
     p_db = sub.add_parser("db", help="Database operations")
     p_db_sub = p_db.add_subparsers(dest="db_command")
@@ -185,6 +196,7 @@ def main(argv: List[str] = None) -> None:
         "stats": _cmd_stats,
         "patterns": _cmd_patterns,
         "inspire": _cmd_inspire,
+        "track": _cmd_track,
         "research": _cmd_research,
         "db": _cmd_db,
         "config": _cmd_config,
@@ -648,6 +660,27 @@ def _cmd_stats(args) -> None:
             print(json.dumps(result, ensure_ascii=False, indent=2))
         else:
             print(stats_mod.format_stats(result))
+    finally:
+        conn.close()
+
+
+def _cmd_track(args) -> None:
+    from . import db, track as track_mod
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        video_id = track_mod.record_performance(
+            conn, args.my_video, views=args.views, likes=args.likes,
+            comments=args.comments, notes=args.notes)
+        cmp = track_mod.compare_to_corpus(conn, video_id)
+        perf = db.get_performance(conn, video_id)
+        if args.json:
+            print(json.dumps(
+                {"performance": dict(perf) if perf else None, "comparison": cmp},
+                ensure_ascii=False, indent=2))
+        else:
+            print(track_mod.format_track(perf, cmp))
     finally:
         conn.close()
 
