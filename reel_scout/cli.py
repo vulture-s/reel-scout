@@ -134,6 +134,14 @@ def main(argv: List[str] = None) -> None:
     p_stats.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
     p_stats.add_argument("--csv", help="Write long-format CSV to this path")
 
+    p_patterns = sub.add_parser(
+        "patterns",
+        help="Per-channel patterns (length, hook/CTA/structure mix, high-vs-low, cadence)")
+    p_patterns.add_argument(
+        "--channel", required=True,
+        help="Channel to analyze (matches videos.uploader substring)")
+    p_patterns.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
+
     # --- db ---
     p_db = sub.add_parser("db", help="Database operations")
     p_db_sub = p_db.add_subparsers(dest="db_command")
@@ -167,6 +175,7 @@ def main(argv: List[str] = None) -> None:
         "score": _cmd_score,
         "compare": _cmd_compare,
         "stats": _cmd_stats,
+        "patterns": _cmd_patterns,
         "research": _cmd_research,
         "db": _cmd_db,
         "config": _cmd_config,
@@ -630,6 +639,21 @@ def _cmd_stats(args) -> None:
             print(json.dumps(result, ensure_ascii=False, indent=2))
         else:
             print(stats_mod.format_stats(result))
+    finally:
+        conn.close()
+
+
+def _cmd_patterns(args) -> None:
+    from . import db, patterns as patterns_mod
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        result = patterns_mod.compute_patterns(conn, channel=args.channel)
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        else:
+            print(patterns_mod.format_patterns(result))
     finally:
         conn.close()
 
