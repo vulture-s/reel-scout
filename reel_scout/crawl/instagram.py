@@ -111,9 +111,22 @@ class InstagramCrawler(BaseCrawler):
             cmd, capture_output=True, text=True, timeout=120,
         )
         if result.returncode != 0:
-            raise RuntimeError(
-                f"yt-dlp browse failed (need cookies?): {ytdlp.format_error(result.stderr)}"
-            )
+            # yt-dlp's IG extractor breaks periodically (roadmap Non-goals #1). Try
+            # the instaloader fallback (optional `instagram` extra) before giving up;
+            # if it isn't installed, surface the original yt-dlp error unchanged.
+            yt_err = ytdlp.format_error(result.stderr)
+            try:
+                return self._browse_instaloader(url, limit)
+            except ImportError:
+                raise RuntimeError(
+                    "yt-dlp browse failed (need cookies?): %s "
+                    "(install the `instagram` extra for an instaloader fallback)" % yt_err
+                )
+            except Exception as e:  # noqa: BLE001 — report both failures
+                raise RuntimeError(
+                    "yt-dlp browse failed (%s); instaloader fallback also failed: %s"
+                    % (yt_err, e)
+                )
 
         entries = []
         for line in result.stdout.strip().splitlines():
@@ -139,4 +152,37 @@ class InstagramCrawler(BaseCrawler):
                 upload_date=info.get("upload_date", ""),
             ))
 
+        return entries
+
+    def _browse_instaloader(self, url: str, limit: int) -> List[VideoMeta]:
+        """Fallback profile browse via instaloader (optional `instagram` extra),
+        used when yt-dlp's IG extractor is down. Raises ImportError when the extra
+        isn't installed so the caller can keep the original yt-dlp error."""
+        import instaloader  # ImportError -> caller surfaces the yt-dlp error
+
+        m = self._PROFILE_RE.search(url)
+        if not m:
+            raise ValueError("Not an Instagram profile URL: %s" % url)
+        username = m.group(1)
+
+        loader = instaloader.Instaloader(
+            quiet=True, download_pictures=False, download_videos=False,
+            download_comments=False, save_metadata=False,
+        )
+        profile = instaloader.Profile.from_username(loader.context, username)
+        entries: List[VideoMeta] = []
+        for post in profile.get_posts():
+            if not getattr(post, "is_video", False):
+                continue
+            entries.append(VideoMeta(
+                platform=self.platform,
+                platform_id=post.shortcode,
+                url="https://www.instagram.com/reel/%s/" % post.shortcode,
+                title=(post.caption or "")[:100],
+                uploader=username,
+                duration_sec=float(getattr(post, "video_duration", 0) or 0),
+                upload_date=post.date_utc.strftime("%Y%m%d"),
+            ))
+            if len(entries) >= limit:
+                break
         return entries
