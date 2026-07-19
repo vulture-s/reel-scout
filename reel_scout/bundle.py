@@ -60,7 +60,8 @@ def _page_text(view: Dict[str, Any]) -> str:
 
 def build_reel_page(conn: db.sqlite3.Connection, video_id: str,
                     cjk_ttf: str = "",
-                    max_bytes: int = MAX_EMBED_BYTES) -> Dict[str, Any]:
+                    max_bytes: int = MAX_EMBED_BYTES,
+                    back_href: Optional[str] = None) -> Dict[str, Any]:
     """Render one frozen reel page. Returns {ok, html, reason, bytes}."""
     view = build_inspect_view(conn, video_id)
     if view is None:
@@ -85,7 +86,8 @@ def build_reel_page(conn: db.sqlite3.Connection, video_id: str,
     html = render_inspector(
         view, video_src=video_src, peaks=peaks, embed_fonts=True, cjk_woff2=cjk,
         # keyframes inline too, or the page would still call /keyframe/<id>
-        keyframe_src=lambda kf: keyframe_data_uri(kf.get("file_path")) or "")
+        keyframe_src=lambda kf: keyframe_data_uri(kf.get("file_path")) or "",
+        back_href=back_href)
     return {"ok": True, "html": html, "reason": "", "bytes": len(html.encode("utf-8"))}
 
 
@@ -134,7 +136,11 @@ def build_bundle(conn: db.sqlite3.Connection, out_dir: str,
     used: set = set()
 
     for vid in video_ids:
-        result = build_reel_page(conn, vid, cjk_ttf=cjk_ttf, max_bytes=max_bytes)
+        # build_bundle always writes an index next to the pages, so link to it.
+        # (If a single page is later moved away on its own the link dangles —
+        # the folder is the intended unit; the page itself still works.)
+        result = build_reel_page(conn, vid, cjk_ttf=cjk_ttf, max_bytes=max_bytes,
+                                 back_href="index.html")
         view = build_inspect_view(conn, vid)
         title = (view or {}).get("title") or vid
         if not result["ok"]:

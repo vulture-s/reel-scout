@@ -238,7 +238,8 @@ def render_inspector(view: Dict[str, Any], base: str = "",
                      peaks: Optional[List[float]] = None,
                      embed_fonts: bool = False,
                      cjk_woff2: bytes = b"",
-                     keyframe_src: Optional[Any] = None) -> str:
+                     keyframe_src: Optional[Any] = None,
+                     back_href: Optional[str] = None) -> str:
     """Full inspector page for one clip.
 
     Live server: `base` prefixes API/asset URLs and the page fetches its
@@ -252,6 +253,10 @@ def render_inspector(view: Dict[str, Any], base: str = "",
     dur = float(view.get("duration") or 0.0)
     if keyframe_src is None:
         keyframe_src = lambda kf: "%s/keyframe/%s" % (base, kf["id"])  # noqa: E731
+    # Only rendered when the caller knows an index exists to go back to — a
+    # single-reel export has none, and `inspect <id>` pins "/" to this very page.
+    back = ('<a class="back" href="%s">&larr; all reels</a>' % _e(back_href)) \
+        if back_href else ""
 
     meta_bits = [_e(view["platform"])]
     if view.get("uploader"):
@@ -313,7 +318,7 @@ def render_inspector(view: Dict[str, Any], base: str = "",
     boot = json.dumps(boot_data)
 
     body = (
-        '<header class="top"><div class="eyebrow">reel-scout inspect '
+        '<header class="top">%s<div class="eyebrow">reel-scout inspect '
         '<span class="q">%s</span></div><h1>%s</h1>'
         '<p class="meta">%s &middot; <a href="%s" rel="noopener">source &#8599;</a></p>'
         '%s</header>'
@@ -328,7 +333,7 @@ def render_inspector(view: Dict[str, Any], base: str = "",
         '<button id="clrio" class="tbtn">clear</button>'
         '<button id="srt" class="tbtn">export SRT (window)</button></div></section>'
         '%s%s%s%s'
-        % (_e(vid), _e(view["title"]), meta, _e(view["url"]), summary,
+        % (back, _e(vid), _e(view["title"]), meta, _e(view["url"]), summary,
            preview, _WAVEFORM_BINS, filmstrip, transcript,
            _render_scores(view), _render_structure(view)))
 
@@ -500,7 +505,10 @@ def make_inspect_server(host: str = "127.0.0.1", port: int = 0,
             if view is None:
                 self._send(404, "no video matches '%s'" % vid)
                 return
-            self._send(200, render_inspector(view))
+            # `view` mode: "/" is the library, so offer a way back. With a
+            # pinned default_id, "/" renders THIS page — a link would loop.
+            self._send(200, render_inspector(
+                view, back_href=None if default_id else "/"))
 
         def _stream(self, conn, vid):
             video = db.get_video(conn, vid)
@@ -547,6 +555,9 @@ _COMPONENTS = """
 a{color:inherit}
 .eyebrow .q{text-transform:none;letter-spacing:0;color:var(--quiet)}
 .top{padding:26px 0 16px;border-bottom:2px solid var(--rule)}
+.back{display:inline-block;margin-bottom:12px;font-family:var(--mono);font-size:11px;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--quiet);text-decoration:none}
+.back:hover{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
 .top h1{margin:.35rem 0 .3rem;font-family:var(--display);font-weight:400;
   font-size:clamp(24px,3vw,34px);letter-spacing:-.02em;line-height:1.1}
 .meta{margin:.1rem 0;color:var(--quiet);font-family:var(--mono);font-size:11px;

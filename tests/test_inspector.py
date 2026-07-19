@@ -287,3 +287,31 @@ def test_cmd_inspect_unknown_ref_exits(temp_db, capsys):
     with pytest.raises(SystemExit):
         _cmd_inspect(Args())
     assert "No video matches" in capsys.readouterr().out
+
+
+def test_back_link_only_when_there_is_an_index(temp_db):
+    """`view` mode: "/" is the library, so offer a way back. `inspect <id>` pins
+    "/" to this very page, so a back link there would loop to itself."""
+    import sqlite3 as _sq
+    import threading
+    import urllib.request
+
+    conn = _sq.connect(temp_db)
+    conn.row_factory = _sq.Row
+    vid = _seed(conn)
+    conn.close()
+
+    for default_id, expect_back in ((None, True), (vid, False)):
+        httpd = inspector.make_inspect_server(port=0, default_id=default_id)
+        port = httpd.server_address[1]
+        t = threading.Thread(target=httpd.serve_forever, daemon=True)
+        t.start()
+        try:
+            page = urllib.request.urlopen(
+                "http://127.0.0.1:%d/inspect/%s" % (port, vid), timeout=5).read().decode()
+            assert ('class="back"' in page) is expect_back, (
+                "default_id=%r should%s render a back link" % (
+                    default_id, "" if expect_back else " not"))
+        finally:
+            httpd.shutdown()
+            httpd.server_close()

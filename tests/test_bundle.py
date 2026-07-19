@@ -108,3 +108,15 @@ def test_bundle_reports_skips_without_aborting(temp_db, tmp_path):
     assert summary["written"] == []
     assert len(summary["skipped"]) == 1
     assert os.path.exists(os.path.join(str(tmp_path / "c2"), "index.html"))
+
+
+def test_bundle_pages_link_back_to_index(temp_db):
+    conn = sqlite3.connect(temp_db)
+    conn.row_factory = sqlite3.Row
+    vid = _seed(conn)
+    with_back = bundle.build_reel_page(conn, vid, back_href="index.html")
+    without = bundle.build_reel_page(conn, vid)
+    conn.close()
+    assert 'class="back" href="index.html"' in with_back["html"]
+    # a standalone page gets no dangling link
+    assert 'class="back"' not in without["html"]
