@@ -103,9 +103,15 @@ def main(argv: List[str] = None) -> None:
 
     # --- export ---
     p_export = sub.add_parser("export", help="Export analyses")
-    p_export.add_argument("--format", choices=["json", "csv", "html"], default="json")
+    p_export.add_argument("--format", choices=["json", "csv", "html", "bundle"],
+                          default="json")
     p_export.add_argument("--output", "-o", default="./export")
-    p_export.add_argument("--video", help="Single video id (html: exact or unique prefix)")
+    p_export.add_argument("--video", help="Single video id (html/bundle: exact or unique prefix)")
+    p_export.add_argument("--cjk-font", dest="cjk_font", default="",
+                          help="bundle: Noto Sans TC .ttf to subset for Chinese "
+                               "(else falls back to the reader's system face)")
+    p_export.add_argument("--max-mb", dest="max_mb", type=float, default=25.0,
+                          help="bundle: skip reels whose video exceeds this (default 25)")
 
     # --- score ---
     p_score = sub.add_parser("score", help="Score a video using LLM analysis")
@@ -543,6 +549,27 @@ def _cmd_export(args) -> None:
                 return
         path = export_html(conn, args.output, video_id=video_id)
         print(f"Wrote self-contained viewer to {path}")
+    elif args.format == "bundle":
+        from .bundle import build_bundle
+        ids = None
+        if getattr(args, "video", None):
+            from .compare import resolve_ref
+            vid, _ = resolve_ref(conn, args.video)
+            if vid is None:
+                print(f"Video not found: {args.video}")
+                conn.close()
+                return
+            ids = [vid]
+        summary = build_bundle(conn, args.output, video_ids=ids,
+                               cjk_ttf=args.cjk_font,
+                               max_bytes=int(args.max_mb * 1048576))
+        for e in summary["written"]:
+            print("  %-42s %6.1f MB" % (e["file"], e["bytes"] / 1048576.0))
+        for e in summary["skipped"]:
+            print("  SKIPPED %s — %s" % (e["title"][:40], e["reason"]))
+        print("Wrote %d self-contained reel(s) + index.html to %s/ (%.1f MB total)"
+              % (len(summary["written"]), summary["out_dir"],
+                 summary["total_bytes"] / 1048576.0))
 
     conn.close()
 

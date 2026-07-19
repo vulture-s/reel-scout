@@ -233,11 +233,25 @@ def _render_structure(view: Dict[str, Any]) -> str:
             '<div class="metagrid">%s</div></section>' % "".join(cells))
 
 
-def render_inspector(view: Dict[str, Any], base: str = "") -> str:
-    """Full inspector page for one clip. `base` prefixes API/asset URLs (empty
-    for the live server; the server mounts everything at root)."""
+def render_inspector(view: Dict[str, Any], base: str = "",
+                     video_src: Optional[str] = None,
+                     peaks: Optional[List[float]] = None,
+                     embed_fonts: bool = False,
+                     cjk_woff2: bytes = b"",
+                     keyframe_src: Optional[Any] = None) -> str:
+    """Full inspector page for one clip.
+
+    Live server: `base` prefixes API/asset URLs and the page fetches its
+    waveform and streams its video from the server.
+
+    Frozen export: pass `video_src` (a data URI), `peaks` (inlined, because
+    file:// blocks fetch) and the font options — the page then depends on
+    nothing outside itself. One renderer, two modes; there is deliberately no
+    second frozen renderer to drift out of sync."""
     vid = view["video_id"]
     dur = float(view.get("duration") or 0.0)
+    if keyframe_src is None:
+        keyframe_src = lambda kf: "%s/keyframe/%s" % (base, kf["id"])  # noqa: E731
 
     meta_bits = [_e(view["platform"])]
     if view.get("uploader"):
@@ -249,9 +263,9 @@ def render_inspector(view: Dict[str, Any], base: str = "") -> str:
 
     # Preview: a real player when the file is present, else the frames-only note.
     if view.get("has_video"):
+        src = video_src if video_src else ("%s/api/stream/%s" % (base, _e(vid)))
         preview = ('<video id="player" class="player" preload="metadata" '
-                   'controls playsinline src="%s/api/stream/%s"></video>'
-                   % (base, _e(vid)))
+                   'controls playsinline src="%s"></video>' % src)
     else:
         preview = ('<div class="noplayer">video file not on disk &mdash; '
                    'keyframes &amp; transcript only</div>')
@@ -262,10 +276,10 @@ def render_inspector(view: Dict[str, Any], base: str = "") -> str:
         ts = kf.get("timestamp_sec")
         strip.append(
             '<button class="cell" data-frame="%d" data-ts="%.3f" title="%s">'
-            '<img src="%s/keyframe/%s" alt="" loading="lazy">'
+            '<img src="%s" alt="" loading="lazy">'
             '<span class="ct">%s</span></button>'
             % (j, float(ts) if ts is not None else 0.0, _e(_fmt_ts(ts)),
-               base, _e(kf["id"]), _e(_fmt_ts(ts))))
+               _e(keyframe_src(kf) or ""), _e(_fmt_ts(ts))))
     filmstrip = ('<section class="block"><div class="eyebrow">Keyframes '
                  '<span class="q">%d &middot; click to seek</span></div>'
                  '<div class="strip">%s</div></section>' % (len(strip), "".join(strip))) \
@@ -290,9 +304,13 @@ def render_inspector(view: Dict[str, Any], base: str = "") -> str:
 
     # Waveform peaks + segments are handed to JS via a JSON island (escaped).
     seg_data = [[s["start"], s["end"]] for s in view.get("segments", [])]
-    boot = json.dumps({"id": vid, "dur": dur, "bins": _WAVEFORM_BINS,
-                       "base": base, "segs": seg_data,
-                       "hasVideo": bool(view.get("has_video"))})
+    boot_data = {"id": vid, "dur": dur, "bins": _WAVEFORM_BINS,
+                 "base": base, "segs": seg_data,
+                 "hasVideo": bool(view.get("has_video"))}
+    if peaks is not None:
+        # file:// blocks fetch(), so a frozen page carries its peaks inline.
+        boot_data["peaks"] = [round(float(x), 4) for x in peaks]
+    boot = json.dumps(boot_data)
 
     body = (
         '<header class="top"><div class="eyebrow">reel-scout inspect '
@@ -321,7 +339,9 @@ def render_inspector(view: Dict[str, Any], base: str = "") -> str:
         '<body><main>%s</main>'
         '<script id="boot" type="application/json">%s</script>'
         '<script>%s</script></body></html>'
-        % (_e(view["title"]), _STYLE, body, boot, _SCRIPT))
+        % (_e(view["title"]),
+           theme.stylesheet(_COMPONENTS, embed_fonts=embed_fonts, cjk_woff2=cjk_woff2),
+           body, boot, _SCRIPT))
 
 
 # --- Server ---
@@ -523,7 +543,7 @@ def serve(video_id: str, host: str = "127.0.0.1", port: int = 0,
         httpd.server_close()
 
 
-_STYLE = theme.stylesheet("""
+_COMPONENTS = """
 a{color:inherit}
 .eyebrow .q{text-transform:none;letter-spacing:0;color:var(--quiet)}
 .top{padding:26px 0 16px;border-bottom:2px solid var(--rule)}
@@ -584,7 +604,9 @@ a{color:inherit}
 .mk{color:var(--quiet);font-family:var(--mono);font-size:10px;letter-spacing:.12em;
   text-transform:uppercase;padding-top:3px}
 .mv{color:var(--ink)}
-""")
+"""
+
+_STYLE = theme.stylesheet(_COMPONENTS)
 
 _SCRIPT = r"""
 (function(){
@@ -603,8 +625,8 @@ _SCRIPT = r"""
   function cur(){return player?player.currentTime:0;}
   function seek(t){ if(!player)return; player.currentTime=Math.max(0,Math.min(dur||t,t)); player.play&&player.play().catch(function(){}); }
 
-  // --- waveform bars from /api/waveform ---
-  fetch(base+'/api/waveform/'+boot.id+'?bins='+BINS).then(function(r){return r.json();}).then(function(d){
+  // --- waveform bars: inlined when frozen (file:// blocks fetch), else fetched ---
+  function drawBars(d){
     var peaks=d.peaks||[]; var n=peaks.length||1; var w=1; // viewBox width == n via unit bars
     svg.setAttribute('viewBox','0 0 '+n+' 60');
     var frag='';
@@ -614,7 +636,14 @@ _SCRIPT = r"""
     }
     bars.innerHTML=frag;
     paintWindow();
-  }).catch(function(){});
+  }
+
+  if(boot.peaks){            // frozen export: peaks travel inside the file
+    drawBars({peaks:boot.peaks});
+  } else {                   // live server: ask the API
+    fetch(base+'/api/waveform/'+boot.id+'?bins='+BINS)
+      .then(function(r){return r.json();}).then(drawBars).catch(function(){});
+  }
 
   function xToFrac(clientX){var r=wf.getBoundingClientRect();return Math.max(0,Math.min(1,(clientX-r.left)/r.width));}
   function paintHead(){ if(dur<=0||!svg)return; var n=svg.viewBox.baseVal.width||1; var x=cur()/dur*n; head.setAttribute('x1',x);head.setAttribute('x2',x); }

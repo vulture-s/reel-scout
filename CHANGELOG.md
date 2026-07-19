@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **One app instead of two.** The library index and the interactive inspector now
+  share a single server and port — a row in the list opens straight into the
+  player/waveform view. `view` lands on the library, `inspect <id>` opens one clip.
+- **vulture.s shell.** `theme.py` carries the brand tokens (warm paper, warm-black
+  ink, three-step rules, mono uppercase chrome) from the brand SSOT. Deviations are
+  narrated in-file: a wider tool column, and no cyan (canon caps it at the tv./
+  wordmark, which reel-scout doesn't carry).
+- **Bundled brand fonts.** Archivo Black / Inter / JetBrains Mono ship with the
+  package (78 KB total, OFL). Served as `/font/<file>` live, inlined as base64 in
+  exports. CJK is subset per-export from that export's own text.
+- **`export --format bundle`** — the take-home: one *self-contained* HTML per reel
+  (video, keyframes, waveform peaks, fonts and a CJK subset all inlined) plus an
+  index. Move it, rename it, email it — nothing to lose and no server to run.
+  Verified: a bundled page issues exactly one network request, for itself.
+  Reels over `--max-mb` (default 25) are skipped with a reason.
+
+### Fixed
+- `view` served requests single-threaded, so one idle browser keep-alive could
+  stall the whole viewer. Now `ThreadingHTTPServer`.
+
 ## 1.2.0 — 2026-07-19
 
 > ⚠️ **Craft scores are not comparable across this boundary.** §4E changes how

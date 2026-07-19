@@ -13,7 +13,7 @@ see [`../prompts/signal-reliability-cheatsheet.md`](../prompts/signal-reliabilit
 | `analyze <url\|path…>` | Full pipeline: download/register → transcribe → keyframes+VLM → shot/audio metrics (§4E) → on-screen text (§4F) → merge → optional score. Accepts a local file path (platform-outage insurance). `--score`. |
 | `transcribe <path>` / `vision <path>` | Individual stages against a local file. |
 | `list` / `show <id>` | List analyzed videos / show one analysis. |
-| `export --format json\|csv\|html` | Export analyses. `html` is a self-contained take-home. |
+| `export --format json\|csv\|html\|bundle` | Export analyses. `html` = one self-contained file; **`bundle`** = one self-contained file *per reel* + an index (the course take-home). |
 | `view` | Local read-only web server for the library. |
 | `inspect <id>` | Interactive single-clip viewer (transcript↔keyframe time-sync). |
 | `score <id>` | Craft score (hook / visual / **pacing (evidence-based, §4E)** / structure). |
@@ -63,3 +63,17 @@ All inference defaults to localhost — no cloud API keys required.
 
 `whisper`, `audio` (onnxruntime+numpy — PANNs events + BPM), `diarize`,
 `instagram` (instaloader browse fallback), `ocr` (pytesseract+Pillow), `vector`.
+
+## Take-home bundle
+
+```bash
+reel-scout export --format bundle -o ./course-reels \
+  --cjk-font /path/to/NotoSansTC.ttf   # optional: embeds Chinese glyphs
+```
+
+Each reel becomes ONE html file with the video, keyframes, waveform peaks, fonts
+and a per-file CJK subset inlined — no server, no sibling files, nothing to lose
+when it is moved or emailed. Sized for short-form: reels land around 2–25 MB, and
+anything over `--max-mb` (default 25) is skipped with a reason rather than
+producing a file nobody can open. Without `--cjk-font`, Chinese falls back to the
+reader's system face; Latin always uses the bundled brand faces.
