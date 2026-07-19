@@ -165,7 +165,7 @@ Phase 5  ██████████████████░░  ✅ Tool 
 - [x] LICENSE: MIT
 - [x] README（EN + 繁中）+ 安裝/使用說明
 - [x] `pyproject.toml` 完整（entry points、optional deps 分組）
-- [ ] **PyPI 發布** — `pip install reel-scout`（目前 PyPI 404）
+- [ ] **PyPI 發布** — `pip install reel-scout`（目前 PyPI 仍 404）。2026-07-19：`.github/workflows/release.yml` 已就緒（Trusted Publishing / OIDC，無需 token；GitHub Release published 觸發 + 可手動指定 tag；含測試 gate 與 tag↔`__version__` 一致性檢查）。**剩下唯一人工步驟**：到 PyPI Account → Publishing 建 pending publisher（owner `vulture-s` / repo `reel-scout` / workflow `release.yml` / environment 留空）
 - [x] 版本/CHANGELOG 流程固定（2026-07-18）：CHANGELOG 加 Unreleased 段，Wave 3 每 feature 一條 + schema v6→v9 記錄
 
 ### 5B. 不會安靜爛掉

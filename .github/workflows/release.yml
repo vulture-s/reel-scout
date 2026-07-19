@@ -1,0 +1,92 @@
+name: Release
+
+# Publishes to PyPI via Trusted Publishing (OIDC) — no API token, no stored secret.
+# Fires when a GitHub Release is published (the existing release ritual), and can
+# be run by hand to (re)publish a specific tag.
+#
+# One-time setup on PyPI (https://pypi.org/manage/account/publishing/):
+#   Owner: vulture-s | Repository: reel-scout | Workflow: release.yml
+#   Environment: leave BLANK (this workflow declares no environment — see below)
+# PyPI supports a "pending publisher" for a project that doesn't exist yet, so
+# this works for the very first upload too.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag to build and publish (e.g. v1.2.0). Blank = current branch."
+        required: false
+        default: ""
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling + package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build twine
+          python -m pip install -e ".[dev]"
+
+      # A PyPI upload can never be taken back and a version number can never be
+      # reused, so gate the publish on a green suite rather than trusting that
+      # CI ran on this commit. (The 3.9–3.13 matrix lives in ci.yml.)
+      - name: Run tests
+        run: pytest
+
+      - name: Build sdist + wheel
+        run: python -m build
+
+      # Guard against tagging v1.3.0 while __version__ still says 1.2.0 — that
+      # would publish the wrong version under the right tag, permanently.
+      - name: Verify package version matches the tag
+        run: |
+          pkg="$(python -c 'import reel_scout; print(reel_scout.__version__)')"
+          ref="${{ inputs.ref || github.ref_name }}"
+          case "$ref" in
+            v[0-9]*)
+              if [ "${ref#v}" != "$pkg" ]; then
+                echo "::error::tag $ref does not match __version__ $pkg"
+                exit 1
+              fi
+              echo "OK: tag $ref matches __version__ $pkg"
+              ;;
+            *)
+              echo "Ref '$ref' is not a version tag — skipping version match check."
+              ;;
+          esac
+
+      - name: Check metadata renders on PyPI
+        run: python -m twine check dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # Add an `environment:` here if you want a manual approval gate before the
+    # upload. If you do, set the SAME environment name in the PyPI publisher
+    # config — a mismatch makes PyPI reject the OIDC token.
+    permissions:
+      id-token: write # required for Trusted Publishing; nothing else is needed
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
