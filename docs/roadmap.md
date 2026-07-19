@@ -5,6 +5,7 @@
 > 2026-07-18 drift 修正：測試 162→177（實跑驗證）+ 已完成清單補 `inspect`（PR #29 遺漏回寫）
 > 2026-07-18 §4E 實作：evidence-based pacing（shot-table cuts/min + audio energy/BPM）落地，schema v7，測試 →200（含 codex+harness 雙審修正）
 > 2026-07-18 §4F 實作：燒錄字幕 OCR / L3.5（vlm 復用 + tesseract opt-in）落地，schema v8，測試 →207
+> 2026-07-20 GUI + 學生包：view/inspect 合併成單一 app、vulture.s 換膚（`theme.py`，偏離已 narrate）、品牌字型內嵌 + CJK 動態 subset、`export --format bundle` 自包含學生包、inspector 返回鍵、`view` 併發修復（ThreadingHTTPServer）。測試 →244
 > 2026-07-18 Wave 3 一波：3B patterns / 3A instaloader / 4B inspire / 4D track（schema v9）/ 4C MCP(8 tools) / 5A CHANGELOG + 5C docs 全落地，測試 →228（含 codex+harness 雙審修正：inspire 非-JSON fallback、track partial-update COALESCE、MCP channels 驗證、instaloader limit=0）
 
 ## 定位與 Non-goals
@@ -40,7 +41,7 @@ Phase 4  █████░░░░░░░░░░░░░░░░  🔨 C
 Phase 5  ████████████████████  ✅ Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅、CI ✅、config check ✅、**PyPI 上架 ✅（v1.2.0，Trusted Publishing 零 token）**
 ```
 
-**目前版本**：v1.2.0 ｜ **測試**：228 passing ｜ **DB schema**：v9
+**目前版本**：v1.2.0 ｜ **測試**：244 passing ｜ **DB schema**：v9
 
 ### 已完成功能清單（2026-07-15 驗證）
 
@@ -60,6 +61,9 @@ Phase 5  ████████████████████  ✅ Tool 
 - **Skill**: cross-surface skill 打包（SKILL.md + manifests）
 - **MCP Server**: stdio NDJSON JSON-RPC, 8 tools（crawl/analyze/list_videos/show_video/export + patterns/inspire/research）
 - **CLI**: browse / crawl / analyze / transcribe / vision / list / show / export（json/csv/**html**）/ score / compare / stats / **patterns** / **inspire** / **track** / research / **view** / **inspect** / db / config
+- **統一 app** (2026-07-20): `view` = 清單 + 互動 inspector 同一 port（清單點列直接進 inspector）；`inspect <id>` 釘住單片。含返回鍵（依情境顯示）
+- **vulture.s 外殼** (2026-07-20): `theme.py` 承品牌 SSOT token；品牌字型隨套件出貨（拉丁 78 KB／server 走 `/font/`、匯出走 base64），CJK 按內容動態 subset
+- **學生包** (2026-07-20): `export --format bundle` — 一支 reel 一個自包含 HTML（影片/keyframe/波形/字型全內嵌）+ index；`--max-mb` 擋過大長片。實測整頁僅 1 個網路請求
 - **Viewer** (v1.1.0): 唯讀檢視器三面——`export --format html`（自包含單檔、零安裝 take-home）+ `reel-scout view`（本機 server、live demo）+ `reel-scout inspect`（互動 single-clip：transcript↔keyframe 時間同步、可點時間軸跳播，port 自 arkiv，PR #29）；顯示拆解結構+keyframe+分數+逐字，無動作按鈕
 - **DB**: SQLite WAL + batch resume + schema migration（→ v6）
 
