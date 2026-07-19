@@ -36,8 +36,8 @@
 Phase 1  ████████████████████  ✅ Core Pipeline（crawl + transcribe + vision + merger + DB + CLI + MCP）
 Phase 2  ████████████████████  ✅ Advanced Analysis（audio/PANNs + diarize/pyannote + scorer + LLM backends）
 Phase 2.5████████████████████  ✅ 品質強化（subtitle-first / keyframe budget / prompt pack / skill / 雙語轉錄）
-Phase 3  ██████████████████░░  🔨 Batch Intelligence — browse ✅、compare ✅、3C ✅、3D stats ✅；patterns ❌
-Phase 4  █████░░░░░░░░░░░░░░░░  🔨 Content Strategy Engine — 4A research ✅；inspire/track/MCP擴充 ❌
+Phase 3  ████████████████████  ✅ Batch Intelligence — browse ✅、compare ✅、3C ✅、3D stats ✅、patterns ✅、instaloader fallback ✅（channel 表/batch-resume 為刻意延後的大重構）
+Phase 4  ████████████████████  ✅ Content Strategy Engine — 4A research ✅、4B inspire ✅、4C MCP 擴充 ✅、4D track ✅、4E 評分證據化 ✅、4F L3.5 OCR ✅
 Phase 5  ████████████████████  ✅ Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅、CI ✅、config check ✅、**PyPI 上架 ✅（v1.2.0，Trusted Publishing 零 token）**
 ```
 
@@ -65,7 +65,7 @@ Phase 5  ████████████████████  ✅ Tool 
 - **vulture.s 外殼** (2026-07-20): `theme.py` 承品牌 SSOT token；品牌字型隨套件出貨（拉丁 78 KB／server 走 `/font/`、匯出走 base64），CJK 按內容動態 subset
 - **學生包** (2026-07-20): `export --format bundle` — 一支 reel 一個自包含 HTML（影片/keyframe/波形/字型全內嵌）+ index；`--max-mb` 擋過大長片。實測整頁僅 1 個網路請求
 - **Viewer** (v1.1.0): 唯讀檢視器三面——`export --format html`（自包含單檔、零安裝 take-home）+ `reel-scout view`（本機 server、live demo）+ `reel-scout inspect`（互動 single-clip：transcript↔keyframe 時間同步、可點時間軸跳播，port 自 arkiv，PR #29）；顯示拆解結構+keyframe+分數+逐字，無動作按鈕
-- **DB**: SQLite WAL + batch resume + schema migration（→ v6）
+- **DB**: SQLite WAL + batch resume + schema migration（→ v9）
 
 ---
 
