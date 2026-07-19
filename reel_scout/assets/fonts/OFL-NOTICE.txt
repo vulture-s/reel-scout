@@ -1,0 +1,18 @@
+Fonts bundled with reel-scout
+=============================
+
+All three faces are licensed under the SIL Open Font License 1.1 (OFL), which
+permits bundling and embedding in documents and applications.
+
+  Archivo Black   — Omnibus-Type            https://fonts.google.com/specimen/Archivo+Black
+  Inter           — Rasmus Andersson        https://fonts.google.com/specimen/Inter
+  JetBrains Mono  — JetBrains               https://fonts.google.com/specimen/JetBrains+Mono
+
+These are the Google Fonts `latin` unicode-range slices (already subset to Latin
++ punctuation + digits), retrieved from fonts.gstatic.com.
+
+Traditional/Simplified Chinese is NOT bundled here: Noto Sans TC is ~11 MB and
+the glyphs actually needed depend on the content being exported, so a CJK subset
+is generated per-export from that export's own text (see theme.cjk_subset).
+
+Full OFL text: https://openfontlicense.org

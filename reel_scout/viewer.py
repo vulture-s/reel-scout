@@ -183,7 +183,7 @@ def render_video_section(view: Dict[str, Any], keyframe_src: KeyframeSrc) -> str
     return "\n".join(parts)
 
 
-_STYLE = theme.stylesheet("""
+_COMPONENTS = """
 /* Library index — a list of rules, not a grid of cards. The row is the chrome;
    the title is the loud part. */
 nav.index{margin:8px 0 0}
@@ -224,10 +224,16 @@ figcaption{font-size:13px;color:var(--ink-2);margin-top:.4rem;line-height:1.45}
   max-width:var(--col)}
 .topics{font-family:var(--mono);font-size:11px;letter-spacing:.12em;
   text-transform:uppercase;color:var(--quiet)}
-""")
+"""
+
+_STYLE = theme.stylesheet(_COMPONENTS)
 
 
-def render_page(sections: List[str], index_html: str, title: str) -> str:
+def render_page(sections: List[str], index_html: str, title: str,
+                embed_fonts: bool = False) -> str:
+    # Server pages link the fonts (/font/...); the take-home export inlines
+    # them so the file still looks right offline and after being moved.
+    style = theme.stylesheet(_COMPONENTS, embed_fonts=embed_fonts)
     return (
         '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -236,7 +242,7 @@ def render_page(sections: List[str], index_html: str, title: str) -> str:
         '<div class="sub">reel-scout · decoded structure · read-only</div>'
         '</div></header>'
         '<main>%s%s</main></body></html>' % (
-            _e(title), _STYLE, _e(title), index_html, "\n".join(sections))
+            _e(title), style, _e(title), index_html, "\n".join(sections))
     )
 
 
@@ -272,7 +278,8 @@ def render_bundle(conn: db.sqlite3.Connection, video_id: Optional[str] = None,
     index = render_index(views, href=lambda vid: "#v-%s" % vid)
     if not views:
         sections = ['<section class="video"><p>No analyzed videos to show.</p></section>']
-    return render_page(sections, index, title)
+    # Take-home export: inline the fonts too, so it holds its look offline.
+    return render_page(sections, index, title, embed_fonts=True)
 
 
 # --- Live server surface (reel-scout view) ---
@@ -353,6 +360,13 @@ def make_server(host: str = "127.0.0.1", port: int = 0):
                     if fp:
                         with open(fp, "rb") as f:
                             self._send(200, f.read(), "image/jpeg")
+                    else:
+                        self._send(404, "not found")
+                elif path.startswith("/font/"):
+                    fp = theme.font_path(path[len("/font/"):])
+                    if os.path.exists(fp):
+                        with open(fp, "rb") as f:
+                            self._send(200, f.read(), "font/woff2")
                     else:
                         self._send(404, "not found")
                 else:

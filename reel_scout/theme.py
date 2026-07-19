@@ -86,6 +86,105 @@ hr{border:0;border-top:2px solid var(--rule);margin:32px 0}
 """
 
 
-def stylesheet(extra: str = "") -> str:
-    """Tokens + base shell, plus a surface's own component rules."""
-    return TOKENS + BASE + extra
+# --- Fonts -------------------------------------------------------------
+# The brand faces can't be assumed present on any machine (they aren't on the
+# author's), so they ship with the package. Latin faces are static and tiny, so
+# they're committed; CJK is not — see cjk_subset().
+
+import base64 as _b64
+import os as _os
+
+FONT_DIR = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "assets", "fonts")
+
+# (css family, filename, weight)
+_FACES = [
+    ("Archivo Black", "archivo-black-400.woff2", 400),
+    ("Inter", "inter-400.woff2", 400),
+    ("JetBrains Mono", "jetbrains-mono-400.woff2", 400),
+]
+
+
+def font_path(name: str) -> str:
+    """Absolute path to a bundled font file, guarded against traversal."""
+    safe = _os.path.basename(name)
+    return _os.path.join(FONT_DIR, safe)
+
+
+def font_face_css(embed: bool = False, cjk_woff2: bytes = b"") -> str:
+    """@font-face rules for the bundled faces.
+
+    embed=False (server): reference /font/<file>, so a page render stays small.
+    embed=True  (export):  inline base64 data URIs, so the file works offline
+                           and survives being moved — the same dual-source trick
+                           the keyframes already use.
+    `cjk_woff2` is an optional per-export Noto Sans TC subset (always inlined;
+    there is no static CJK file to serve).
+    """
+    out = []
+    for family, filename, weight in _FACES:
+        path = _os.path.join(FONT_DIR, filename)
+        if embed:
+            try:
+                with open(path, "rb") as f:
+                    src = "url(data:font/woff2;base64,%s) format('woff2')" % (
+                        _b64.b64encode(f.read()).decode("ascii"))
+            except OSError:
+                continue
+        else:
+            if not _os.path.exists(path):
+                continue
+            src = "url(/font/%s) format('woff2')" % filename
+        out.append(
+            "@font-face{font-family:'%s';font-style:normal;font-weight:%d;"
+            "font-display:swap;src:%s}" % (family, weight, src))
+    if cjk_woff2:
+        out.append(
+            "@font-face{font-family:'Noto Sans TC';font-style:normal;font-weight:400;"
+            "font-display:swap;src:url(data:font/woff2;base64,%s) format('woff2')}"
+            % _b64.b64encode(cjk_woff2).decode("ascii"))
+    return "\n".join(out)
+
+
+def cjk_subset(text: str, source_ttf: str = "") -> bytes:
+    """Subset a CJK face down to exactly the glyphs `text` uses, as woff2.
+
+    A full Noto Sans TC is ~11 MB, but any single export only ever shows a
+    few hundred to a couple thousand ideographs, so the subset lands around a
+    couple hundred KB. Returns b"" when the tooling (fontTools + brotli) or the
+    source font isn't available — callers then fall back to the reader's system
+    CJK face rather than failing the export.
+    """
+    chars = {ch for ch in text if ord(ch) > 0x2E7F}
+    if not chars:
+        return b""
+    src = source_ttf or _os.environ.get("REEL_SCOUT_CJK_TTF", "")
+    if not src or not _os.path.exists(src):
+        return b""
+    try:
+        import io
+        from fontTools import subset as _subset  # noqa: F401
+        from fontTools.ttLib import TTFont
+    except ImportError:
+        return b""
+    try:
+        font = TTFont(src, lazy=True)
+        opts = _subset.Options()
+        opts.layout_features = []
+        opts.hinting = False
+        opts.desubroutinize = True
+        opts.flavor = "woff2"
+        subsetter = _subset.Subsetter(options=opts)
+        subsetter.populate(unicodes=[ord(c) for c in chars] + list(range(0x20, 0x7F)))
+        subsetter.subset(font)
+        buf = io.BytesIO()
+        font.flavor = "woff2"
+        font.save(buf)
+        return buf.getvalue()
+    except Exception:  # noqa: BLE001 — a font problem must not fail an export
+        return b""
+
+
+def stylesheet(extra: str = "", embed_fonts: bool = False,
+               cjk_woff2: bytes = b"") -> str:
+    """Font faces + tokens + base shell, plus a surface's own component rules."""
+    return font_face_css(embed_fonts, cjk_woff2) + TOKENS + BASE + extra

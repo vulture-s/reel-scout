@@ -459,7 +459,19 @@ def make_inspect_server(host: str = "127.0.0.1", port: int = 0,
             if path.startswith("/keyframe/"):
                 self._keyframe(conn, path[len("/keyframe/"):])
                 return
+            if path.startswith("/font/"):
+                self._font(path[len("/font/"):])
+                return
             self._send(404, "not found")
+
+        def _font(self, name):
+            fp = theme.font_path(name)
+            if not os.path.exists(fp):
+                self._send(404, "not found")
+                return
+            with open(fp, "rb") as f:
+                self._send(200, f.read(), "font/woff2",
+                           {"Cache-Control": "public, max-age=604800"})
 
         def _inspect(self, conn, vid):
             from .compare import resolve_ref
