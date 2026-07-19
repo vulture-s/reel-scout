@@ -25,11 +25,18 @@
 ## 安裝
 
 ```bash
-pip install -e .
-pip install -e ".[whisper]"   # faster-whisper 轉錄（建議一起裝）
+pip install reel-scout
+pip install "reel-scout[whisper]"   # faster-whisper 轉錄（建議一起裝）
 ```
 
 需要 `ffmpeg` 與 `yt-dlp`（Mac：`brew install ffmpeg yt-dlp`）。
+其他 extras：`audio`（音訊事件 + BPM）、`ocr`、`diarize`、`instagram`。
+
+從 clone 開發用：
+
+```bash
+pip install -e ".[dev]"
+```
 
 ---
 

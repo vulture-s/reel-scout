@@ -37,7 +37,7 @@ Phase 2  ████████████████████  ✅ Advan
 Phase 2.5████████████████████  ✅ 品質強化（subtitle-first / keyframe budget / prompt pack / skill / 雙語轉錄）
 Phase 3  ██████████████████░░  🔨 Batch Intelligence — browse ✅、compare ✅、3C ✅、3D stats ✅；patterns ❌
 Phase 4  █████░░░░░░░░░░░░░░░░  🔨 Content Strategy Engine — 4A research ✅；inspire/track/MCP擴充 ❌
-Phase 5  ██████████████████░░  ✅ Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅、CI ✅、config check ✅；PyPI build 就緒（上架待人工 token）
+Phase 5  ████████████████████  ✅ Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅、CI ✅、config check ✅、**PyPI 上架 ✅（v1.2.0，Trusted Publishing 零 token）**
 ```
 
 **目前版本**：v1.2.0 ｜ **測試**：228 passing ｜ **DB schema**：v9
@@ -165,7 +165,7 @@ Phase 5  ██████████████████░░  ✅ Tool 
 - [x] LICENSE: MIT
 - [x] README（EN + 繁中）+ 安裝/使用說明
 - [x] `pyproject.toml` 完整（entry points、optional deps 分組）
-- [ ] **PyPI 發布** — `pip install reel-scout`（目前 PyPI 仍 404）。2026-07-19：`.github/workflows/release.yml` 已就緒（Trusted Publishing / OIDC，無需 token；GitHub Release published 觸發 + 可手動指定 tag；含測試 gate 與 tag↔`__version__` 一致性檢查）。**剩下唯一人工步驟**：到 PyPI Account → Publishing 建 pending publisher（owner `vulture-s` / repo `reel-scout` / workflow `release.yml` / environment 留空）
+- [x] **PyPI 發布** ✅ 2026-07-19 — `pip install reel-scout` 已可用（v1.2.0 上架，wheel + sdist）。走 `.github/workflows/release.yml` **Trusted Publishing / OIDC，零 token**（GitHub Release published 觸發 + 可手動指定 tag；含測試 gate 與 tag↔`__version__` 一致性檢查，build/publish 分離）。實證：PyPI API 200、乾淨 venv 從 PyPI 裝後 `reel-scout --version` → 1.2.0、entry points 與新命令皆正常。之後發版只要開 GitHub Release 即自動上傳
 - [x] 版本/CHANGELOG 流程固定（2026-07-18）：CHANGELOG 加 Unreleased 段，Wave 3 每 feature 一條 + schema v6→v9 記錄
 
 ### 5B. 不會安靜爛掉

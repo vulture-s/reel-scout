@@ -9,8 +9,17 @@ Crawl, transcribe, and visually analyze YouTube Shorts, Instagram Reels, and Tik
 ## Install
 
 ```bash
-pip install -e .
-pip install -e ".[whisper]"  # for faster-whisper transcription
+pip install reel-scout
+pip install "reel-scout[whisper]"  # for faster-whisper transcription
+```
+
+Needs `ffmpeg` and `yt-dlp` on PATH (macOS: `brew install ffmpeg yt-dlp`).
+Other extras: `audio` (audio events + BPM), `ocr`, `diarize`, `instagram`.
+
+From a clone, for development:
+
+```bash
+pip install -e ".[dev]"
 ```
 
 ## Usage
