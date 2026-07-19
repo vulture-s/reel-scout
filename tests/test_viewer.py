@@ -186,3 +186,38 @@ def test_view_server_serves_index_video_and_keyframe(temp_db):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_view_server_serves_while_a_connection_is_held_open(temp_db):
+    """A stalled connection must not block other requests.
+
+    The plain single-threaded HTTPServer serialized everything, so one idle
+    browser keep-alive socket stalled the whole viewer — and a video page, which
+    fetches each keyframe over its own request, could hang until timeout.
+    """
+    import socket
+    import threading
+    import urllib.request
+
+    conn = sqlite3.connect(temp_db)
+    conn.row_factory = sqlite3.Row
+    _seed(conn)
+    conn.close()
+
+    httpd = viewer.make_server(port=0)
+    port = httpd.server_address[1]
+    t = threading.Thread(target=httpd.serve_forever, daemon=True)
+    t.start()
+    try:
+        # Connect and leave the request unfinished (no terminating blank line),
+        # the way an idle keep-alive socket sits there.
+        hog = socket.create_connection(("127.0.0.1", port), timeout=5)
+        try:
+            hog.sendall(b"GET / HTTP/1.1\r\nHost: localhost\r\n")
+            resp = urllib.request.urlopen("http://127.0.0.1:%d/" % port, timeout=5)
+            assert resp.status == 200
+        finally:
+            hog.close()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()

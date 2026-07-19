@@ -348,7 +348,12 @@ def make_server(host: str = "127.0.0.1", port: int = 0):
             finally:
                 conn.close()
 
-    return http.server.HTTPServer((host, port), _Handler)
+    # Threading, not the plain HTTPServer: a video page pulls its keyframes over
+    # separate requests, so a single-threaded server serialized them and ANY held
+    # -open connection (a browser keep-alive is enough) blocked every other
+    # request until it timed out. The handler is per-request thread-safe as noted
+    # above, so threading is free. ThreadingHTTPServer sets daemon_threads.
+    return http.server.ThreadingHTTPServer((host, port), _Handler)
 
 
 def serve(host: str = "127.0.0.1", port: int = 0, open_browser: bool = True) -> None:
