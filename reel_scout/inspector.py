@@ -26,7 +26,7 @@ import re
 import subprocess
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import config, db
+from . import config, db, theme
 from .viewer import build_video_view
 
 _SCORE_DIMS = [
@@ -425,10 +425,22 @@ def make_inspect_server(host: str = "127.0.0.1", port: int = 0,
 
         def _route(self, path, conn):
             if path in ("/", "/inspect", "/inspect/"):
+                # One app, not two servers: `inspect <id>` pins a video and opens
+                # straight into it, while `view` (no default) lands on the library
+                # index whose rows link into this same inspector.
                 if default_id:
                     self._inspect(conn, default_id)
                 else:
-                    self._send(404, "specify a video: /inspect/<id>")
+                    from .viewer import render_index_page
+                    self._send(200, render_index_page(
+                        conn, href=lambda vid: "/inspect/%s" % vid))
+                return
+            if path.startswith("/video/"):
+                # Legacy static detail route — kept so old links/exports resolve,
+                # but the inspector is the real detail surface now.
+                from .viewer import render_video_page
+                page = render_video_page(conn, path[len("/video/"):])
+                self._send(200, page) if page else self._send(404, "not found")
                 return
             if path.startswith("/inspect/"):
                 self._inspect(conn, path[len("/inspect/"):])
@@ -499,78 +511,68 @@ def serve(video_id: str, host: str = "127.0.0.1", port: int = 0,
         httpd.server_close()
 
 
-_STYLE = """
-:root{--bg:#0a0a0c;--surface:#17171a;--rule:#26262a;--rule-hi:#3a3a3f;--ink:#f3f2ee;
-  --ink2:#b6b5b0;--quiet:#6a6a6d;--accent:#18b6dc;--good:#f3f2ee}
-@media(prefers-color-scheme:light){:root{--bg:#f1efe9;--surface:#e7e4dc;--rule:#c9c5bb;
-  --rule-hi:#a8a498;--ink:#1c1a16;--ink2:#3c3a34;--quiet:#8a867a;--good:#1c1a16}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);
-  font:14px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif}
-main{max-width:720px;margin:0 auto;padding:0 18px 5rem}
-a{color:var(--accent)}
-.eyebrow{font:11px/1.2 "JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
-  text-transform:uppercase;letter-spacing:.08em;color:var(--quiet)}
-.eyebrow .q{color:var(--quiet);opacity:.75;text-transform:none;letter-spacing:0}
-.top{padding:1.5rem 0 1rem;border-bottom:1px solid var(--rule)}
-.top h1{margin:.4rem 0 .3rem;font-size:1.4rem;font-weight:600;line-height:1.2}
-.meta{margin:.1rem 0;color:var(--ink2);
-  font:11.5px "JetBrains Mono",ui-monospace,monospace}
-.summary{margin:.6rem 0 0;color:var(--ink2)}
-.block{padding:14px 0;border-bottom:1px solid var(--rule)}
-.block .eyebrow{margin-bottom:.5rem}
+_STYLE = theme.stylesheet("""
+a{color:inherit}
+.eyebrow .q{text-transform:none;letter-spacing:0;color:var(--quiet)}
+.top{padding:26px 0 16px;border-bottom:2px solid var(--rule)}
+.top h1{margin:.35rem 0 .3rem;font-family:var(--display);font-weight:400;
+  font-size:clamp(24px,3vw,34px);letter-spacing:-.02em;line-height:1.1}
+.meta{margin:.1rem 0;color:var(--quiet);font-family:var(--mono);font-size:11px;
+  letter-spacing:.1em}
+.summary{margin:.7rem 0 0;color:var(--ink-2);max-width:var(--col)}
+.block{padding:20px 0;border-bottom:1px solid var(--rule-soft)}
+.block .eyebrow{margin-bottom:.6rem}
+/* content is the loud part: the player gets the room, no chrome around it */
 .preview{display:flex;justify-content:center}
-.player{width:100%;max-height:62vh;background:#000;border-radius:4px}
-.noplayer{width:100%;aspect-ratio:16/9;background:var(--surface);border-radius:4px;
+.player{width:100%;max-height:64vh;background:var(--frame)}
+.noplayer{width:100%;aspect-ratio:16/9;background:var(--surface-2);
   display:grid;place-items:center;color:var(--quiet);
-  font:11.5px "JetBrains Mono",monospace}
-/* waveform */
+  font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase}
+/* waveform — playhead is ink, not cyan (canon caps cyan at the tv./wordmark) */
 .wf{height:60px;cursor:pointer;user-select:none}
 .wf svg{width:100%;height:60px;display:block}
-.wf rect.bar{fill:var(--ink2)}
+.wf rect.bar{fill:var(--rule-soft)}
 .wf rect.bar.in{fill:var(--ink)}
-.wf .sel{fill:var(--ink);opacity:.10}
-.wf .head{stroke:var(--accent);stroke-width:1}
-.wfbtns{display:flex;gap:.4rem;margin-top:.5rem;flex-wrap:wrap}
-.tbtn{font:10px "JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:.04em;
-  color:var(--ink2);background:var(--surface);border:1px solid var(--rule);
-  padding:.3rem .55rem;border-radius:3px;cursor:pointer}
-.tbtn:hover{border-color:var(--rule-hi);color:var(--ink)}
-.tbtn.on{background:var(--good);color:var(--bg);border-color:var(--good)}
-/* filmstrip */
-.strip{display:flex;gap:2px;overflow-x:auto;padding-bottom:4px}
+.wf .sel{fill:var(--ink);opacity:.08}
+.wf .head{stroke:var(--ink);stroke-width:1.5}
+.wfbtns{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.tbtn{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;
+  color:var(--ink-2);background:var(--surface);border:1px solid var(--rule-soft);
+  padding:6px 10px;cursor:pointer}
+.tbtn:hover{border-color:var(--rule);color:var(--ink)}
+.tbtn.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.strip{display:flex;gap:3px;overflow-x:auto;padding-bottom:6px}
 .strip .cell{position:relative;flex:0 0 auto;padding:0;border:1px solid transparent;
-  background:none;cursor:pointer;border-radius:3px;overflow:hidden}
-.strip .cell img{height:82px;width:auto;display:block}
-.strip .cell.active{border-color:var(--accent)}
-.strip .ct{position:absolute;left:2px;bottom:2px;background:#000a;color:#fff;
-  font:9px "JetBrains Mono",monospace;padding:0 3px;border-radius:2px}
-/* transcript */
-.segs{max-height:44vh;overflow:auto;border:1px solid var(--rule);border-radius:4px}
-.seg{display:flex;gap:.5rem;width:100%;text-align:left;padding:.35rem .5rem;border:0;
-  border-bottom:1px solid var(--rule);background:none;color:inherit;font:inherit;cursor:pointer}
+  background:none;cursor:pointer;overflow:hidden}
+.strip .cell img{height:88px;width:auto;display:block}
+.strip .cell.active{border-color:var(--ink)}
+.strip .ct{position:absolute;left:0;bottom:0;background:var(--ink);color:var(--bg);
+  font-family:var(--mono);font-size:9px;letter-spacing:.06em;padding:1px 4px}
+.segs{max-height:44vh;overflow:auto;border:1px solid var(--rule-soft)}
+.seg{display:flex;gap:10px;width:100%;text-align:left;padding:7px 10px;border:0;
+  border-bottom:1px solid var(--rule-soft);background:none;color:inherit;font:inherit;
+  cursor:pointer}
 .seg:last-child{border-bottom:0}
 .seg:hover{background:var(--surface)}
-.seg.active{background:var(--surface);box-shadow:inset 2px 0 0 var(--accent)}
-.seg .tc{flex:0 0 2.6rem;color:var(--quiet);
-  font:11px "JetBrains Mono",monospace}
-.flat{white-space:pre-wrap;color:var(--ink2);font-size:13px;max-height:44vh;overflow:auto;
-  padding:.6rem;border:1px solid var(--rule);border-radius:4px}
-/* scores */
-.meters{display:flex;flex-direction:column;gap:.35rem;max-width:420px}
-.meter{display:flex;align-items:center;gap:.6rem}
-.mlabel{width:4.5rem;color:var(--quiet);
-  font:10px "JetBrains Mono",monospace;text-transform:uppercase}
-.mbar{flex:1;height:6px;background:var(--rule);border-radius:99px;overflow:hidden}
-.mbar i{display:block;height:100%;background:var(--ink);border-radius:99px}
-.mval{width:2rem;text-align:right;font:12px "JetBrains Mono",monospace}
-.reasoning{margin:.6rem 0 0;color:var(--quiet);font-size:12.5px;max-width:60ch}
-/* structure */
-.metagrid{display:grid;grid-template-columns:5rem 1fr;gap:.15rem .8rem;font-size:12.5px}
-.mk{color:var(--quiet);font:10.5px "JetBrains Mono",monospace;text-transform:uppercase;
-  padding-top:2px}
+.seg.active{background:var(--surface);box-shadow:inset 2px 0 0 var(--ink)}
+.seg .tc{flex:0 0 2.8rem;color:var(--quiet);font-family:var(--mono);font-size:11px}
+.flat{white-space:pre-wrap;color:var(--ink-2);font-size:13px;max-height:44vh;overflow:auto;
+  padding:12px;border:1px solid var(--rule-soft)}
+/* scores — mono bars; status colours are a data layer, never brand chrome */
+.meters{display:flex;flex-direction:column;gap:6px;max-width:440px}
+.meter{display:flex;align-items:center;gap:12px}
+.mlabel{width:5rem;color:var(--quiet);font-family:var(--mono);font-size:10px;
+  letter-spacing:.12em;text-transform:uppercase}
+.mbar{flex:1;height:6px;background:var(--surface-2)}
+.mbar i{display:block;height:100%;background:var(--ink)}
+.mval{width:2.4rem;text-align:right;font-family:var(--mono);font-size:12px;
+  font-variant-numeric:tabular-nums}
+.reasoning{margin:12px 0 0;color:var(--quiet);font-size:13px;max-width:62ch}
+.metagrid{display:grid;grid-template-columns:6rem 1fr;gap:3px 16px;font-size:13px}
+.mk{color:var(--quiet);font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+  text-transform:uppercase;padding-top:3px}
 .mv{color:var(--ink)}
-"""
+""")
 
 _SCRIPT = r"""
 (function(){

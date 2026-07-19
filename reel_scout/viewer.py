@@ -20,7 +20,7 @@ import json
 import os
 from typing import Any, Callable, Dict, List, Optional
 
-from . import config, db
+from . import config, db, theme
 
 # A keyframe-src strategy maps a keyframe row → the string that goes in <img src>.
 # Export uses a base64 data URI (self-contained); the server uses a URL.
@@ -183,42 +183,48 @@ def render_video_section(view: Dict[str, Any], keyframe_src: KeyframeSrc) -> str
     return "\n".join(parts)
 
 
-_STYLE = """
-:root{color-scheme:light dark}
-*{box-sizing:border-box}
-body{font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans TC",sans-serif;
-  margin:0;padding:0;background:#fafafa;color:#1a1a1a}
-@media(prefers-color-scheme:dark){body{background:#111;color:#eaeaea}}
-header.top{padding:1.5rem 2rem;border-bottom:1px solid #8884}
-header.top h1{margin:0;font-size:1.3rem;letter-spacing:.02em}
-header.top .sub{opacity:.6;font-size:.85rem}
-main{max-width:900px;margin:0 auto;padding:0 1.5rem 4rem}
-nav.index{padding:1rem 0;border-bottom:1px solid #8884;margin-bottom:1rem}
-nav.index a{display:block;padding:.2rem 0;text-decoration:none;color:inherit}
-nav.index a:hover{text-decoration:underline}
-nav.index .sc{opacity:.55;font-size:.8rem}
-section.video{padding:2rem 0;border-bottom:1px solid #8884}
-section.video h2{margin:.2rem 0}
-.meta{opacity:.6;font-size:.85rem;margin:.2rem 0 1rem}
-.meta a{color:inherit}
-.summary{font-size:1.05rem}
-h3{margin:1.4rem 0 .4rem;font-size:.95rem;text-transform:uppercase;letter-spacing:.05em;opacity:.75}
-h3 small{text-transform:none;letter-spacing:0;opacity:.7;font-weight:400}
-table.kv,table.scores{border-collapse:collapse;font-size:.9rem}
-table.kv th,table.scores th{text-align:left;padding:.15rem 1rem .15rem 0;font-weight:600;opacity:.7;vertical-align:top;white-space:nowrap}
-table.kv td,table.scores td{padding:.15rem 0}
-ul.timeline{margin:.2rem 0;padding-left:1.2rem}
-.ts{font-variant-numeric:tabular-nums;opacity:.55;font-size:.8rem;margin-right:.4rem}
-.frames{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem}
+_STYLE = theme.stylesheet("""
+/* Library index — a list of rules, not a grid of cards. The row is the chrome;
+   the title is the loud part. */
+nav.index{margin:8px 0 0}
+nav.index a{display:flex;align-items:baseline;gap:10px;padding:11px 2px;
+  border-bottom:1px solid var(--rule-soft);text-decoration:none}
+nav.index a:hover{background:var(--surface)}
+nav.index a:hover .ttl{text-decoration:underline;text-underline-offset:3px}
+nav.index .ttl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+nav.index .sc{font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--quiet);flex:none}
+
+section.video{padding:8px 0 40px}
+section.video h2{margin:.1rem 0;font-family:var(--display);font-weight:400;
+  font-size:clamp(22px,2.6vw,30px);letter-spacing:-.02em;line-height:1.15}
+.meta{font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--quiet);margin:.35rem 0 1.1rem}
+.summary{font-size:17px;max-width:var(--col)}
+h3{margin:34px 0 10px;font-family:var(--mono);font-size:11px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--quiet);font-weight:400;
+  border-bottom:1px solid var(--rule);padding-bottom:6px}
+h3 small{letter-spacing:.08em}
+table.kv,table.scores{border-collapse:collapse;font-size:14px}
+table.kv th,table.scores th{text-align:left;padding:5px 20px 5px 0;font-weight:400;
+  font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--quiet);vertical-align:top;white-space:nowrap}
+table.kv td,table.scores td{padding:5px 0;font-variant-numeric:tabular-nums}
+ul.timeline{margin:.2rem 0;padding-left:1.1rem;max-width:var(--col)}
+.ts{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--quiet);
+  font-size:11px;letter-spacing:.06em;margin-right:.5rem}
+.frames{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:18px}
 .frames figure{margin:0}
-.frames img{width:100%;height:auto;border-radius:4px;display:block;background:#8882}
-.frames .noimg{aspect-ratio:16/9;display:grid;place-items:center;background:#8882;border-radius:4px;font-size:.8rem;opacity:.5}
-figcaption{font-size:.8rem;opacity:.75;margin-top:.3rem}
-figcaption em{opacity:.9}
-.transcript{font-size:.9rem;opacity:.85;white-space:pre-wrap;max-height:16rem;overflow:auto;
-  padding:.6rem .8rem;background:#8881;border-radius:4px}
-.topics{font-size:.85rem;opacity:.7}
-"""
+.frames img{width:100%;height:auto;display:block;background:var(--surface-2)}
+.frames .noimg{aspect-ratio:16/9;display:grid;place-items:center;
+  background:var(--surface-2);font-family:var(--mono);font-size:11px;color:var(--quiet)}
+figcaption{font-size:13px;color:var(--ink-2);margin-top:.4rem;line-height:1.45}
+.transcript{font-size:14px;white-space:pre-wrap;max-height:17rem;overflow:auto;
+  padding:14px 16px;background:var(--surface);border:1px solid var(--rule-soft);
+  max-width:var(--col)}
+.topics{font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--quiet)}
+""")
 
 
 def render_page(sections: List[str], index_html: str, title: str) -> str:
@@ -226,8 +232,9 @@ def render_page(sections: List[str], index_html: str, title: str) -> str:
         '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>%s</title><style>%s</style></head><body>'
-        '<header class="top"><h1>%s</h1>'
-        '<div class="sub">reel-scout — decoded structure viewer (read-only)</div></header>'
+        '<header class="top"><div class="inner"><h1>%s</h1>'
+        '<div class="sub">reel-scout · decoded structure · read-only</div>'
+        '</div></header>'
         '<main>%s%s</main></body></html>' % (
             _e(title), _STYLE, _e(title), index_html, "\n".join(sections))
     )
@@ -242,7 +249,7 @@ def render_index(views: List[Dict[str, Any]], href: Callable[[str], str]) -> str
         if v["score"] and v["score"].get("overall") is not None:
             overall = '<span class="sc"> · %.1f</span>' % v["score"]["overall"]
         struct = '<span class="sc"> · %s</span>' % _e(v["content_structure"]) if v["content_structure"] else ""
-        items.append('<a href="%s">%s%s%s</a>' % (
+        items.append('<a href="%s"><span class="ttl">%s</span>%s%s</a>' % (
             _e(href(v["video_id"])), _e(v["title"]), struct, overall))
     items.append('</nav>')
     return "\n".join(items)
@@ -272,17 +279,22 @@ def render_bundle(conn: db.sqlite3.Connection, video_id: Optional[str] = None,
 # Same renderer as the bundle, but keyframes are served from disk by URL instead
 # of base64-embedded, and each video is its own page.
 
-def render_index_page(conn: db.sqlite3.Connection, title: str = "reel-scout") -> str:
+def render_index_page(conn: db.sqlite3.Connection, title: str = "reel-scout",
+                      href: Optional[Callable[[str], str]] = None) -> str:
+    """Library index. `href` decides where a row points — the unified server
+    sends rows straight into the inspector; the static export keeps /video/."""
+    if href is None:
+        href = lambda vid: "/video/%s" % vid  # noqa: E731
     views = [v for v in (build_video_view(conn, r["id"])
                          for r in db.list_videos(conn, status="analyzed", limit=9999)) if v]
     if not views:
         body = '<section class="video"><p>No analyzed videos yet.</p></section>'
         return render_page([body], "", title)
-    nav = render_index(views, href=lambda vid: "/video/%s" % vid)
+    nav = render_index(views, href=href)
     # render_index returns "" for a single video; always show the list on the server.
     if not nav:
-        nav = ('<nav class="index"><a href="/video/%s">%s</a></nav>'
-               % (_e(views[0]["video_id"]), _e(views[0]["title"])))
+        nav = ('<nav class="index"><a href="%s">%s</a></nav>'
+               % (_e(href(views[0]["video_id"])), _e(views[0]["title"])))
     return render_page([], nav, title)
 
 
@@ -357,8 +369,14 @@ def make_server(host: str = "127.0.0.1", port: int = 0):
 
 
 def serve(host: str = "127.0.0.1", port: int = 0, open_browser: bool = True) -> None:
-    """Start the read-only local viewer server. Blocks until interrupted."""
-    httpd = make_server(host=host, port=port)
+    """Start the read-only local viewer. Blocks until interrupted.
+
+    This is the unified app: the library index plus the interactive inspector on
+    one port, so a row in the list opens straight into the player/waveform view
+    instead of making you run a second command with a video id.
+    """
+    from .inspector import make_inspect_server  # lazy: inspector imports viewer
+    httpd = make_inspect_server(host=host, port=port, default_id=None)
     url = "http://%s:%d/" % (host, httpd.server_address[1])
     print("reel-scout view (read-only) serving at %s  — Ctrl-C to stop" % url)
     if open_browser:
