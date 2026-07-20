@@ -837,7 +837,18 @@ _SCRIPT = r"""
         if(lbl) lbl.textContent=s.value+'%';
       });
       var v=computeOverall(w);
-      if(v==null){ if(delta){delta.textContent='all weights at zero — no verdict'; delta.className='wdelta on';} return; }
+      if(v==null){
+        /* Every weight at zero: there is no blend, so there is no number. Blank
+           the meter rather than leaving the last computed value sitting there —
+           otherwise the panel says "no verdict" while still showing one, which
+           is worse than either alone. (Caught by driving the real sliders; the
+           JS/Python parity check only compared return values, not DOM state.) */
+        if(oval) oval.textContent='—';
+        if(obar) obar.style.width='0%';
+        if(ometer) ometer.className='meter custom';
+        if(delta){delta.textContent='all weights at zero — no verdict'; delta.className='wdelta on';}
+        return;
+      }
       if(obar) obar.style.width=Math.max(0,Math.min(100,v*10)).toFixed(1)+'%';
       if(oval) oval.textContent=v.toFixed(1);
       var def=isDefault();

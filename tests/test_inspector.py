@@ -356,3 +356,24 @@ def test_no_descriptions_means_no_empty_caption_slot(temp_db):
         assert "described" not in page
     finally:
         conn.close()
+
+
+def test_zero_weight_guard_blanks_the_overall_meter():
+    """Regression: the all-zero branch must clear the meter, not just message.
+
+    Found by driving the real sliders in a browser, NOT by the JS/Python parity
+    check — that only compared `computeOverall` return values, so it could not
+    see that the early `return` left the previously-computed overall sitting in
+    the DOM. The panel then said "all weights at zero — no verdict" while still
+    displaying a verdict (8.0), which is worse than either state alone.
+
+    Asserted at source level because there is no JS test runner here; it is a
+    tripwire against the blanking being deleted, not a behavioural test.
+    """
+    src = inspector._SCRIPT
+    guard = src[src.index("if(v==null){"):src.index("var def=isDefault();")]
+    assert "oval.textContent='—'" in guard, (
+        "the zero-weight branch no longer blanks the overall value — the panel "
+        "will claim 'no verdict' while still showing the last computed one")
+    assert "obar.style.width='0%'" in guard, (
+        "the zero-weight branch no longer collapses the overall bar")
