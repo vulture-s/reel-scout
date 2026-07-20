@@ -2,7 +2,7 @@
 
 `pip install reel-scout` installs a CLI. It does not install a skill, and the
 skill is what makes the CLI usable by an agent — SKILL.md carries the pipeline
-procedure and the L0/L1/L2 tier rules, `commands/scout.md` is the slash command,
+procedure and the capability/surface rules, `commands/scout.md` is the slash command,
 `prompts/` is the reverse-decode pack, `scripts/setup.py` is the preflight
 SKILL.md Step 0 shells out to. Until this existed, all of that shipped only to
 people who cloned the repo, which is the opposite of who needs it.

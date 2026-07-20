@@ -177,3 +177,175 @@ def test_list_videos():
 
     conn.close()
     os.unlink(path)
+
+
+# --- v10: the columns a background batch runner needs -------------------------
+
+def _v9_database(path):
+    """A v9 batches/batch_items pair with a row in each, as it shipped."""
+    conn = sqlite3.connect(path)
+    conn.executescript("""
+        CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+        CREATE TABLE videos (id TEXT PRIMARY KEY);
+        CREATE TABLE batches (
+            id TEXT PRIMARY KEY, source TEXT, total_urls INTEGER,
+            completed INTEGER DEFAULT 0, failed INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'running',
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now')));
+        CREATE TABLE batch_items (
+            batch_id TEXT, url TEXT, video_id TEXT,
+            status TEXT DEFAULT 'pending', error_message TEXT,
+            PRIMARY KEY (batch_id, url));
+        INSERT INTO schema_version VALUES (9);
+        INSERT INTO batches (id, source, total_urls) VALUES ('b1', 'cli', 2);
+        INSERT INTO batch_items (batch_id, url, status)
+            VALUES ('b1', 'https://x/1', 'done');
+    """)
+    conn.commit()
+    conn.close()
+
+
+def test_a_v9_database_migrates_without_losing_batches(tmp_path):
+    path = str(tmp_path / "v9.db")
+    _v9_database(path)
+
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    db._migrate_v9_to_v10(conn)
+
+    assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == 10
+    assert conn.execute("SELECT COUNT(*) FROM batches").fetchone()[0] == 1
+    assert conn.execute("SELECT status FROM batch_items").fetchone()[0] == "done"
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(batches)")}
+    assert {"mode", "out_root", "pid", "heartbeat_at", "cancel_requested"} <= cols
+    item_cols = {r[1] for r in conn.execute("PRAGMA table_info(batch_items)")}
+    assert {"label", "slug", "bundle_dir"} <= item_cols
+    conn.close()
+
+
+def test_the_migration_is_idempotent(tmp_path):
+    """init_db runs the ladder on every connection, so a half-applied ALTER must
+    not become a hard failure on the next open."""
+    path = str(tmp_path / "v9.db")
+    _v9_database(path)
+    conn = sqlite3.connect(path)
+    db._migrate_v9_to_v10(conn)
+    conn.execute("UPDATE schema_version SET version = 9")
+    conn.commit()
+    db._migrate_v9_to_v10(conn)  # must not raise
+    assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == 10
+    conn.close()
+
+
+def test_a_fresh_database_has_the_same_columns_as_a_migrated_one(tmp_path, monkeypatch):
+    """_SCHEMA_SQL and the migration are two independent definitions of the same
+    tables; they drift the moment only one is edited."""
+    fresh = str(tmp_path / "fresh.db")
+    conn = sqlite3.connect(fresh)
+    conn.row_factory = sqlite3.Row
+    db.init_db(conn)
+    fresh_cols = {r[1] for r in conn.execute("PRAGMA table_info(batches)")}
+    fresh_items = {r[1] for r in conn.execute("PRAGMA table_info(batch_items)")}
+    conn.close()
+
+    migrated = str(tmp_path / "old.db")
+    _v9_database(migrated)
+    conn = sqlite3.connect(migrated)
+    db._migrate_v9_to_v10(conn)
+    old_cols = {r[1] for r in conn.execute("PRAGMA table_info(batches)")}
+    old_items = {r[1] for r in conn.execute("PRAGMA table_info(batch_items)")}
+    conn.close()
+
+    assert fresh_cols == old_cols
+    assert fresh_items == old_items
+
+
+# --- the counter bug this split exists to avoid -------------------------------
+
+def test_item_progress_does_not_touch_the_batch_counters(temp_db):
+    """update_batch_item increments completed/failed on every call. Routing an
+    item's intermediate states through it would count one video several times,
+    so progress writes go through a separate function and the counting call
+    happens exactly once, at the terminal transition."""
+    conn = sqlite3.connect(temp_db)
+    conn.row_factory = sqlite3.Row
+    try:
+        batch_id = db.create_batch(conn, ["https://x/1"], source="mcp-batch")
+
+        for status in ("analyzing", "analyzing", "needs_vision", "exporting", "exporting"):
+            db.set_batch_item_progress(conn, batch_id, "https://x/1", status=status)
+        assert conn.execute(
+            "SELECT completed FROM batches WHERE id = ?", (batch_id,)).fetchone()[0] == 0
+
+        db.update_batch_item(conn, batch_id, "https://x/1", "done", video_id="v1")
+        assert conn.execute(
+            "SELECT completed FROM batches WHERE id = ?", (batch_id,)).fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
+def test_item_progress_records_the_fields_status_needs(temp_db):
+    conn = sqlite3.connect(temp_db)
+    conn.row_factory = sqlite3.Row
+    try:
+        batch_id = db.create_batch(conn, ["https://x/1"], source="mcp-batch")
+        db.set_batch_item_progress(
+            conn, batch_id, "https://x/1",
+            label="Amy Wu", slug="amy-wu", bundle_dir="/out/amy-wu", status="done")
+        row = db.get_batch_items(conn, batch_id)[0]
+        assert (row["label"], row["slug"], row["bundle_dir"]) == (
+            "Amy Wu", "amy-wu", "/out/amy-wu")
+    finally:
+        conn.close()
+
+
+# --- liveness and cancellation -------------------------------------------------
+
+def test_heartbeat_is_what_separates_running_from_abandoned(temp_db):
+    conn = sqlite3.connect(temp_db)
+    conn.row_factory = sqlite3.Row
+    try:
+        batch_id = db.create_batch(conn, ["https://x/1"], source="mcp-batch")
+        assert db.get_batch(conn, batch_id)["heartbeat_at"] is None
+        db.touch_batch_heartbeat(conn, batch_id)
+        assert db.get_batch(conn, batch_id)["heartbeat_at"] is not None
+    finally:
+        conn.close()
+
+
+def test_cancel_is_a_flag_the_worker_polls(temp_db):
+    conn = sqlite3.connect(temp_db)
+    conn.row_factory = sqlite3.Row
+    try:
+        batch_id = db.create_batch(conn, ["https://x/1"], source="mcp-batch")
+        assert db.batch_cancel_requested(conn, batch_id) is False
+        db.request_batch_cancel(conn, batch_id)
+        assert db.batch_cancel_requested(conn, batch_id) is True
+    finally:
+        conn.close()
+
+
+def test_set_batch_meta_records_what_the_job_was_told_to_do(temp_db):
+    conn = sqlite3.connect(temp_db)
+    conn.row_factory = sqlite3.Row
+    try:
+        batch_id = db.create_batch(conn, ["https://x/1"], source="mcp-batch")
+        db.set_batch_meta(conn, batch_id, mode="agent", out_root="/out", pid=4242)
+        row = db.get_batch(conn, batch_id)
+        assert (row["mode"], row["out_root"], row["pid"]) == ("agent", "/out", 4242)
+    finally:
+        conn.close()
+
+
+def test_latest_batch_can_be_found_by_source(temp_db):
+    """A caller that lost the batch_id across a long conversation is exactly the
+    situation a background runner creates."""
+    conn = sqlite3.connect(temp_db)
+    conn.row_factory = sqlite3.Row
+    try:
+        db.create_batch(conn, ["https://x/1"], source="cli")
+        mine = db.create_batch(conn, ["https://x/2"], source="mcp-batch")
+        assert db.get_latest_batch(conn, source="mcp-batch")["id"] == mine
+    finally:
+        conn.close()

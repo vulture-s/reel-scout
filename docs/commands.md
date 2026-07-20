@@ -24,8 +24,9 @@ see [`../prompts/signal-reliability-cheatsheet.md`](../prompts/signal-reliabilit
 | `inspire --based-on <ref> [--angle]` | Generate a fresh variant (titles/hook/structure/length) from a high scorer. |
 | `track --my-video <ref> --views --likes [--comments --notes]` | Record real performance + structural iteration hints vs the top corpus. |
 | `research --niche <n> --channels <url…> [--depth --out --no-analyze]` | Competitor research report. |
-| `batch --doc <url>` / `--file` / `--stdin` | Analyze every reel listed in a Google Doc/Sheet (or file/stdin), one bundle each. `--dry-run`, `--limit`, `--out`, `--mode`. Google `/edit` links are rewritten to no-auth export endpoints — sharing set to "anyone with the link" is enough, no API key. |
+| `batch --stdin` / `--file <path>` / `--doc <url>` | Analyze every reel in a list, one bundle each. `--dry-run`, `--limit`, `--out`, `--mode`. Prefer `--stdin`/`--file` for someone's own list — it stays on their machine. `--doc` rewrites Google `/edit` links to no-auth export endpoints, which needs sharing set to "anyone with the link", i.e. it makes that document public to anyone holding the URL. |
 | `skill {install,path}` | Copy the agent-facing assets (SKILL.md, `/scout`, prompt pack, setup preflight) to `~/.claude/skills/reel-scout`. `--dest`, `--force`. `pip install` alone does **not** give an agent anything to load. |
+| `mcp install` / `mcp path` | Register the MCP server with Claude Desktop / Claude Code so they can launch it, pinning an absolute `REEL_SCOUT_DATA`. `--client`, `--data`, `--path`, `--force`, `--dry-run`. `mcp path` diagnoses what is configured versus what this directory resolves to. |
 | `db {stats,reset,migrate}` / `config {show,check}` | DB / config utilities. |
 
 Refs (`<ref>`, `<id>`) accept a full 16-hex video id or a unique prefix; `track --my-video` also accepts a URL already in the DB.
