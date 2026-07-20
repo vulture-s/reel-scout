@@ -480,6 +480,7 @@ def _tool_show_video(args: Dict[str, Any]) -> Dict[str, Any]:
 
         transcript = db.get_transcript(conn, video_id)
         analysis = db.get_analysis(conn, video_id)
+        score = db.get_score(conn, video_id)
         keyframes = db.get_keyframes_with_descriptions(conn, video_id)
         payload = {
             "video": {
@@ -495,8 +496,22 @@ def _tool_show_video(args: Dict[str, Any]) -> Dict[str, Any]:
             },
             "transcript": None,
             "analysis": None,
+            "score": None,
             "keyframes": [],
         }
+        if score is not None:
+            # model_used is the point: agent-scored and locally-scored rows are
+            # averaged together by `stats`, so a score without its origin is
+            # unattributable. Over MCP this is the only place it surfaces.
+            payload["score"] = {
+                "overall": score["overall"],
+                "hook_strength": score["hook_strength"],
+                "visual_storytelling": score["visual_storytelling"],
+                "pacing": score["pacing"],
+                "structure": score["structure"],
+                "reasoning": score["reasoning"],
+                "model_used": score["model_used"],
+            }
         if transcript is not None:
             payload["transcript"] = {
                 "language": transcript["language"],
