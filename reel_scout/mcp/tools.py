@@ -9,6 +9,14 @@ from typing import Any, Dict, List
 from .. import config, db
 from ..export.json_export import export_csv, export_json
 
+#: Frames returned by `keyframes` when the caller does not say.
+_KEYFRAMES_DEFAULT_MAX = 8
+
+#: Total base64 budget for one `keyframes` reply. Native frames are unbounded and
+#: base64 inflates them by 4/3, so a long clip could otherwise return tens of MB
+#: into a context window. Truncation is reported, never silent.
+_KEYFRAMES_MAX_BYTES = 4 * 1024 * 1024
+
 
 def list_tools() -> List[Dict[str, Any]]:
     return [
@@ -57,6 +65,39 @@ def list_tools() -> List[Dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "video_id": {"type": "string"},
+                },
+                "required": ["video_id"],
+            },
+        },
+        {
+            "name": "keyframes",
+            "description": (
+                "Return the extracted keyframe images themselves so you can look at "
+                "them. `show_video` only gives you file paths, which are useless "
+                "without filesystem access — this is how you actually see the frames. "
+                "Call it before `ingest_vision`: describe what you saw, never what you "
+                "assumed."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "video_id": {
+                        "type": "string",
+                        "description": "Video id or a unique prefix.",
+                    },
+                    "frame_indexes": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": (
+                            "Specific frame_index values. Omit for an even spread "
+                            "across the clip."
+                        ),
+                    },
+                    "max_frames": {
+                        "type": "integer",
+                        "default": _KEYFRAMES_DEFAULT_MAX,
+                        "description": "Cap on how many frames come back (default 8).",
+                    },
                 },
                 "required": ["video_id"],
             },
@@ -111,17 +152,7 @@ def list_tools() -> List[Dict[str, Any]]:
 
 
 def call_tool(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-    handlers = {
-        "crawl": _tool_crawl,
-        "analyze": _tool_analyze,
-        "list_videos": _tool_list_videos,
-        "show_video": _tool_show_video,
-        "export": _tool_export,
-        "patterns": _tool_patterns,
-        "inspire": _tool_inspire,
-        "research": _tool_research,
-    }
-    handler = handlers.get(name)
+    handler = _HANDLERS.get(name)
     if handler is None:
         return _error_result("Unknown tool: %s" % name)
     try:
@@ -139,6 +170,25 @@ def _text_result(payload: Any) -> Dict[str, Any]:
             }
         ]
     }
+
+
+def _image_result(payload: Any, images: List[Dict[str, str]]) -> Dict[str, Any]:
+    """A JSON block followed by one image block per frame.
+
+    The text block first, deliberately: it carries the keyframe_id / frame_index
+    locators, and a model that reads top-to-bottom should have them in hand
+    before it starts describing what it sees.
+    """
+    content = [{"type": "text", "text": json.dumps(payload, ensure_ascii=False, indent=2)}]
+    for image in images:
+        content.append(
+            {
+                "type": "image",
+                "data": image["data"],
+                "mimeType": image.get("mime_type", "image/jpeg"),
+            }
+        )
+    return {"content": content}
 
 
 def _error_result(message: str) -> Dict[str, Any]:
@@ -385,6 +435,105 @@ def _tool_research(args: Dict[str, Any]) -> Dict[str, Any]:
         conn.close()
 
 
+def _pick_frames(rows: List[Any], wanted: Any, max_frames: int) -> List[Any]:
+    """Which keyframe rows to return: the ones asked for, or an even spread.
+
+    An even spread rather than the first N — the first N of a 40-frame clip is
+    the first few seconds, which tells you nothing about how the clip resolves.
+    """
+    if wanted:
+        want = {int(w) for w in wanted}
+        return [r for r in rows if r["frame_index"] in want][:max_frames]
+    if len(rows) <= max_frames:
+        return list(rows)
+    step = (len(rows) - 1) / float(max_frames - 1) if max_frames > 1 else 0
+    return [rows[int(round(i * step))] for i in range(max_frames)]
+
+
+def _tool_keyframes(args: Dict[str, Any]) -> Dict[str, Any]:
+    import base64
+
+    from ..compare import resolve_ref
+    from ..viewer import _keyframe_path
+
+    video_ref = args.get("video_id") or ""
+    if not video_ref:
+        return _error_result("video_id is required")
+    max_frames = int(args.get("max_frames", _KEYFRAMES_DEFAULT_MAX))
+    if max_frames < 1:
+        return _error_result("max_frames must be at least 1")
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        video_id, matches = resolve_ref(conn, video_ref)
+        if video_id is None:
+            if len(matches) > 1:
+                return _error_result(
+                    "Ambiguous video id %r — matches: %s" % (video_ref, ", ".join(matches))
+                )
+            return _error_result("Video not found: %s" % video_ref)
+
+        rows = db.get_keyframes(conn, video_id)
+        if not rows:
+            return _error_result(
+                "No keyframes stored for %s — run `analyze --skip-vision` first so the "
+                "frames exist on disk." % video_id
+            )
+
+        selected = _pick_frames(rows, args.get("frame_indexes"), max_frames)
+        described = set(db.get_described_keyframe_ids(conn, video_id))
+
+        frames, images, warnings = [], [], []
+        budget = _KEYFRAMES_MAX_BYTES
+        truncated = False
+        for row in selected:
+            path = _keyframe_path(conn, str(row["id"]))
+            if not path:
+                warnings.append(
+                    "keyframe %s: %s is not on disk" % (row["id"], row["file_path"])
+                )
+                continue
+            with open(path, "rb") as handle:
+                raw = handle.read()
+            encoded = base64.b64encode(raw).decode("ascii")
+            if len(encoded) > budget:
+                truncated = True
+                break
+            budget -= len(encoded)
+            frames.append(
+                {
+                    "keyframe_id": row["id"],
+                    "frame_index": row["frame_index"],
+                    "timestamp_sec": row["timestamp_sec"],
+                    "file_path": row["file_path"],
+                    "already_described": row["id"] in described,
+                }
+            )
+            images.append({"data": encoded, "mime_type": "image/jpeg"})
+
+        payload = {
+            "video_id": video_id,
+            "keyframes_total": len(rows),
+            "returned": len(frames),
+            "frames": frames,
+            "next_step": (
+                "Look at the images below, then call ingest_vision with one entry per "
+                "frame, addressed by keyframe_id."
+            ),
+        }
+        if warnings:
+            payload["warnings"] = warnings
+        if truncated:
+            payload["truncated"] = (
+                "Stopped at %d frame(s) to stay inside the reply size budget. Ask for "
+                "specific frame_indexes to see the rest." % len(frames)
+            )
+        return _image_result(payload, images)
+    finally:
+        conn.close()
+
+
 def _tool_export(args: Dict[str, Any]) -> Dict[str, Any]:
     fmt = args.get("format", "json")
     output = args.get("output", "./export")
@@ -406,3 +555,21 @@ def _tool_export(args: Dict[str, Any]) -> Dict[str, Any]:
         return _error_result("Unsupported export format: %s" % fmt)
     finally:
         conn.close()
+
+
+#: Name -> handler. Defined here, after every handler exists, and kept module-level
+#: so a test can assert it against `list_tools()`: the two are the only things that
+#: decide whether a tool is callable and whether it is visible, and nothing about
+#: the code makes them agree. A tool missing here answers "Unknown tool"; a tool
+#: missing there is invisible but callable.
+_HANDLERS = {
+    "crawl": _tool_crawl,
+    "analyze": _tool_analyze,
+    "list_videos": _tool_list_videos,
+    "show_video": _tool_show_video,
+    "keyframes": _tool_keyframes,
+    "export": _tool_export,
+    "patterns": _tool_patterns,
+    "inspire": _tool_inspire,
+    "research": _tool_research,
+}
