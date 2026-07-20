@@ -250,6 +250,72 @@ def list_tools() -> List[Dict[str, Any]]:
             },
         },
         {
+            "name": "batch_start",
+            "description": (
+                "Analyze a list of short-form videos in the background and export a "
+                "self-contained bundle for each. Returns immediately with a "
+                "batch_id; poll `batch_status`. Roughly 20 seconds per video, and "
+                "the job outlives this conversation. IMPORTANT: if the result says "
+                "status 'needs_mode_choice', present the listed choices to the user "
+                "and wait for their answer — do not pick a mode for them."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "urls": {
+                        "type": "array", "items": {"type": "string"},
+                        "description": "The links the user pasted. Instagram reels, "
+                                       "TikTok, YouTube Shorts; anything else is ignored.",
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Raw pasted text or CSV. Links are extracted "
+                                       "from it and a preceding name becomes the label.",
+                    },
+                    "doc": {
+                        "type": "string",
+                        "description": "Google Doc/Sheet URL (sharing must be "
+                                       "'anyone with the link', which makes its "
+                                       "contents public) or any text/CSV URL.",
+                    },
+                    "file": {
+                        "type": "string",
+                        "description": "A local .txt/.csv on the machine running this server.",
+                    },
+                    "mode": {"type": "string", "enum": ["full", "agent", "transcript"]},
+                    "out": {"type": "string",
+                            "description": "Output root. Defaults to a timestamped "
+                                           "directory under ~/reel-scout-batch."},
+                    "limit": {"type": "integer", "default": 0},
+                    "force": {"type": "boolean", "default": False,
+                              "description": "Start even though another batch is running."},
+                },
+            },
+        },
+        {
+            "name": "batch_status",
+            "description": (
+                "Progress of a background batch. Call with no arguments for the most "
+                "recent one. Safe to call repeatedly; roughly every 30 seconds is "
+                "plenty."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {"batch_id": {"type": "string"}},
+            },
+        },
+        {
+            "name": "batch_cancel",
+            "description": (
+                "Ask a running batch to stop after the video it is currently on. "
+                "Everything already finished is kept."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {"batch_id": {"type": "string"}},
+            },
+        },
+        {
             "name": "export",
             "description": "Export analyses to JSON or CSV",
             "inputSchema": {
@@ -875,6 +941,306 @@ def _tool_export(args: Dict[str, Any]) -> Dict[str, Any]:
         conn.close()
 
 
+#: How long a batch may go without a heartbeat before we stop believing it.
+#: Generous on purpose: 18s/video is the happy path, but one bad link plus
+#: whisper on a long clip can legitimately run minutes, and crying "stalled" at
+#: a job that is working is worse than being slow to notice a dead one.
+_BATCH_STALE_AFTER_SEC = 900
+
+
+def _batch_entries_from_args(args: Dict[str, Any]):
+    """(entries, error). Normalise every source to text, then parse_rows it.
+
+    Not special-casing `urls` buys dedup for free -- which matters more than it
+    sounds: batch_items is keyed (batch_id, url) and create_batch INSERTs each
+    one, so the same reel pasted twice is an IntegrityError, not a duplicate.
+    It also drops Drive links and long-form YouTube, which is exactly the mess a
+    chat paste contains, and picks up "Amy Wu https://..." as a label.
+    """
+    from .. import batch as batch_mod
+
+    sources = [k for k in ("urls", "text", "doc", "file") if args.get(k)]
+    if not sources:
+        return None, _error_result("one of urls / text / doc / file is required")
+    if len(sources) > 1:
+        return None, _error_result(
+            "give exactly one of urls / text / doc / file, not %s" % ", ".join(sources))
+
+    kind = sources[0]
+    if kind == "urls":
+        text = "\n".join(str(u) for u in args["urls"])
+    elif kind == "text":
+        text = str(args["text"])
+    elif kind == "doc":
+        try:
+            with contextlib.redirect_stdout(sys.stderr):
+                text = batch_mod.fetch(str(args["doc"]))
+        except (RuntimeError, OSError) as exc:
+            return None, _error_result(str(exc))
+    else:
+        try:
+            with open(str(args["file"]), encoding="utf-8") as handle:
+                text = handle.read()
+        except OSError as exc:
+            return None, _error_result("could not read %s: %s" % (args["file"], exc))
+
+    entries = batch_mod.parse_rows(text)
+    limit = int(args.get("limit", 0) or 0)
+    if limit:
+        entries = entries[:limit]
+    if not entries:
+        return None, _error_result(
+            "no Instagram / TikTok / YouTube Shorts links found in that input")
+    return entries, None
+
+
+def _mode_choice_result(message: str, caps: Dict[str, bool], parsed: int) -> Dict[str, Any]:
+    """A question, returned as a success.
+
+    Not isError: an error invites the client to treat the call as transient and
+    retry, and a retry loop is precisely how a mode gets chosen without the user
+    ever being asked.
+    """
+    return _text_result({
+        "status": "needs_mode_choice",
+        "capabilities": caps,
+        "message": message,
+        "parsed_count": parsed,
+        "choices": [
+            {"mode": "agent", "recommended": True,
+             "label": "You read the keyframes",
+             "detail": "reel-scout extracts the frames; you look at them with the "
+                       "`keyframes` tool and write descriptions and a score back. "
+                       "No local model, no API key, no extra cost."},
+            {"mode": "transcript",
+             "label": "Transcript and structure only",
+             "detail": "No visual layer and no craft score."},
+            {"mode": "full",
+             "label": "A local VLM does it",
+             "detail": "Needs a local VLM running first (e.g. `ollama serve`)."},
+        ],
+        "action_required": (
+            "Show these options to the user and ask which they want. Do not choose "
+            "for them. Then call batch_start again with the same source plus `mode`."
+        ),
+    })
+
+
+def _spawn_worker(batch_id: str, log_path: str) -> int:
+    """Start the detached worker. Returns its pid."""
+    import subprocess
+
+    kwargs: Dict[str, Any] = {"stdin": subprocess.DEVNULL,
+                              "stdout": subprocess.DEVNULL,
+                              "close_fds": True}
+    if sys.platform == "win32":
+        flags = 0
+        for name in ("CREATE_NEW_PROCESS_GROUP", "DETACHED_PROCESS"):
+            flags |= getattr(subprocess, name, 0)
+        kwargs["creationflags"] = flags
+    else:
+        kwargs["start_new_session"] = True
+
+    handle = open(log_path, "ab")
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "reel_scout.mcp.batch_worker", "--batch-id", batch_id],
+            stderr=handle, **kwargs)
+    finally:
+        handle.close()
+    return proc.pid
+
+
+def _batch_state(row: Any, has_pending: bool) -> str:
+    """What to call a batch, given that nothing marks a killed worker's row."""
+    import datetime
+
+    status = row["status"] or "running"
+    if status != "running":
+        return status
+    beat = row["heartbeat_at"]
+    if not beat:
+        return "starting"
+    try:
+        last = datetime.datetime.strptime(beat, "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return status
+    # sqlite's datetime('now') is UTC and naive; match it without utcnow(),
+    # which is deprecated from 3.12.
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    age = (now - last).total_seconds()
+    return "stalled" if age > _BATCH_STALE_AFTER_SEC else "running"
+
+
+def _tool_batch_start(args: Dict[str, Any]) -> Dict[str, Any]:
+    from .. import batch as batch_mod
+    from .batch_worker import BATCH_SOURCE
+
+    entries, err = _batch_entries_from_args(args)
+    if err is not None:
+        return err
+
+    requested = args.get("mode") or None
+    # probe() shells out to ffmpeg and yt-dlp and makes two HTTP probes -- up to
+    # ~16s. resolve_mode ignores caps for these two, so do not pay for it.
+    if requested in ("agent", "transcript"):
+        caps = {"vlm": False, "whisper": True}
+    else:
+        with contextlib.redirect_stdout(sys.stderr):
+            caps = batch_mod.probe()
+    mode, message = batch_mod.resolve_mode(requested, caps)
+    if mode is None:
+        return _mode_choice_result(message, caps, len(entries))
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        live = db.get_latest_batch(conn, source=BATCH_SOURCE)
+        if live is not None and not args.get("force") and _batch_state(live, False) == "running":
+            return _error_result(
+                "batch %s is still running (%d/%d done). Wait for it, ask "
+                "batch_status about it, or pass force=true." % (
+                    live["id"], live["completed"] or 0, live["total_urls"] or 0))
+
+        out_root = args.get("out") or os.path.join(
+            os.path.expanduser("~"), "reel-scout-batch", _batch_stamp(conn))
+        try:
+            os.makedirs(out_root, exist_ok=True)
+        except OSError as exc:
+            return _error_result("cannot create output directory %s: %s" % (out_root, exc))
+
+        urls = [url for _label, url in entries]
+        batch_id = db.create_batch(conn, urls, source=BATCH_SOURCE)
+        for label, url in entries:
+            db.set_batch_item_progress(conn, batch_id, url, label=label)
+        db.set_batch_meta(conn, batch_id, mode=mode, out_root=out_root)
+
+        pid = _spawn_worker(batch_id, os.path.join(out_root, "batch.log"))
+        db.set_batch_meta(conn, batch_id, pid=pid)
+
+        return _text_result({
+            "status": "started",
+            "batch_id": batch_id,
+            "mode": mode,
+            "count": len(entries),
+            "out": out_root,
+            "estimated_seconds": len(entries) * 18,
+            "poll_with": "batch_status",
+            "suggested_poll_interval_sec": 30,
+            "note": "Running in the background; it survives this conversation. "
+                    "Worker stderr goes to batch.log under `out`.",
+        })
+    finally:
+        conn.close()
+
+
+def _batch_stamp(conn: Any) -> str:
+    """A per-run subdirectory name, from sqlite rather than the clock.
+
+    An agent will start several batches in one session, and a flat root makes
+    them collide on manifest.json and on slug directories.
+    """
+    return conn.execute(
+        "SELECT strftime('%Y-%m-%d-%H%M%S', 'now')").fetchone()[0]
+
+
+def _tool_batch_status(args: Dict[str, Any]) -> Dict[str, Any]:
+    from .. import batch as batch_mod
+    from .batch_worker import BATCH_SOURCE
+
+    config.ensure_dirs()
+    # get_connection, not init_db: init_db runs executescript over the whole
+    # schema, which takes the schema lock, and a batch's analyze child holds the
+    # write lock for long stretches. A reader on WAL never blocks on a writer.
+    conn = db.get_connection(timeout=30)
+    try:
+        batch_id = args.get("batch_id")
+        row = (db.get_batch(conn, batch_id) if batch_id
+               else db.get_latest_batch(conn, source=BATCH_SOURCE))
+        if row is None:
+            return _error_result(
+                "no such batch: %s" % batch_id if batch_id
+                else "no batch has been started yet")
+        batch_id = row["id"]
+
+        items = db.get_batch_items(conn, batch_id)
+        done, failed, pending, needs_vision = [], [], [], []
+        current = None
+        for item in items:
+            status = item["status"] or "pending"
+            entry = {"label": item["label"], "url": item["url"],
+                     "video_id": item["video_id"], "bundle_dir": item["bundle_dir"]}
+            if status == "done":
+                done.append(entry)
+            elif status == "error":
+                failed.append({"label": item["label"], "url": item["url"],
+                               "reason": item["error_message"]})
+            elif status == "pending":
+                pending.append(entry)
+            else:
+                current = {"label": item["label"], "url": item["url"], "stage": status}
+            if item["video_id"] and batch_mod.needs_completion(conn, item["video_id"]):
+                needs_vision.append({"label": item["label"], "slug": item["slug"],
+                                     "video_id": item["video_id"]})
+
+        state = _batch_state(row, bool(needs_vision))
+        out_root = row["out_root"] or ""
+        payload = {
+            "batch_id": batch_id,
+            "state": state,
+            "mode": row["mode"],
+            "out": out_root,
+            "counts": {"total": len(items), "done": len(done), "failed": len(failed),
+                       "pending": len(pending), "needs_visual_layer": len(needs_vision)},
+            "current": current,
+            "done": done,
+            "failed": failed,
+            "needs_visual_layer": needs_vision,
+            "manifest_present": bool(out_root) and os.path.isfile(
+                os.path.join(out_root, "manifest.json")),
+        }
+        if needs_vision:
+            payload["next_steps"] = (
+                "For each entry in needs_visual_layer: call `keyframes` to see the "
+                "frames, then `ingest_vision`, `ingest_analysis` and `ingest_score` "
+                "to write your findings back. Re-export afterwards to refresh the "
+                "bundle."
+            )
+        if state == "stalled":
+            payload["note"] = (
+                "The worker has stopped updating this batch, so the %d item(s) still "
+                "pending will not run. Completed bundles on disk are unaffected and "
+                "are listed above." % len(pending)
+            )
+        elif state == "cancelled":
+            payload["note"] = "Cancelled. Everything already finished is listed above."
+        return _text_result(payload)
+    finally:
+        conn.close()
+
+
+def _tool_batch_cancel(args: Dict[str, Any]) -> Dict[str, Any]:
+    from .batch_worker import BATCH_SOURCE
+
+    config.ensure_dirs()
+    conn = db.get_connection(timeout=30)
+    try:
+        batch_id = args.get("batch_id")
+        row = (db.get_batch(conn, batch_id) if batch_id
+               else db.get_latest_batch(conn, source=BATCH_SOURCE))
+        if row is None:
+            return _error_result("no such batch: %s" % (batch_id or "(none started)"))
+        db.request_batch_cancel(conn, row["id"])
+        return _text_result({
+            "status": "cancel_requested",
+            "batch_id": row["id"],
+            "note": "The video currently being processed will finish first; the "
+                    "batch stops before the next one. Nothing already done is lost.",
+        })
+    finally:
+        conn.close()
+
+
 #: Name -> handler. Defined here, after every handler exists, and kept module-level
 #: so a test can assert it against `list_tools()`: the two are the only things that
 #: decide whether a tool is callable and whether it is visible, and nothing about
@@ -889,6 +1255,9 @@ _HANDLERS = {
     "ingest_vision": _tool_ingest_vision,
     "ingest_analysis": _tool_ingest_analysis,
     "ingest_score": _tool_ingest_score,
+    "batch_start": _tool_batch_start,
+    "batch_status": _tool_batch_status,
+    "batch_cancel": _tool_batch_cancel,
     "export": _tool_export,
     "patterns": _tool_patterns,
     "inspire": _tool_inspire,
