@@ -27,6 +27,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import unicodedata
 import urllib.request
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
@@ -205,6 +206,17 @@ def resolve_mode(requested: Optional[str], caps: Dict[str, bool]) -> Tuple[Optio
 
 # --- run -------------------------------------------------------------------
 
+def self_cmd(*args: str) -> List[str]:
+    """Invoke this same install, not whatever `reel-scout` PATH happens to hold.
+
+    Shelling out to the bare name assumes the venv's bin directory is on PATH.
+    It often isn't — `./env/bin/reel-scout batch ...` without activating the venv
+    is a completely ordinary thing to do, and it used to die on a raw
+    FileNotFoundError traceback partway through a batch.
+    """
+    return [sys.executable, "-m", "reel_scout.cli"] + list(args)
+
+
 def _run(cmd: Sequence[str], verbose: bool) -> int:
     if verbose:
         print("    $ " + " ".join(cmd))
@@ -271,7 +283,7 @@ def run_batch(entries: List[Tuple[str, str]], out_root: str, mode: str,
         print("    %s" % url)
 
         before = _video_ids(conn)
-        cmd = ["reel-scout", "analyze", url]
+        cmd = self_cmd("analyze", url)
         if mode != "full":
             cmd.append("--skip-vision")
         if _run(cmd, verbose) != 0:
@@ -290,8 +302,8 @@ def run_batch(entries: List[Tuple[str, str]], out_root: str, mode: str,
             pending.append(entry)
 
         dest = os.path.join(out_root, slug)
-        if _run(["reel-scout", "export", "--format", "bundle", "--video", vid,
-                 "-o", dest, "--max-mb", str(max_mb)], verbose) != 0:
+        if _run(self_cmd("export", "--format", "bundle", "--video", vid,
+                          "-o", dest, "--max-mb", str(max_mb)), verbose) != 0:
             print("    x export failed")
             failed.append({"label": label, "url": url, "reason": "export exited non-zero"})
             continue

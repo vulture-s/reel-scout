@@ -51,6 +51,20 @@ def test_unknown_mode_lists_the_valid_ones():
     assert "agent" in msg and "transcript" in msg
 
 
+# --- sub-invocation ----------------------------------------------------------
+
+def test_sub_commands_target_this_interpreter_not_a_path_lookup():
+    """Found by actually running it: `./env/bin/reel-scout batch ...` without an
+    activated venv died on FileNotFoundError('reel-scout') partway through, because
+    the bare name only resolves when the venv's bin is on PATH."""
+    import sys
+
+    cmd = batch.self_cmd("analyze", "https://example.com/x")
+    assert cmd[0] == sys.executable
+    assert cmd[1:3] == ["-m", "reel_scout.cli"]
+    assert "reel-scout" not in cmd
+
+
 # --- pairing safety ----------------------------------------------------------
 
 class _Cur:
