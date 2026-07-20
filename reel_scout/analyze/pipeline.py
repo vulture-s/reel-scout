@@ -308,36 +308,42 @@ def _process_single(
         except (ImportError, ValueError) as e:
             print("  Skipping diarization: %s" % e, file=sys.stderr)
 
-    # Step 3: Vision analysis
-    # Decoupled from keyframe extraction: vision descriptions are (re)generated for
-    # any keyframe that lacks one, whether or not keyframes were extracted this run.
-    # This lets a failed/partial VLM pass be backfilled by simply re-running analyze
-    # — previously the describe+save loop lived inside the "keyframes didn't exist"
-    # branch, so once keyframes were saved a failed vision pass could never recover.
-    if not options.skip_vision:
-        existing_kf = db.get_keyframes(conn, video_id)
-        if existing_kf:
-            print("  Keyframes already extracted")
-            frames = [(kf["id"], kf["file_path"]) for kf in existing_kf]
-        else:
-            print("  Extracting keyframes...")
-            kf_dir = os.path.join(config.KEYFRAMES_DIR, video_id)
-            kf_infos = extract_keyframes(
-                file_path, kf_dir, video_id,
-                strategy=options.keyframe_strategy or "",
-                max_frames=options.keyframe_max or 0,  # 0 -> 招② auto budget
-                resolution=options.resolution,         # 招④
-                start_sec=options.start_sec,            # 招③
-                end_sec=options.end_sec,                # 招③
-            )
-            kf_data = [
-                {"frame_index": kf.frame_index, "timestamp_sec": kf.timestamp_sec,
-                 "file_path": kf.file_path, "strategy": kf.strategy}
-                for kf in kf_infos
-            ]
-            kf_ids = db.save_keyframes(conn, video_id, kf_data)
-            frames = list(zip(kf_ids, [kf.file_path for kf in kf_infos]))
+    # Step 3: Keyframes, then vision analysis
+    # Extraction is ffmpeg, not a model, so it runs even under --skip-vision. That
+    # flag means "don't call a VLM", and the case where no VLM exists is exactly the
+    # case where something else — an agent via `ingest vision`, or a later run with a
+    # model available — needs the frames to be on disk. Gating extraction on it left
+    # zero keyframes behind and made the whole no-local-model path unusable.
+    # Descriptions are separately decoupled: they are (re)generated for any keyframe
+    # that lacks one, whether or not extraction happened this run, so a failed or
+    # partial VLM pass can be backfilled by re-running analyze.
+    existing_kf = db.get_keyframes(conn, video_id)
+    if existing_kf:
+        print("  Keyframes already extracted")
+        frames = [(kf["id"], kf["file_path"]) for kf in existing_kf]
+    else:
+        print("  Extracting keyframes...")
+        kf_dir = os.path.join(config.KEYFRAMES_DIR, video_id)
+        kf_infos = extract_keyframes(
+            file_path, kf_dir, video_id,
+            strategy=options.keyframe_strategy or "",
+            max_frames=options.keyframe_max or 0,  # 0 -> 招② auto budget
+            resolution=options.resolution,         # 招④
+            start_sec=options.start_sec,            # 招③
+            end_sec=options.end_sec,                # 招③
+        )
+        kf_data = [
+            {"frame_index": kf.frame_index, "timestamp_sec": kf.timestamp_sec,
+             "file_path": kf.file_path, "strategy": kf.strategy}
+            for kf in kf_infos
+        ]
+        kf_ids = db.save_keyframes(conn, video_id, kf_data)
+        frames = list(zip(kf_ids, [kf.file_path for kf in kf_infos]))
 
+    if options.skip_vision:
+        print("  Skipping VLM descriptions — %d keyframe(s) extracted and waiting "
+              "for `reel-scout ingest vision`" % len(frames))
+    else:
         backend = options.vlm_backend or config.VLM_BACKEND
         primary_model = options.vlm_model or config.VLM_MODEL
 

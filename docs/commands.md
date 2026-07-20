@@ -17,12 +17,15 @@ see [`../prompts/signal-reliability-cheatsheet.md`](../prompts/signal-reliabilit
 | `view` | Local read-only web server for the library. |
 | `inspect <id>` | Interactive single-clip viewer (transcript↔keyframe time-sync). |
 | `score <id>` | Craft score (hook / visual / **pacing (evidence-based, §4E)** / structure). |
+| `ingest {vision,analysis,score} <id> --from-json <path\|->` | Write **agent-produced** frame descriptions / structured analysis / craft scores back into the DB, for machines with no local model. `--model` required; stored as `agent:<model>`. Analysis enums are validated. |
 | `compare <id…>` | Side-by-side comparison table. |
 | `stats [--channel] [--csv]` | Corpus tag distributions + score aggregates. |
 | `patterns --channel <c>` | Per-channel patterns: length, hook/CTA/structure mix, high-vs-low contrast, cadence. |
 | `inspire --based-on <ref> [--angle]` | Generate a fresh variant (titles/hook/structure/length) from a high scorer. |
 | `track --my-video <ref> --views --likes [--comments --notes]` | Record real performance + structural iteration hints vs the top corpus. |
 | `research --niche <n> --channels <url…> [--depth --out --no-analyze]` | Competitor research report. |
+| `batch --doc <url>` / `--file` / `--stdin` | Analyze every reel listed in a Google Doc/Sheet (or file/stdin), one bundle each. `--dry-run`, `--limit`, `--out`, `--mode`. Google `/edit` links are rewritten to no-auth export endpoints — sharing set to "anyone with the link" is enough, no API key. |
+| `skill {install,path}` | Copy the agent-facing assets (SKILL.md, `/scout`, prompt pack, setup preflight) to `~/.claude/skills/reel-scout`. `--dest`, `--force`. `pip install` alone does **not** give an agent anything to load. |
 | `db {stats,reset,migrate}` / `config {show,check}` | DB / config utilities. |
 
 Refs (`<ref>`, `<id>`) accept a full 16-hex video id or a unique prefix; `track --my-video` also accepts a URL already in the DB.
@@ -45,6 +48,48 @@ existing DB by default; pass `analyze: true` to crawl+analyze first (slow).
   code-switching interviews.
 
 All inference defaults to localhost — no cloud API keys required.
+
+### `batch` picks nothing for you
+
+`batch` probes the configured backends before it runs. A reachable VLM means
+`--mode full` is unambiguous and it just goes. Without one it **stops and makes
+you choose**, because the alternative — quietly producing transcript-only
+bundles — drops the craft score without anyone noticing:
+
+    full        local VLM does the visual layer and the score
+    agent       skip the VLM; an agent reads the keyframes and writes its own
+                findings back via `ingest` (see below and SKILL.md Step 2b)
+    transcript  transcript and structure only, stated plainly
+
+In `agent` mode the run ends by listing the videos still missing a visual layer,
+with the exact `ingest` command for each.
+
+### No local model at all
+
+Keyframe extraction is ffmpeg, not a model, so the frames exist on disk before the
+VLM stage runs. An agent that can see images can supply the visual layer and the
+craft score itself, and `ingest` writes that back so it shows up in `show` / `view`
+/ `inspect` / `export` like any other analysis:
+
+```bash
+reel-scout analyze "<url>" --skip-vision        # download + transcript + structure
+# agent reads data/keyframes/<id>/*.jpg, then:
+reel-scout ingest vision   <id> --from-json - --model <name>
+reel-scout ingest analysis <id> --from-json - --model <name>   # merge needs an LLM too
+reel-scout ingest score    <id> --from-json - --model <name>
+```
+
+This is the only path that needs no `oMLX`/`ollama`/API key. Two caveats worth
+stating out loud:
+
+- Rows are stamped `agent:<model>`, because craft scores are **model-dependent**
+  (the same clip: 7.43 under `qwen3-vl:8b`, 5.5 under `qwen2.5vl:7b`).
+- `stats` aggregates **without** grouping by `model_used`, so a corpus mixing
+  agent-scored and locally-scored videos blends two scales in its averages.
+  Per-video reads are unaffected.
+
+Transcription still wants a local Whisper; set `WHISPER_MODEL=small` to keep the
+download modest, or rely on subtitle-first when the source has native subtitles.
 
 ## Notable config flags
 

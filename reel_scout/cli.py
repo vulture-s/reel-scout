@@ -8,7 +8,7 @@ import subprocess
 import sys
 from typing import List
 
-from . import __version__, config
+from . import __version__, batch, config, skill_install
 
 
 def main(argv: List[str] = None) -> None:
@@ -118,6 +118,33 @@ def main(argv: List[str] = None) -> None:
     p_score.add_argument("video_id", help="Video ID to score")
     p_score.add_argument("--backend", help="LLM backend (omlx, ollama, openclaw)")
 
+    # --- ingest (agent-produced analysis, no local model required) ---
+    p_ingest = sub.add_parser(
+        "ingest", help="Write agent-produced vision/score JSON back into the DB")
+    p_ing_sub = p_ingest.add_subparsers(dest="ingest_command")
+
+    p_ing_vision = p_ing_sub.add_parser("vision", help="Frame descriptions from an agent")
+    p_ing_vision.add_argument("video_id", help="Video ID the frames belong to")
+    p_ing_vision.add_argument("--from-json", dest="from_json", required=True,
+                              help="JSON file, or - to read stdin")
+    p_ing_vision.add_argument("--model", default="",
+                              help="Model that produced it (stamped as agent:<model>)")
+
+    p_ing_analysis = p_ing_sub.add_parser(
+        "analysis", help="Structured analysis from an agent (merge_analysis's shape)")
+    p_ing_analysis.add_argument("video_id", help="Video ID the analysis is for")
+    p_ing_analysis.add_argument("--from-json", dest="from_json", required=True,
+                                help="JSON file, or - to read stdin")
+    p_ing_analysis.add_argument("--model", default="",
+                                help="Model that produced it (stamped as agent:<model>)")
+
+    p_ing_score = p_ing_sub.add_parser("score", help="Craft score from an agent")
+    p_ing_score.add_argument("video_id", help="Video ID to score")
+    p_ing_score.add_argument("--from-json", dest="from_json", required=True,
+                             help="JSON file, or - to read stdin")
+    p_ing_score.add_argument("--model", default="",
+                             help="Model that produced it (stamped as agent:<model>)")
+
     # --- compare ---
     p_compare = sub.add_parser("compare", help="Compare analyzed videos side by side")
     p_compare.add_argument("video_ids", nargs="+", help="Video IDs (exact or unique prefix)")
@@ -168,6 +195,38 @@ def main(argv: List[str] = None) -> None:
     p_track.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
 
     # --- db ---
+    # --- batch (a doc full of links -> one bundle each) ---
+    p_batch = sub.add_parser(
+        "batch", help="Analyze every reel listed in a Google Doc/Sheet, file or stdin")
+    p_batch_src = p_batch.add_mutually_exclusive_group(required=True)
+    p_batch_src.add_argument("--doc", help="Google Doc/Sheet URL (or any text/CSV URL)")
+    p_batch_src.add_argument("--file", dest="src_file", help="Local .txt/.csv")
+    p_batch_src.add_argument("--stdin", action="store_true", help="Read the list from stdin")
+    p_batch.add_argument("--out", default=os.path.expanduser("~/reel-scout-batch"),
+                         help="Output root (default: %(default)s)")
+    p_batch.add_argument("--mode", choices=list(batch.MODES),
+                         help="full | agent | transcript (see docs); asked for when "
+                              "no local VLM is reachable")
+    p_batch.add_argument("--dry-run", dest="dry_run", action="store_true",
+                         help="Show what was parsed and planned; analyze nothing")
+    p_batch.add_argument("--limit", type=int, default=0, help="Only the first N entries")
+    p_batch.add_argument("--max-mb", dest="batch_max_mb", default="25",
+                         help="Skip reels whose video exceeds this (default 25)")
+    p_batch.add_argument("--verbose", action="store_true", help="Echo each sub-command")
+
+    # --- skill (install the agent-facing half) ---
+    p_skill = sub.add_parser(
+        "skill", help="Install the Claude skill (SKILL.md, /scout, prompt pack)")
+    p_skill_sub = p_skill.add_subparsers(dest="skill_command")
+
+    p_skill_install = p_skill_sub.add_parser("install", help="Copy the skill into ~/.claude/skills")
+    p_skill_install.add_argument("--dest", default=skill_install.DEFAULT_DEST,
+                                 help="Destination (default: %(default)s)")
+    p_skill_install.add_argument("--force", action="store_true",
+                                 help="Overwrite a non-empty destination")
+
+    p_skill_sub.add_parser("path", help="Show where the skill assets are read from")
+
     p_db = sub.add_parser("db", help="Database operations")
     p_db_sub = p_db.add_subparsers(dest="db_command")
     p_db_sub.add_parser("stats", help="Show database stats")
@@ -198,6 +257,9 @@ def main(argv: List[str] = None) -> None:
         "inspect": _cmd_inspect,
         "view": _cmd_view,
         "score": _cmd_score,
+        "ingest": _cmd_ingest,
+        "batch": _cmd_batch,
+        "skill": _cmd_skill,
         "compare": _cmd_compare,
         "stats": _cmd_stats,
         "patterns": _cmd_patterns,
@@ -490,6 +552,32 @@ def _cmd_show(args) -> None:
         print(f"\n--- Transcript ({transcript['language']}) ---")
         print(transcript["text_full"][:500])
 
+    # Keyframes are listed with their ids because that is the only way to address
+    # a specific frame from outside (`ingest vision --from-json`), and an agent
+    # supplying the visual layer needs both the id and the path it should read.
+    keyframes = db.get_keyframes_with_descriptions(conn, args.video_id)
+    if keyframes:
+        described = sum(1 for k in keyframes if k["description"])
+        print(f"\n--- Keyframes ({described}/{len(keyframes)} described) ---")
+        for k in keyframes:
+            mark = " " if k["description"] else "*"
+            print(f" {mark}[id {k['id']:>5}  #{k['frame_index']:<3} {k['timestamp_sec']:>6.1f}s] "
+                  f"{k['file_path']}")
+            if k["description"]:
+                print(f"        {k['description'][:100]}")
+        if described < len(keyframes):
+            print("  * = no description yet")
+
+    score = db.get_score(conn, args.video_id)
+    if score:
+        src = score["model_used"] or "(unknown)"
+        print(f"\n--- Score ({src}) ---")
+        print(f"  Overall: {score['overall']:.2f}   Hook: {score['hook_strength']:.1f}   "
+              f"Visual: {score['visual_storytelling']:.1f}   "
+              f"Pacing: {score['pacing']:.1f}   Structure: {score['structure']:.1f}")
+        if score["reasoning"]:
+            print(f"  {score['reasoning']}")
+
     if analysis:
         print(f"\n--- Analysis ---")
         full = json.loads(analysis["full_json"]) if analysis["full_json"] else {}
@@ -612,6 +700,149 @@ def _cmd_score(args) -> None:
         print(f"Error: {e}")
 
     conn.close()
+
+
+def _cmd_ingest(args) -> None:
+    import json
+    import sys
+
+    from . import db, ingest
+
+    if not getattr(args, "ingest_command", None):
+        print("Usage: reel-scout ingest {vision|analysis|score} <video_id> "
+              "--from-json <path|->")
+        return
+
+    raw = sys.stdin.read() if args.from_json == "-" else open(
+        args.from_json, encoding="utf-8").read()
+    try:
+        payload = json.loads(raw)
+    except ValueError as e:
+        print(f"Error: input is not valid JSON: {e}")
+        return
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        if not db.get_video(conn, args.video_id):
+            print(f"Video not found: {args.video_id}")
+            return
+
+        if args.ingest_command == "vision":
+            written, warnings = ingest.ingest_vision(
+                conn, args.video_id, payload, model=args.model)
+            print(f"Wrote {written} frame description(s) for {args.video_id}")
+            for w in warnings:
+                print(f"  warning: {w}")
+        elif args.ingest_command == "analysis":
+            data = ingest.ingest_analysis(
+                conn, args.video_id, payload, model=args.model)
+            print(f"Analysis for: {args.video_id}  (source: {data['_source']})")
+            print(f"  {data.get('summary', '')[:160]}")
+            hook = data.get("hook") or {}
+            style = data.get("style") or {}
+            print(f"  opening: {hook.get('opening_type', '—')}   "
+                  f"cta: {hook.get('cta_type', '—')}   "
+                  f"structure: {data.get('content_structure', '—')}   "
+                  f"format: {style.get('format', '—')}")
+        else:
+            score = ingest.ingest_score(
+                conn, args.video_id, payload, model=args.model)
+            print(f"Score for: {args.video_id}  (source: {score.model_used})")
+            print(f"  Overall:    {score.overall:.1f}   <- recomputed from the dimensions")
+            print(f"  Hook:       {score.hook_strength:.1f}")
+            print(f"  Visual:     {score.visual_storytelling:.1f}")
+            print(f"  Pacing:     {score.pacing:.1f}")
+            print(f"  Structure:  {score.structure:.1f}")
+    except ValueError as e:
+        print(f"Error: {e}")
+    finally:
+        conn.close()
+
+
+def _cmd_batch(args) -> None:
+    if args.doc:
+        try:
+            text = batch.fetch(args.doc)
+        except (RuntimeError, OSError) as e:
+            print(f"Error: {e}")
+            return
+    elif args.src_file:
+        with open(args.src_file, encoding="utf-8") as f:
+            text = f.read()
+    else:
+        text = sys.stdin.read()
+
+    entries = batch.parse_rows(text)
+    if args.limit:
+        entries = entries[:args.limit]
+    if not entries:
+        print("No Instagram / TikTok / YouTube Shorts links found in that source.")
+        print("  If it's a Google doc, check sharing is 'Anyone with the link - Viewer'.")
+        return
+
+    print("Found %d:" % len(entries))
+    for i, (label, url) in enumerate(entries, 1):
+        print("  %2d. %-14s %s" % (i, label or "(unlabelled)", url))
+
+    caps = batch.probe()
+    mode, msg = batch.resolve_mode(args.mode, caps)
+    print("\nVLM reachable: %s   Whisper: %s"
+          % ("yes" if caps["vlm"] else "no", "yes" if caps["whisper"] else "no"))
+    if mode is None:
+        print("\n" + msg)
+        return
+    print("Mode: %s" % mode)
+
+    if args.dry_run:
+        print("\n--dry-run: nothing was analyzed. Bundles would land in %s/<label>/"
+              % args.out)
+        return
+
+    result = batch.run_batch(entries, args.out, mode,
+                             max_mb=args.batch_max_mb, verbose=args.verbose)
+
+    print("\n---")
+    print("%d/%d exported to %s" % (len(result["done"]), len(entries), args.out))
+    if result["pending_completion"]:
+        print("\n%d still need a visual layer (mode=agent). For each, read the "
+              "keyframes and write your findings back:" % len(result["pending_completion"]))
+        for e in result["pending_completion"]:
+            print("  reel-scout ingest vision %s --from-json - --model <you>" % e["video_id"])
+        print("  (then `ingest score`, and re-export to refresh the bundle — "
+              "see SKILL.md Step 2b)")
+    if result["failed"]:
+        print("\n%d failed:" % len(result["failed"]))
+        for e in result["failed"]:
+            print("  %-14s %s\n                 %s" % (e["label"], e["url"], e["reason"]))
+
+
+def _cmd_skill(args) -> None:
+    cmd = getattr(args, "skill_command", None)
+    root, which = skill_install.source_root()
+
+    if cmd == "path":
+        if which == "missing":
+            print("Skill assets: NOT FOUND in this install")
+        else:
+            print(f"Skill assets ({which}): {root}")
+        print(f"Default destination: {os.path.expanduser(skill_install.DEFAULT_DEST)}")
+        return
+
+    if cmd != "install":
+        print("Usage: reel-scout skill {install|path} [--dest PATH] [--force]")
+        return
+
+    try:
+        dest, copied = skill_install.install(args.dest, force=args.force)
+    except RuntimeError as e:
+        print(f"Error: {e}")
+        return
+
+    print(f"Installed the reel-scout skill ({which} source) to:")
+    print(f"  {dest}")
+    print(f"  {', '.join(copied)}")
+    print("\nRestart Claude Code to pick it up, then: /scout <video-url>")
 
 
 def _cmd_compare(args) -> None:

@@ -3,6 +3,49 @@
 ## Unreleased
 
 ### Added
+- **`ingest analysis` — the third thing only a model can give you.** `merge_analysis`
+  needs a reachable LLM; without one it fails with a connection error and the
+  `analyses` row is never written, so the 4-beat timeline, hook type and CTA type —
+  most of the point — are silently absent. An agent can now supply that structure in
+  the merge prompt's own shape. The low-cardinality fields are validated as enums,
+  because they become columns `stats` and `patterns` group on and an invented value
+  adds a one-member category to every aggregate. Provenance rides in `full_json`
+  as `_source`.
+- **The exported page now shows what was seen in each frame.** The filmstrip carries
+  each keyframe's description (hover, plus a caption that tracks playback). A bundle
+  that showed thumbnails and a score with no observations behind it asked the reader
+  to take the number on faith — and at L1 those descriptions *are* the analysis.
+- **`batch` — a doc full of links, one bundle each.** Point it at a Google
+  Doc/Sheet (or a file, or stdin) and every IG/TikTok/Shorts link in it gets
+  analyzed and exported. `/edit` URLs are rewritten to Google's export endpoints,
+  so "anyone with the link" sharing is enough — no API key, no OAuth, no publish
+  step. `--dry-run` shows what was parsed before anything runs. It **picks nothing
+  for you**: a reachable VLM makes `--mode full` unambiguous, but without one it
+  stops and presents `agent` / `transcript` / `full` rather than quietly shipping
+  transcript-only bundles with the craft score missing. In `agent` mode it ends by
+  listing the videos still needing a visual layer with the `ingest` command for
+  each. Entries are paired to videos by set difference, never by URL equality —
+  shared links carry tracking parameters, and giving one person's analysis to
+  another is worse than producing one bundle fewer.
+- **`skill install` — the skill now ships with the package.** Measured on a clean
+  venv: `pip install reel-scout` produced a working CLI and *none* of `SKILL.md`,
+  `commands/scout.md`, `prompts/` or `scripts/setup.py`, so an agent had nothing to
+  load and `/scout` did not exist. Those assets are vendored into the wheel and
+  `reel-scout skill install` lays them down in `~/.claude/skills/reel-scout`
+  (`--dest`, `--force`; `skill path` shows the source). A clone still installs from
+  the working tree rather than a stale snapshot. Full install is now two commands.
+- **`ingest {vision,score}` — an agent can be the backend.** Keyframe extraction is
+  ffmpeg, not a model, so the frames are on disk before the VLM stage runs. On a
+  machine with no `oMLX`/`ollama`, an agent that can see images now supplies the
+  visual layer and the craft score itself and writes them back, so the result lands
+  in `show` / `view` / `inspect` / `export` instead of living in a chat log. No API
+  key, no cloud, no local model. Rows are stamped `agent:<model>` because craft
+  scores are model-dependent (7.43 vs 5.5 on the same clip across two VLMs), and
+  `overall` is recomputed with `score`'s own weights rather than trusted from input.
+  `SKILL.md` documents this as tier **L1** between web-only (L0) and full local (L2).
+- **`show` now lists keyframes and the score.** Frame ids, timestamps and paths,
+  with `*` marking frames that have no description yet — the ids are how anything
+  outside the process addresses a specific frame.
 - **One app instead of two.** The library index and the interactive inspector now
   share a single server and port — a row in the list opens straight into the
   player/waveform view. `view` lands on the library, `inspect <id>` opens one clip.

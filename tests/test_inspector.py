@@ -315,3 +315,44 @@ def test_back_link_only_when_there_is_an_index(temp_db):
         finally:
             httpd.shutdown()
             httpd.server_close()
+
+
+# --- keyframe descriptions reach the exported page ---
+
+def test_filmstrip_carries_what_was_seen_in_each_frame(temp_db):
+    """The bundle used to render thumbnails and a score with no observations
+    behind it — the evidence layer stayed in the DB and the reader had to take
+    the number on faith. At L1 those descriptions ARE the analysis."""
+    conn = _conn(temp_db)
+    try:
+        kf = os.path.join(config.KEYFRAMES_DIR, "f.jpg")
+        os.makedirs(config.KEYFRAMES_DIR, exist_ok=True)
+        _tiny_jpeg(kf)
+        vid = _seed(conn, kf_path=kf)
+        page = inspector.render_inspector(inspector.build_inspect_view(conn, vid))
+        assert "close-up of fried chicken" in page
+        assert 'data-desc="close-up of fried chicken"' in page
+        assert 'id="kfdesc"' in page          # the caption slot the JS fills
+        assert "1 described" in page
+    finally:
+        conn.close()
+
+
+def test_no_descriptions_means_no_empty_caption_slot(temp_db):
+    """Nothing described yet -> don't render a caption element that stays blank."""
+    conn = _conn(temp_db)
+    try:
+        kf = os.path.join(config.KEYFRAMES_DIR, "g.jpg")
+        os.makedirs(config.KEYFRAMES_DIR, exist_ok=True)
+        _tiny_jpeg(kf)
+        vid = db.upsert_video(conn, platform="instagram", platform_id="nodesc",
+                              url="https://www.instagram.com/reel/nodesc/",
+                              title="Bare", duration_sec=5.0)
+        db.save_keyframes(conn, vid, [
+            {"frame_index": 0, "timestamp_sec": 1.0, "file_path": kf, "strategy": "scene"}])
+        conn.commit()
+        page = inspector.render_inspector(inspector.build_inspect_view(conn, vid))
+        assert 'id="kfdesc"' not in page
+        assert "described" not in page
+    finally:
+        conn.close()

@@ -44,7 +44,7 @@ exact remediation strings, then act):
 | Exit | Meaning | Action |
 |------|---------|--------|
 | `2` | Missing `ffmpeg` / `ffprobe` / `yt-dlp` | macOS: `brew install ffmpeg` + `pip install -U yt-dlp`. Linux/Windows: tell the user the install commands the script printed. |
-| `3` | `reel-scout` not installed | From the repo root: `pip install -e .` (add `pip install -e ".[whisper]"` for transcription). |
+| `3` | `reel-scout` not installed | `pip install reel-scout` (add `pip install "reel-scout[whisper]"` for transcription). Only use `pip install -e .` when the user actually has a clone — run the script without `--check` and use the path it prints. |
 | `4` | Both | Do both of the above. |
 
 Within one session you can skip Step 0 on follow-up runs — once `--check` returned
@@ -57,21 +57,32 @@ use it when you need to branch on specifics.
 
 ## Surface limits — read this honestly
 
-The full pipeline needs **local shell + local binaries + a local VLM backend**
-(`oMLX` or `ollama`) and (for transcripts) a local Whisper backend. That means:
+Three tiers, by what the machine actually has. Pick the highest one available and
+say which you used — never imply a richer tier than you ran.
 
-- **Claude Code / Codex (have a shell): full pipeline runs** — provided the user's
-  machine has ffmpeg/yt-dlp/python installed and a local VLM endpoint reachable
-  (Step 0 + `reel-scout config check` confirm this).
-- **claude.ai (web): the download/VLM/transcribe pipeline does NOT run** — the web
-  sandbox has no ffmpeg/yt-dlp and no local VLM. On the web surface you can still
-  apply the **prompt pack** to a clip the user describes or screen-records and
-  uploads (that is exactly what `prompts/hook-reverse-structure.md` **Prompt B** is
-  for — the screen-recording variant with anti-hallucination guardrails). Do **not**
-  pretend the automated extraction works on the web; route to Prompt B instead.
+| | Needs | Visual layer | Craft score |
+|---|---|---|---|
+| **L2 full** | shell + ffmpeg/yt-dlp + **local VLM** (`oMLX`/`ollama`) | local VLM | local LLM |
+| **L1 agent-as-backend** | shell + ffmpeg/yt-dlp, **no model** | **you, from the keyframes** | **you, via the rubric** |
+| **L0 prompt-only** | nothing (claude.ai web) | user's screen recording | described, not stored |
 
-If you are unsure which surface you're on, run Step 0 — a non-zero exit with missing
-binaries on every attempt is the tell that you lack the local pipeline.
+- **L2** — the default when `reel-scout config check` reports a reachable VLM
+  endpoint. Run Step 2 as written.
+- **L1** — the machine has a shell and the binaries but **no local model**. This is
+  the common case for someone who just `pip install`ed. Do **not** stop here and do
+  **not** report a transcript-only result as if it were the whole analysis: keyframe
+  extraction is ffmpeg, not a model, so the frames are already on disk and you can
+  see them. Follow **Step 2b**.
+- **L0** — claude.ai web: no shell, no ffmpeg/yt-dlp, no model. The automated
+  extraction genuinely cannot run. Apply the **prompt pack** to a clip the user
+  describes or screen-records and uploads — that is exactly what
+  `prompts/hook-reverse-structure.md` **Prompt B** is for (the screen-recording
+  variant with anti-hallucination guardrails). Do **not** pretend the automated
+  extraction works on the web; route to Prompt B instead.
+
+If you are unsure which tier you're on, run Step 0 — a non-zero exit with missing
+binaries on every attempt means L0; binaries present but `config check` finding no
+VLM endpoint means L1.
 
 ## Step 1 — parse the input
 
@@ -125,8 +136,109 @@ reel-scout analyze "<url>" --start 0 --end 8 --resolution 1024 --score
 ```
 
 If `analyze` fails on the VLM step (no local `omlx`/`ollama` endpoint), re-run with
-`--skip-vision` and tell the user the visual layer was skipped — the transcript-based
-4-beat is still useful, just weaker on the visual beats.
+`--skip-vision` — then **go to Step 2b and supply the visual layer yourself**. Only
+report a transcript-only result if Step 2b is also impossible, and say so plainly.
+
+## Step 2b — no local model? You are the backend (L1)
+
+Only when there is no reachable VLM/LLM endpoint. The frames exist regardless —
+ffmpeg extracted them — so the visual layer is not lost, it just has no model
+attached to it yet. Attach yourself, then write the result back so it lands in
+`show` / `view` / `inspect` / the exported bundle instead of living only in this
+conversation.
+
+**1. Find the frames.**
+
+```bash
+reel-scout show <video_id>          # lists keyframes with their ids and paths
+```
+
+Frames live under `data/keyframes/<video_id>/`. Read the image files directly.
+
+**2. Describe them, then write them back.** One entry per frame you actually
+looked at. Address each frame by `keyframe_id`, `frame_index`, **or** `file` —
+whichever you have.
+
+```bash
+cat <<'JSON' | reel-scout ingest vision <video_id> --from-json - --model <your-model>
+{"frames": [
+  {"frame_index": 0, "description": "hands enter frame holding a black cable",
+   "objects": ["hands", "cable"], "text_in_frame": "BEFORE"}
+]}
+JSON
+```
+
+**3. Write the structured analysis.** `merge_analysis` needs a reachable LLM, so
+on this machine it failed and the `analyses` row does not exist — meaning no
+4-beat timeline, no hook type, no CTA type. That is most of what the tool is for,
+so fill it in. Use the exact shape the merge prompt asks for
+(`reel_scout/analyze/merger.py`, `_MERGE_PROMPT_TEMPLATE`):
+
+```bash
+cat <<'JSON' | reel-scout ingest analysis <video_id> --from-json - --model <your-model>
+{"summary": "...", "topics": ["..."],
+ "timeline": [{"timestamp": "0-3s", "event": "..."}],
+ "hook": {"opening_type": "question", "opening_text": "...",
+          "cta_type": "none", "cta_text": ""},
+ "style": {"format": "montage", "pacing": "fast", "has_captions": true,
+           "has_background_music": true, "text_overlay_count": 2},
+ "engagement_signals": {"face_visible": true, "face_count": 1,
+                        "emotion": "enthusiastic", "spoken_language": "",
+                        "subtitle_language": ""},
+ "content_type": "promotional", "content_structure": "hook-body-cta"}
+JSON
+```
+
+The low-cardinality fields are **enums and are validated** — `opening_type`,
+`cta_type`, `style.format`, `style.pacing`, `emotion`, `content_type`,
+`content_structure`. They become columns that `stats` and `patterns` group on, so
+an invented value adds a one-member category to every aggregate. Omit a field you
+can't determine; never coin a new value for it.
+
+**4. Score it with the rubric.** Read the prompt pack first — see **Step 4** of
+this skill, further down — so the four dimensions mean what they mean everywhere
+else, then:
+
+```bash
+cat <<'JSON' | reel-scout ingest score <video_id> --from-json - --model <your-model>
+{"hook_strength": 8, "visual_storytelling": 6, "pacing": 7, "structure": 5,
+ "reasoning": "cold open on the payoff; middle sags where the b-roll repeats"}
+JSON
+```
+
+Rules that are enforced, not suggestions:
+
+- **Do not send an `overall`.** It is recomputed from the four dimensions with the
+  same weights `score` uses (`hook*0.3 + visual*0.25 + pacing*0.2 + structure*0.25`).
+  Anything you supply is discarded.
+- **`--model` is required** and gets stamped as `agent:<model>`. Craft scores are
+  strongly model-dependent — the same clip scored 7.43 under one VLM and 5.5 under
+  another — so a row's origin has to stay visible.
+- **Values outside 0–10 are rejected, not clamped.** Fix the number; don't retry
+  with a squashed one.
+- Tell the user their analysis was produced at **L1 (agent-scored)**, and that those
+  scores are not directly comparable with locally-scored videos in the same corpus
+  (`stats` averages do not separate the two).
+
+## A list instead of one link — `batch`
+
+When the user points at a Google Doc/Sheet, a file, or several links at once,
+use `reel-scout batch` rather than looping `analyze` yourself:
+
+```bash
+reel-scout batch --doc "<google doc or sheet url>" --dry-run   # show what it parsed
+reel-scout batch --doc "<url>" --mode agent --out ~/reel-scout-batch
+```
+
+Sharing set to "anyone with the link" is enough — `/edit` URLs are rewritten to
+Google's export endpoints, so there is no API key or OAuth step.
+
+`batch` probes the backends first. With a VLM reachable it runs `full`. Without
+one it **stops and prints the choice** rather than silently producing
+transcript-only bundles — relay those options to the user and let them pick; do
+not choose for them. If they pick `agent`, the run ends with the list of videos
+still missing a visual layer and the exact `ingest` command per video: work
+through them with Step 2b, then re-export to refresh the bundles.
 
 ## Step 3 — read the structured output
 

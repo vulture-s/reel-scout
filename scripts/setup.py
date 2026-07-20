@@ -5,12 +5,13 @@ Checks that the pieces the skill needs to run the full pipeline are present:
   - python (the interpreter running this is proof enough)
   - ffmpeg / ffprobe (keyframe extraction + audio)
   - yt-dlp (download + native captions)
-  - the ``reel-scout`` console entry point (``pip install -e .``)
+  - the ``reel-scout`` console entry point (``pip install reel-scout``, or
+    ``pip install -e .`` when run from a clone)
 
 Exit codes (consumed by SKILL.md Step 0):
   0  ready                  -> silent, proceed
   2  missing system binary  -> ffmpeg/ffprobe/yt-dlp not on PATH
-  3  reel-scout not installed-> run ``pip install -e .`` from the repo root
+  3  reel-scout not installed-> ``pip install reel-scout`` (or ``-e .`` in a clone)
   4  both                    -> binary(ies) AND reel-scout missing
 
 ``--check``   exit-code-only, no stdout on success (preflight default)
@@ -116,14 +117,36 @@ def main(argv: Optional[List[str]] = None) -> int:
             brew_pkgs.append("yt-dlp")
         if "ffprobe" in missing and "ffmpeg" not in brew_pkgs:
             brew_pkgs.append("ffmpeg")  # ffprobe ships with ffmpeg
-        print("    macOS (Homebrew):  brew install " + " ".join(brew_pkgs or ["ffmpeg"]))
+        # Platform-specific, because telling a Windows user to run `brew install`
+        # is worse than saying nothing: it reads like an instruction and isn't one.
+        pkgs = " ".join(brew_pkgs or ["ffmpeg"])
+        if sys.platform == "win32":
+            print("    winget:            winget install Gyan.FFmpeg")
+            print("    or Chocolatey:     choco install ffmpeg")
+            print("    or Scoop:          scoop install ffmpeg")
+            print("    then RESTART the terminal so PATH is picked up.")
+        elif sys.platform == "darwin":
+            print("    macOS (Homebrew):  brew install " + pkgs)
+        else:
+            print("    Debian/Ubuntu:     sudo apt install ffmpeg")
+            print("    Fedora:            sudo dnf install ffmpeg")
         print("    yt-dlp via pip:    pip install -U yt-dlp")
         print("    (ffprobe ships with ffmpeg.)")
     if not installed:
-        root = _repo_root() or "<repo-root>"
-        print("  reel-scout not installed. From the repo root, run:")
-        print("    pip install -e \"" + root + "\"")
-        print("    # add transcription support: pip install -e \"" + root + "[whisper]\"")
+        root = _repo_root()
+        if root:
+            # Running inside a clone: editable, so local edits take effect.
+            print("  reel-scout not installed. From this clone, run:")
+            print("    pip install -e \"" + root + "\"")
+            print("    # add transcription support: pip install -e \"" + root + "[whisper]\"")
+        else:
+            # No clone anywhere — the ordinary user, who wants the published
+            # package. This branch used to print an editable install against a
+            # literal "<repo-root>" placeholder, i.e. it sent someone who had
+            # never cloned anything to a directory that does not exist.
+            print("  reel-scout not installed. Run:")
+            print("    pip install reel-scout")
+            print("    # add transcription support: pip install \"reel-scout[whisper]\"")
     return code
 
 

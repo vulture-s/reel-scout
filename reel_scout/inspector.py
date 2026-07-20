@@ -275,20 +275,32 @@ def render_inspector(view: Dict[str, Any], base: str = "",
         preview = ('<div class="noplayer">video file not on disk &mdash; '
                    'keyframes &amp; transcript only</div>')
 
-    # Filmstrip.
+    # Filmstrip. Each cell carries what was seen in that frame, so the exported
+    # page keeps the evidence and not just the thumbnails — a bundle that shows a
+    # score with no observations behind it is asking to be taken on faith.
     strip: List[str] = []
+    described = 0
     for j, kf in enumerate(view["keyframes"]):
         ts = kf.get("timestamp_sec")
+        desc = (kf["description"] if "description" in kf.keys() else "") or ""
+        if desc:
+            described += 1
         strip.append(
-            '<button class="cell" data-frame="%d" data-ts="%.3f" title="%s">'
+            '<button class="cell" data-frame="%d" data-ts="%.3f" data-desc="%s" title="%s">'
             '<img src="%s" alt="" loading="lazy">'
             '<span class="ct">%s</span></button>'
-            % (j, float(ts) if ts is not None else 0.0, _e(_fmt_ts(ts)),
+            % (j, float(ts) if ts is not None else 0.0, _e(desc),
+               _e(("%s — %s" % (_fmt_ts(ts), desc)) if desc else _fmt_ts(ts)),
                _e(keyframe_src(kf) or ""), _e(_fmt_ts(ts))))
-    filmstrip = ('<section class="block"><div class="eyebrow">Keyframes '
-                 '<span class="q">%d &middot; click to seek</span></div>'
-                 '<div class="strip">%s</div></section>' % (len(strip), "".join(strip))) \
-        if strip else ""
+    if strip:
+        note = "click to seek" if not described else "click to seek &middot; %d described" % described
+        caption = ('<div class="kfdesc" id="kfdesc"></div>' if described else "")
+        filmstrip = ('<section class="block"><div class="eyebrow">Keyframes '
+                     '<span class="q">%d &middot; %s</span></div>'
+                     '<div class="strip">%s</div>%s</section>'
+                     % (len(strip), note, "".join(strip), caption))
+    else:
+        filmstrip = ""
 
     # Transcript.
     if view.get("segments"):
@@ -589,6 +601,7 @@ a{color:inherit}
   background:none;cursor:pointer;overflow:hidden}
 .strip .cell img{height:88px;width:auto;display:block}
 .strip .cell.active{border-color:var(--ink)}
+.kfdesc{margin-top:10px;min-height:1.2em;font-size:13px;line-height:1.55;color:var(--ink-2)}
 .strip .ct{position:absolute;left:0;bottom:0;background:var(--ink);color:var(--bg);
   font-family:var(--mono);font-size:9px;letter-spacing:.06em;padding:1px 4px}
 .segs{max-height:44vh;overflow:auto;border:1px solid var(--rule-soft)}
@@ -689,6 +702,8 @@ _SCRIPT = r"""
     var bestIdx=-1,bd=1e9;
     cells.forEach(function(c,i){var d=Math.abs((+c.dataset.ts)-t); if(d<bd){bd=d;bestIdx=i;}});
     cells.forEach(function(c,i){c.classList.toggle('active', i===bestIdx);});
+    var kd=document.getElementById('kfdesc');
+    if(kd&&bestIdx>=0){ kd.textContent=cells[bestIdx].dataset.desc||''; }
   }
 
   segEls.forEach(function(s){ s.addEventListener('click',function(){ seek(+s.dataset.start); }); });

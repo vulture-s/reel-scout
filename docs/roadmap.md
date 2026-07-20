@@ -7,6 +7,10 @@
 > 2026-07-18 §4F 實作：燒錄字幕 OCR / L3.5（vlm 復用 + tesseract opt-in）落地，schema v8，測試 →207
 > 2026-07-20 GUI + 學生包：view/inspect 合併成單一 app、vulture.s 換膚（`theme.py`，偏離已 narrate）、品牌字型內嵌 + CJK 動態 subset、`export --format bundle` 自包含學生包、inspector 返回鍵、`view` 併發修復（ThreadingHTTPServer）。測試 →244
 > 2026-07-18 Wave 3 一波：3B patterns / 3A instaloader / 4B inspire / 4D track（schema v9）/ 4C MCP(8 tools) / 5A CHANGELOG + 5C docs 全落地，測試 →228（含 codex+harness 雙審修正：inspire 非-JSON fallback、track partial-update COALESCE、MCP channels 驗證、instaloader limit=0）
+> 2026-07-20 §5A L0/L1/L2 安裝階梯：新增 `ingest {vision,score}`（agent 當 backend，零本地模型／零 API key）+ `show` 補列 keyframe id 與分數；SKILL.md 三層 surface 改寫。測試 →263
+> 2026-07-20 §5A L1 補完：`ingest analysis`（merger 同樣需要 LLM，無 LLM 時 `analyses` 整列不存在＝4-beat／hook／CTA 全缺；枚舉值驗證）+ 學生包 filmstrip 顯示逐格描述。另修 `--skip-vision` 連 keyframe 都不抽（L1 整條實際為空）與 batch 裸名呼叫。測試 →324
+> 2026-07-20 §5A `batch`：Google Doc／Sheet 清單批次跑（免 API 金鑰，`/edit` 自動轉匯出端點）；能力偵測後**由使用者選 mode**（full／agent／transcript），無 VLM 不靜默降級。測試 →304
+> 2026-07-20 §5A 分發補洞（乾淨機器實測）：wheel 原本只含 `reel_scout/`，`pip install` 後 SKILL.md／`/scout`／prompts／setup.py **全部缺席**＝agent 無物可載；改 force-include 進 wheel + 新增 `skill install`。另修 setup.py 對無 clone 使用者印 `<repo-root>` 佔位符的 bug（該檔原本零測試覆蓋）。測試 →280
 
 ## 定位與 Non-goals
 
@@ -41,7 +45,7 @@ Phase 4  ████████████████████  ✅ Conte
 Phase 5  ████████████████████  ✅ Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅、CI ✅、config check ✅、**PyPI 上架 ✅（v1.2.0，Trusted Publishing 零 token）**
 ```
 
-**目前版本**：v1.2.0 ｜ **測試**：244 passing ｜ **DB schema**：v9
+**目前版本**：v1.2.0 ｜ **測試**：324 passing ｜ **DB schema**：v9
 
 ### 已完成功能清單（2026-07-15 驗證）
 
@@ -171,6 +175,15 @@ Phase 5  ████████████████████  ✅ Tool 
 - [x] `pyproject.toml` 完整（entry points、optional deps 分組）
 - [x] **PyPI 發布** ✅ 2026-07-19 — `pip install reel-scout` 已可用（v1.2.0 上架，wheel + sdist）。走 `.github/workflows/release.yml` **Trusted Publishing / OIDC，零 token**（GitHub Release published 觸發 + 可手動指定 tag；含測試 gate 與 tag↔`__version__` 一致性檢查，build/publish 分離）。實證：PyPI API 200、乾淨 venv 從 PyPI 裝後 `reel-scout --version` → 1.2.0、entry points 與新命令皆正常。之後發版只要開 GitHub Release 即自動上傳
 - [x] 版本/CHANGELOG 流程固定（2026-07-18）：CHANGELOG 加 Unreleased 段，Wave 3 每 feature 一條 + schema v6→v9 記錄
+- [x] **裝得起來 ≠ 跑得動：L0/L1/L2 安裝階梯** ✅ 2026-07-20 — 原本「裝完還要自備本地 VLM」是非技術使用者的真實斷點（`pip install` 成功但 `analyze` 在 VLM 那步掛掉）。
+      解法不是加雲端 backend（要 API key＝要學員付錢），而是認清 **keyframe 是 ffmpeg 抽的、不是模型抽的** —— 影格在 VLM 階段之前就已經在磁碟上。
+      新增 `ingest {vision,score} --from-json`：看得見圖的 agent 自己補視覺層與 rubric 評分再寫回 DB，結果照常進 `show`/`view`/`inspect`/`export`。
+      **零本地模型、零 API key、零額外費用**（用學員本來就有的 Claude）。守住兩條紅線：出處一律標 `agent:<model>`（craft 分數依模型而異，同片 7.43 vs 5.5），`overall` 一律用 `score` 的權重重算、不採信輸入。
+      順帶把 `show` 補成會列 keyframe id／時間／路徑（外部定位單一影格的唯一途徑）與分數。SKILL.md 的 surface 段從二分法改寫成 L0/L1/L2 三層。測試 →263
+- [x] **分發：skill 隨套件出貨** ✅ 2026-07-20 — **乾淨 venv 實測**發現上一條做的 L1 其目標使用者根本拿不到：wheel 只含 `reel_scout/`，`pip install reel-scout` 後 `SKILL.md`／`commands/scout.md`／`prompts/`／`scripts/setup.py` **四個全缺**，agent 無物可載、`/scout` 不存在，整條流程只有 clone 的人碰得到。
+      而 repo 內唯一提到「怎麼裝 skill」的文字，是競品分析在講 crv 的 `npx skills add`——對標表 §103 早就誠實記著易安裝這項 **crv 贏**。
+      修法＝pyproject `force-include` 把資產 vendored 進 wheel（`reel_scout/skill/`）＋新增 `skill {install,path}` 複製到 `~/.claude/skills/reel-scout`；clone 仍讀工作樹而非快照，`scripts/` 只取 setup.py。
+      **學生完整安裝＝兩行**：`pip install reel-scout` → `reel-scout skill install`。順帶修掉 `setup.py` 對無 clone 使用者印字面 `<repo-root>` 佔位符的 bug（該檔原本**零測試覆蓋**，故補 6 支）。測試 →280
 
 ### 5B. 不會安靜爛掉
 
