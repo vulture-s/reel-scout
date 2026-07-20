@@ -30,7 +30,7 @@ import subprocess
 import sys
 import unicodedata
 import urllib.request
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 #: Only the platforms the pipeline can actually ingest. A shared doc collects
 #: Drive links and long-form YouTube too; those are not silently attempted.
@@ -263,12 +263,35 @@ def needs_completion(conn, video_id: str) -> bool:
 
 
 def run_batch(entries: List[Tuple[str, str]], out_root: str, mode: str,
-              max_mb: str = "25", verbose: bool = False) -> Dict[str, Any]:
+              max_mb: str = "25", verbose: bool = False,
+              on_progress: Optional[Callable[[Dict[str, Any]], Any]] = None
+              ) -> Dict[str, Any]:
+    """Analyze and bundle every entry. Returns the manifest it also writes.
+
+    `on_progress` is called at each state transition with a dict carrying an
+    "event" key. Without it nothing changes -- but with it a caller can persist
+    progress as it happens, which is the difference between a run interrupted at
+    15/20 leaving a recoverable record and leaving a database that says zero
+    beside a directory holding fifteen finished bundles. Returning the string
+    "cancel" from an item_start stops the run before the next entry; the one in
+    flight is never interrupted, because half an analysis is worse than one more
+    finished video.
+    """
     from . import config, db
     import sqlite3
 
+    def emit(event: str, **fields: Any) -> Any:
+        if on_progress is None:
+            return None
+        fields["event"] = event
+        try:
+            return on_progress(fields)
+        except Exception:
+            # A broken progress sink must not take down a job that is working.
+            return None
+
     config.ensure_dirs()
-    conn = sqlite3.connect(config.DB_PATH)
+    conn = sqlite3.connect(config.DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     db.init_db(conn)
 
@@ -276,9 +299,14 @@ def run_batch(entries: List[Tuple[str, str]], out_root: str, mode: str,
     done: List[Dict[str, str]] = []
     failed: List[Dict[str, str]] = []
     pending: List[Dict[str, str]] = []
+    cancelled = False
 
     for i, (label, url) in enumerate(entries, 1):
         slug = slugify(label, i)
+        if emit("item_start", index=i, total=len(entries),
+                label=label, slug=slug, url=url) == "cancel":
+            cancelled = True
+            break
         print("\n[%d/%d] %s" % (i, len(entries), label or slug))
         print("    %s" % url)
 
@@ -289,31 +317,41 @@ def run_batch(entries: List[Tuple[str, str]], out_root: str, mode: str,
         if _run(cmd, verbose) != 0:
             print("    x analyze failed")
             failed.append({"label": label, "url": url, "reason": "analyze exited non-zero"})
+            emit("item_failed", url=url, label=label, reason="analyze exited non-zero")
             continue
 
         vid = resolve_video_id(conn, before, url)
         if not vid:
             print("    x could not tell which video this produced — skipped, not guessed")
             failed.append({"label": label, "url": url, "reason": "video id unresolved"})
+            emit("item_failed", url=url, label=label, reason="video id unresolved")
             continue
+        emit("item_analyzed", url=url, label=label, slug=slug, video_id=vid)
 
         entry = {"label": label, "slug": slug, "url": url, "video_id": vid}
         if mode == "agent" and needs_completion(conn, vid):
             pending.append(entry)
+            emit("item_needs_vision", url=url, video_id=vid)
 
         dest = os.path.join(out_root, slug)
+        emit("item_exporting", url=url, video_id=vid, bundle_dir=dest)
         if _run(self_cmd("export", "--format", "bundle", "--video", vid,
                           "-o", dest, "--max-mb", str(max_mb)), verbose) != 0:
             print("    x export failed")
             failed.append({"label": label, "url": url, "reason": "export exited non-zero"})
+            emit("item_failed", url=url, label=label, reason="export exited non-zero")
             continue
 
         entry["bundle_dir"] = dest
         done.append(entry)
         print("    ok %s" % dest)
+        emit("item_done", url=url, label=label, video_id=vid, bundle_dir=dest)
 
     conn.close()
     result = {"mode": mode, "done": done, "failed": failed, "pending_completion": pending}
+    if cancelled:
+        result["cancelled"] = True
     with open(os.path.join(out_root, "manifest.json"), "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
+    emit("batch_done", result=result, cancelled=cancelled)
     return result
