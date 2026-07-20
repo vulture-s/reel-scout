@@ -51,6 +51,9 @@ def test_inside_a_clone_keeps_the_editable_install(setup_mod, monkeypatch, capsy
 
 
 def test_missing_binaries_are_named_with_a_command(setup_mod, monkeypatch, capsys):
+    # Pin the platform: the advice is platform-specific, so an unpinned assertion
+    # passes on the author's mac and fails on CI's Linux.
+    monkeypatch.setattr(setup_mod.sys, "platform", "darwin")
     code, out = _run(setup_mod, monkeypatch, capsys,
                      missing=["ffmpeg", "yt-dlp"], installed=True, repo_root=None)
     assert code == 2
@@ -59,6 +62,7 @@ def test_missing_binaries_are_named_with_a_command(setup_mod, monkeypatch, capsy
 
 
 def test_both_missing_reports_both(setup_mod, monkeypatch, capsys):
+    monkeypatch.setattr(setup_mod.sys, "platform", "darwin")
     code, out = _run(setup_mod, monkeypatch, capsys,
                      missing=["ffmpeg"], installed=False, repo_root=None)
     assert code == 4
