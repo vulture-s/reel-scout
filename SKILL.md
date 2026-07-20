@@ -168,7 +168,34 @@ cat <<'JSON' | reel-scout ingest vision <video_id> --from-json - --model <your-m
 JSON
 ```
 
-**3. Score it with the rubric.** Read the prompt pack first (Step 4) so the four
+**3. Write the structured analysis.** `merge_analysis` needs a reachable LLM, so
+on this machine it failed and the `analyses` row does not exist — meaning no
+4-beat timeline, no hook type, no CTA type. That is most of what the tool is for,
+so fill it in. Use the exact shape the merge prompt asks for
+(`reel_scout/analyze/merger.py`, `_MERGE_PROMPT_TEMPLATE`):
+
+```bash
+cat <<'JSON' | reel-scout ingest analysis <video_id> --from-json - --model <your-model>
+{"summary": "...", "topics": ["..."],
+ "timeline": [{"timestamp": "0-3s", "event": "..."}],
+ "hook": {"opening_type": "question", "opening_text": "...",
+          "cta_type": "none", "cta_text": ""},
+ "style": {"format": "montage", "pacing": "fast", "has_captions": true,
+           "has_background_music": true, "text_overlay_count": 2},
+ "engagement_signals": {"face_visible": true, "face_count": 1,
+                        "emotion": "enthusiastic", "spoken_language": "",
+                        "subtitle_language": ""},
+ "content_type": "promotional", "content_structure": "hook-body-cta"}
+JSON
+```
+
+The low-cardinality fields are **enums and are validated** — `opening_type`,
+`cta_type`, `style.format`, `style.pacing`, `emotion`, `content_type`,
+`content_structure`. They become columns that `stats` and `patterns` group on, so
+an invented value adds a one-member category to every aggregate. Omit a field you
+can't determine; never coin a new value for it.
+
+**4. Score it with the rubric.** Read the prompt pack first (Step 4) so the four
 dimensions mean what they mean everywhere else, then:
 
 ```bash

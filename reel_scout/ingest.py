@@ -166,6 +166,90 @@ def ingest_vision(
     return written, warnings
 
 
+#: Low-cardinality fields that `save_analysis` normalizes into their own columns,
+#: which `stats` / `patterns` / `compare` then group and filter on. An agent that
+#: invents a new value doesn't just mislabel one video — it silently adds a
+#: one-member category to every aggregate. Same reasoning as the score bounds:
+#: reject rather than accept-and-hope.
+_ENUMS = {
+    ("hook", "opening_type"): ("question", "statement", "visual", "music", "none"),
+    ("hook", "cta_type"): ("follow", "like", "comment", "link", "visit", "none"),
+    ("style", "format"): ("talking_head", "montage", "tutorial", "reaction",
+                          "skit", "vlog", "slideshow"),
+    ("style", "pacing"): ("fast", "medium", "slow"),
+    ("engagement_signals", "emotion"): ("enthusiastic", "calm", "serious",
+                                        "humorous", "neutral"),
+    (None, "content_type"): ("educational", "entertainment", "promotional",
+                             "review", "story", "news"),
+    (None, "content_structure"): ("hook-body-cta", "problem-solution", "listicle",
+                                  "story-arc", "raw-moment"),
+}
+
+
+def _check_enums(payload: Dict[str, Any]) -> List[str]:
+    """Enum violations, as readable messages. Empty list means clean."""
+    problems = []
+    for (section, field), allowed in _ENUMS.items():
+        holder = payload if section is None else payload.get(section) or {}
+        if not isinstance(holder, dict):
+            problems.append("%s must be an object" % section)
+            continue
+        value = holder.get(field)
+        if value in (None, ""):
+            continue
+        if value not in allowed:
+            where = field if section is None else "%s.%s" % (section, field)
+            problems.append("%s=%r is not one of: %s" % (where, value, ", ".join(allowed)))
+    return problems
+
+
+def ingest_analysis(
+    conn: Any,
+    video_id: str,
+    payload: Dict[str, Any],
+    model: str = "",
+) -> Dict[str, Any]:
+    """Write an agent-produced structured analysis. Returns the stored blob.
+
+    This is the third thing the pipeline can only get from a model, after the
+    frame descriptions and the craft score. `merge_analysis` needs a reachable
+    LLM; on a machine without one it fails with a connection error and the
+    `analyses` row is simply never written — so the 4-beat structure, hook type
+    and CTA type are all absent, which is most of what the tool is for.
+
+    `payload` takes the same shape `merge_analysis` produces, so an agent can be
+    handed the merge prompt's own output format and the two paths stay
+    comparable. Provenance rides inside `full_json` as `_source`, because the
+    table has no model column and inventing one is a migration this doesn't need.
+    """
+    import json as _json
+
+    if not isinstance(payload, dict):
+        raise ValueError("analysis payload must be a JSON object")
+    if not str(payload.get("summary") or "").strip():
+        raise ValueError("missing required field: summary")
+
+    problems = _check_enums(payload)
+    if problems:
+        raise ValueError("invalid enum value(s):\n  - " + "\n  - ".join(problems))
+
+    data = dict(payload)
+    data["_source"] = provenance(model or payload.get("model", ""))
+    data.pop("model", None)
+
+    db.save_analysis(
+        conn, video_id,
+        summary=str(data.get("summary") or ""),
+        topics_json=_json.dumps(data.get("topics") or [], ensure_ascii=False),
+        hooks_json=_json.dumps(data.get("hook") or {}, ensure_ascii=False),
+        style_json=_json.dumps(data.get("style") or {}, ensure_ascii=False),
+        engagement_signals_json=_json.dumps(
+            data.get("engagement_signals") or {}, ensure_ascii=False),
+        full_json=_json.dumps(data, ensure_ascii=False),
+    )
+    return data
+
+
 def ingest_score(
     conn: Any,
     video_id: str,

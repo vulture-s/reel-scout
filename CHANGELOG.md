@@ -3,6 +3,18 @@
 ## Unreleased
 
 ### Added
+- **`ingest analysis` — the third thing only a model can give you.** `merge_analysis`
+  needs a reachable LLM; without one it fails with a connection error and the
+  `analyses` row is never written, so the 4-beat timeline, hook type and CTA type —
+  most of the point — are silently absent. An agent can now supply that structure in
+  the merge prompt's own shape. The low-cardinality fields are validated as enums,
+  because they become columns `stats` and `patterns` group on and an invented value
+  adds a one-member category to every aggregate. Provenance rides in `full_json`
+  as `_source`.
+- **The exported page now shows what was seen in each frame.** The filmstrip carries
+  each keyframe's description (hover, plus a caption that tracks playback). A bundle
+  that showed thumbnails and a score with no observations behind it asked the reader
+  to take the number on faith — and at L1 those descriptions *are* the analysis.
 - **`batch` — a doc full of links, one bundle each.** Point it at a Google
   Doc/Sheet (or a file, or stdin) and every IG/TikTok/Shorts link in it gets
   analyzed and exported. `/edit` URLs are rewritten to Google's export endpoints,

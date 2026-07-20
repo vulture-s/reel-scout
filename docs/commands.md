@@ -17,7 +17,7 @@ see [`../prompts/signal-reliability-cheatsheet.md`](../prompts/signal-reliabilit
 | `view` | Local read-only web server for the library. |
 | `inspect <id>` | Interactive single-clip viewer (transcript↔keyframe time-sync). |
 | `score <id>` | Craft score (hook / visual / **pacing (evidence-based, §4E)** / structure). |
-| `ingest {vision,score} <id> --from-json <path\|->` | Write **agent-produced** frame descriptions / craft scores back into the DB, for machines with no local model. `--model` required; stored as `agent:<model>`. |
+| `ingest {vision,analysis,score} <id> --from-json <path\|->` | Write **agent-produced** frame descriptions / structured analysis / craft scores back into the DB, for machines with no local model. `--model` required; stored as `agent:<model>`. Analysis enums are validated. |
 | `compare <id…>` | Side-by-side comparison table. |
 | `stats [--channel] [--csv]` | Corpus tag distributions + score aggregates. |
 | `patterns --channel <c>` | Per-channel patterns: length, hook/CTA/structure mix, high-vs-low contrast, cadence. |
@@ -74,8 +74,9 @@ craft score itself, and `ingest` writes that back so it shows up in `show` / `vi
 ```bash
 reel-scout analyze "<url>" --skip-vision        # download + transcript + structure
 # agent reads data/keyframes/<id>/*.jpg, then:
-reel-scout ingest vision <id> --from-json - --model <name>
-reel-scout ingest score  <id> --from-json - --model <name>
+reel-scout ingest vision   <id> --from-json - --model <name>
+reel-scout ingest analysis <id> --from-json - --model <name>   # merge needs an LLM too
+reel-scout ingest score    <id> --from-json - --model <name>
 ```
 
 This is the only path that needs no `oMLX`/`ollama`/API key. Two caveats worth

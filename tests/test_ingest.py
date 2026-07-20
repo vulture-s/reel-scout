@@ -126,6 +126,96 @@ def test_missing_dimension_names_what_is_missing():
         }, model="claude")
 
 
+# --- structured analysis -----------------------------------------------------
+
+GOOD_ANALYSIS = {
+    "summary": "A screen-recording tease for an audio plugin.",
+    "topics": ["audio", "plugin"],
+    "timeline": [{"timestamp": "0-3s", "event": "question card over a face close-up"}],
+    "hook": {"opening_type": "question", "opening_text": "Ready for a big upgrade?",
+             "cta_type": "none", "cta_text": ""},
+    "style": {"format": "montage", "pacing": "fast", "has_captions": True,
+              "has_background_music": True, "text_overlay_count": 2},
+    "engagement_signals": {"face_visible": True, "face_count": 1,
+                           "emotion": "enthusiastic", "spoken_language": "",
+                           "subtitle_language": ""},
+    "content_type": "promotional",
+    "content_structure": "hook-body-cta",
+}
+
+
+def test_analysis_lands_and_normalized_columns_are_derived():
+    """`merge_analysis` needs an LLM; without one this row is simply never written,
+    so the 4-beat structure, hook type and CTA type — most of the point — go missing."""
+    conn, _ = _temp_db()
+    vid = _seed(conn)
+    ingest.ingest_analysis(conn, vid, dict(GOOD_ANALYSIS), model="claude")
+    row = db.get_analysis(conn, vid)
+    assert row["summary"].startswith("A screen-recording tease")
+    assert row["opening_type"] == "question"
+    assert row["cta_type"] == "none"
+    assert row["content_type"] == "promotional"
+    assert row["content_structure"] == "hook-body-cta"
+
+
+def test_analysis_provenance_rides_inside_full_json():
+    conn, _ = _temp_db()
+    vid = _seed(conn)
+    ingest.ingest_analysis(conn, vid, dict(GOOD_ANALYSIS), model="claude-opus-4-8")
+    full = json.loads(db.get_analysis(conn, vid)["full_json"])
+    assert full["_source"] == "agent:claude-opus-4-8"
+
+
+def test_analysis_requires_a_summary():
+    conn, _ = _temp_db()
+    vid = _seed(conn)
+    bad = dict(GOOD_ANALYSIS)
+    bad["summary"] = "  "
+    with pytest.raises(ValueError, match="summary"):
+        ingest.ingest_analysis(conn, vid, bad, model="claude")
+
+
+@pytest.mark.parametrize("section,field,bad", [
+    ("hook", "opening_type", "amazing"),
+    ("hook", "cta_type", "subscribe"),
+    ("style", "format", "cinematic"),
+    ("style", "pacing", "medium-fast"),
+    ("engagement_signals", "emotion", "excited"),
+])
+def test_invented_enum_values_are_rejected(section, field, bad):
+    """These become normalized columns that `stats`/`patterns` group on — one
+    invented value silently adds a one-member category to every aggregate."""
+    conn, _ = _temp_db()
+    vid = _seed(conn)
+    payload = {k: (dict(v) if isinstance(v, dict) else v)
+               for k, v in GOOD_ANALYSIS.items()}
+    payload[section][field] = bad
+    with pytest.raises(ValueError, match="not one of"):
+        ingest.ingest_analysis(conn, vid, payload, model="claude")
+
+
+@pytest.mark.parametrize("field,bad", [
+    ("content_type", "vlog"),            # valid for style.format, not content_type
+    ("content_structure", "hook-cta"),
+])
+def test_invented_top_level_enum_values_are_rejected(field, bad):
+    conn, _ = _temp_db()
+    vid = _seed(conn)
+    payload = dict(GOOD_ANALYSIS)
+    payload[field] = bad
+    with pytest.raises(ValueError, match="not one of"):
+        ingest.ingest_analysis(conn, vid, payload, model="claude")
+
+
+def test_omitted_optional_enums_are_allowed():
+    """Partial knowledge is fine; inventing a category is not."""
+    conn, _ = _temp_db()
+    vid = _seed(conn)
+    ingest.ingest_analysis(
+        conn, vid, {"summary": "minimal but honest"}, model="claude")
+    assert db.get_analysis(conn, vid)["summary"] == "minimal but honest"
+
+
 # --- frame addressing --------------------------------------------------------
 
 def test_frames_resolve_by_id_index_basename_and_full_path():

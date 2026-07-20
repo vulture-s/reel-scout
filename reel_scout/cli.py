@@ -130,6 +130,14 @@ def main(argv: List[str] = None) -> None:
     p_ing_vision.add_argument("--model", default="",
                               help="Model that produced it (stamped as agent:<model>)")
 
+    p_ing_analysis = p_ing_sub.add_parser(
+        "analysis", help="Structured analysis from an agent (merge_analysis's shape)")
+    p_ing_analysis.add_argument("video_id", help="Video ID the analysis is for")
+    p_ing_analysis.add_argument("--from-json", dest="from_json", required=True,
+                                help="JSON file, or - to read stdin")
+    p_ing_analysis.add_argument("--model", default="",
+                                help="Model that produced it (stamped as agent:<model>)")
+
     p_ing_score = p_ing_sub.add_parser("score", help="Craft score from an agent")
     p_ing_score.add_argument("video_id", help="Video ID to score")
     p_ing_score.add_argument("--from-json", dest="from_json", required=True,
@@ -701,7 +709,8 @@ def _cmd_ingest(args) -> None:
     from . import db, ingest
 
     if not getattr(args, "ingest_command", None):
-        print("Usage: reel-scout ingest {vision|score} <video_id> --from-json <path|->")
+        print("Usage: reel-scout ingest {vision|analysis|score} <video_id> "
+              "--from-json <path|->")
         return
 
     raw = sys.stdin.read() if args.from_json == "-" else open(
@@ -725,6 +734,17 @@ def _cmd_ingest(args) -> None:
             print(f"Wrote {written} frame description(s) for {args.video_id}")
             for w in warnings:
                 print(f"  warning: {w}")
+        elif args.ingest_command == "analysis":
+            data = ingest.ingest_analysis(
+                conn, args.video_id, payload, model=args.model)
+            print(f"Analysis for: {args.video_id}  (source: {data['_source']})")
+            print(f"  {data.get('summary', '')[:160]}")
+            hook = data.get("hook") or {}
+            style = data.get("style") or {}
+            print(f"  opening: {hook.get('opening_type', '—')}   "
+                  f"cta: {hook.get('cta_type', '—')}   "
+                  f"structure: {data.get('content_structure', '—')}   "
+                  f"format: {style.get('format', '—')}")
         else:
             score = ingest.ingest_score(
                 conn, args.video_id, payload, model=args.model)
