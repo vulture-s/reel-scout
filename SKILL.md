@@ -195,8 +195,9 @@ The low-cardinality fields are **enums and are validated** — `opening_type`,
 an invented value adds a one-member category to every aggregate. Omit a field you
 can't determine; never coin a new value for it.
 
-**4. Score it with the rubric.** Read the prompt pack first (Step 4) so the four
-dimensions mean what they mean everywhere else, then:
+**4. Score it with the rubric.** Read the prompt pack first — see **Step 4** of
+this skill, further down — so the four dimensions mean what they mean everywhere
+else, then:
 
 ```bash
 cat <<'JSON' | reel-scout ingest score <video_id> --from-json - --model <your-model>
