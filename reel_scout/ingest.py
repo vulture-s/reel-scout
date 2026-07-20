@@ -28,19 +28,14 @@ blend two scales in its averages. Per-video reads are unaffected.
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import db
+from . import config, db
 
-# Weights duplicated from scorer._SCORE_PROMPT / scorer.score_video. If those
-# ever change, this must change with them or the two paths silently diverge —
-# tests/test_ingest.py pins them against the scorer module to catch that.
-_WEIGHTS = {
-    "hook_strength": 0.3,
-    "visual_storytelling": 0.25,
-    "pacing": 0.2,
-    "structure": 0.25,
-}
+#: Re-exported from config so this module's long-standing names keep working.
+#: These are NO LONGER a second copy — config.SCORE_WEIGHTS is the only
+#: definition, and scorer builds its prompt sentence from that same dict.
+_WEIGHTS = config.SCORE_WEIGHTS
 
-_DIMENSIONS = tuple(_WEIGHTS)
+_DIMENSIONS = config.SCORE_DIMENSIONS
 
 #: Backend label for anything an agent produced rather than a local VLM/LLM.
 AGENT_BACKEND = "agent"
@@ -54,9 +49,44 @@ def provenance(model: str) -> str:
     return model if model.startswith(AGENT_BACKEND + ":") else "%s:%s" % (AGENT_BACKEND, model)
 
 
-def compute_overall(dims: Dict[str, float]) -> float:
-    """Weighted overall, matching scorer.score_video exactly (2dp)."""
-    return round(sum(dims[d] * _WEIGHTS[d] for d in _DIMENSIONS), 2)
+def normalize_weights(weights: Optional[Dict[str, float]]) -> Dict[str, float]:
+    """Coerce arbitrary user weights into a set that sums to 1.0.
+
+    Without this, a reader who drags every slider to the top gets an `overall`
+    above 10 and the number silently stops meaning "a score out of 10". Scaling
+    by the sum keeps the output on the same 0-10 axis as the stored default, so
+    "yours vs default" stays an apples-to-apples comparison — which is the only
+    reason the comparison is worth showing at all.
+
+    Missing dimensions fall back to the configured default. Negative weights are
+    clamped to 0. An all-zero set is meaningless, so it falls back to default
+    rather than dividing by zero.
+    """
+    if not weights:
+        return dict(config.SCORE_WEIGHTS)
+    raw = {}
+    for d in _DIMENSIONS:
+        try:
+            v = float(weights.get(d, config.SCORE_WEIGHTS[d]))
+        except (TypeError, ValueError):
+            v = config.SCORE_WEIGHTS[d]
+        raw[d] = max(0.0, v)
+    total = sum(raw.values())
+    if total <= 0:
+        return dict(config.SCORE_WEIGHTS)
+    return {d: raw[d] / total for d in _DIMENSIONS}
+
+
+def compute_overall(dims: Dict[str, float], weights: Optional[Dict[str, float]] = None) -> float:
+    """Weighted overall, matching scorer.score_video exactly (2dp).
+
+    `weights=None` uses the configured default — that is the number persisted to
+    the DB and the only one any other surface should treat as authoritative.
+    Passing custom weights is for read-side exploration (the inspector's
+    sliders); it deliberately does not write anything back.
+    """
+    w = _WEIGHTS if weights is None else normalize_weights(weights)
+    return round(sum(dims[d] * w[d] for d in _DIMENSIONS), 2)
 
 
 def _as_score(value: Any, field: str) -> float:

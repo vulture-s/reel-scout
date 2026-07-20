@@ -199,17 +199,55 @@ def _render_scores(view: Dict[str, Any]) -> str:
         if val is None:
             continue
         pct = max(0.0, min(100.0, float(val) * 10.0))
+        # `overall` is the only meter JS ever rewrites — the dimension meters are
+        # model output and stay frozen no matter where the sliders go.
         meters.append(
-            '<div class="meter"><span class="mlabel">%s</span>'
-            '<span class="mbar"><i style="width:%.1f%%"></i></span>'
-            '<span class="mval">%.1f</span></div>' % (_e(label), pct, float(val)))
+            '<div class="meter" data-dim="%s"><span class="mlabel">%s</span>'
+            '<span class="mbar"><i%s style="width:%.1f%%"></i></span>'
+            '<span class="mval"%s>%.1f</span></div>'
+            % (_e(key), _e(label),
+               ' id="obar"' if key == "overall" else "",
+               pct,
+               ' id="oval"' if key == "overall" else "",
+               float(val)))
     if not meters:
         return ""
     reasoning = score.get("reasoning")
     note = ('<p class="reasoning">%s</p>' % _e(reasoning)) if reasoning else ""
+
+    # Weight sliders. Deliberately collapsed by default: the point is that the
+    # weighting is *available* for inspection, not that every reader must tune it.
+    sliders: List[str] = []
+    for key, label in _SCORE_DIMS:
+        if key == "overall" or score.get(key) is None:
+            continue
+        w = config.SCORE_WEIGHTS.get(key)
+        if w is None:
+            continue
+        sliders.append(
+            '<div class="wrow"><label for="w_%s">%s</label>'
+            '<input type="range" id="w_%s" data-dim="%s" min="0" max="100" step="1" value="%d">'
+            '<span class="wval" id="wv_%s">%d%%</span></div>'
+            % (_e(key), _e(label), _e(key), _e(key), round(w * 100), _e(key), round(w * 100)))
+
+    weights_block = ""
+    if sliders:
+        weights_block = (
+            '<details class="weights" id="wpanel"><summary>Re-weight &mdash; '
+            'see how much the verdict depends on what you value</summary>'
+            '<p class="wnote">The four dimensions come from the model and do '
+            '<em>not</em> change here &mdash; only how they are combined. '
+            'Weights are rescaled to sum to 100%%, so the result stays on the '
+            'same 0&ndash;10 axis as the stored score.</p>'
+            '<div class="wrows">%s</div>'
+            '<div class="wfoot"><span id="wdelta" class="wdelta"></span>'
+            '<button type="button" id="wreset" class="tbtn">reset to default</button>'
+            '</div></details>' % "".join(sliders))
+
     return ('<section class="block"><div class="eyebrow">Craft scores '
             '<span class="q">reference, not authority</span></div>'
-            '<div class="meters">%s</div>%s</section>' % ("".join(meters), note))
+            '<div class="meters">%s</div>%s%s</section>'
+            % ("".join(meters), note, weights_block))
 
 
 def _render_structure(view: Dict[str, Any]) -> str:
@@ -324,6 +362,16 @@ def render_inspector(view: Dict[str, Any], base: str = "",
     boot_data = {"id": vid, "dur": dur, "bins": _WAVEFORM_BINS,
                  "base": base, "segs": seg_data,
                  "hasVideo": bool(view.get("has_video"))}
+    # Re-weighting happens entirely client-side: the four dimensions are already
+    # on the page, so the reader gets an instant answer with no request and no
+    # model call. Handing over the default weights too is what makes the
+    # "yours vs default" delta honest rather than a moving baseline.
+    _score = view.get("score") or {}
+    if _score:
+        boot_data["dims"] = {d: _score.get(d) for d in config.SCORE_DIMENSIONS
+                             if _score.get(d) is not None}
+        boot_data["defaultWeights"] = dict(config.SCORE_WEIGHTS)
+        boot_data["storedOverall"] = _score.get("overall")
     if peaks is not None:
         # file:// blocks fetch(), so a frozen page carries its peaks inline.
         boot_data["peaks"] = [round(float(x), 4) for x in peaks]
@@ -604,6 +652,19 @@ a{color:inherit}
 .kfdesc{margin-top:10px;min-height:1.2em;font-size:13px;line-height:1.55;color:var(--ink-2)}
 .strip .ct{position:absolute;left:0;bottom:0;background:var(--ink);color:var(--bg);
   font-family:var(--mono);font-size:9px;letter-spacing:.06em;padding:1px 4px}
+.weights{margin-top:12px;max-width:440px;border-top:1px solid var(--rule-soft);padding-top:8px}
+.weights summary{cursor:pointer;font-size:12px;color:var(--muted)}
+.weights summary:hover{color:inherit}
+.wnote{font-size:11px;color:var(--muted);line-height:1.5;margin:8px 0 10px}
+.wrows{display:flex;flex-direction:column;gap:6px}
+.wrow{display:flex;align-items:center;gap:8px;font-size:12px}
+.wrow label{flex:0 0 76px;color:var(--muted)}
+.wrow input[type=range]{flex:1 1 auto;min-width:0}
+.wval{flex:0 0 38px;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+.wfoot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}
+.wdelta{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.wdelta.on{color:inherit}
+.meter.custom .mval{font-style:italic}
 .segs{max-height:44vh;overflow:auto;border:1px solid var(--rule-soft)}
 .seg{display:flex;gap:10px;width:100%;text-align:left;padding:7px 10px;border:0;
   border-bottom:1px solid var(--rule-soft);background:none;color:inherit;font:inherit;
@@ -733,5 +794,70 @@ _SCRIPT = r"""
     var a2=document.createElement('a'); a2.href=URL.createObjectURL(blob);
     a2.download='inspect-'+boot.id+'.srt'; a2.click();
   });
+
+  /* --- live re-weighting -------------------------------------------------
+     Pure arithmetic over the four dimensions already on the page. No fetch,
+     no model. Mirrors ingest.normalize_weights/compute_overall exactly: clamp
+     negatives, rescale to sum 1, round to 2dp. If those ever diverge the page
+     would quietly disagree with the CLI, so tests pin both to the same cases. */
+  var wpanel=document.getElementById('wpanel');
+  if(wpanel&&boot.dims&&boot.defaultWeights){
+    var sliders=[].slice.call(wpanel.querySelectorAll('input[type=range]'));
+    var obar=document.getElementById('obar'), oval=document.getElementById('oval');
+    var delta=document.getElementById('wdelta');
+    var ometer=obar?obar.closest('.meter'):null;
+    var stored=(boot.storedOverall==null)?null:+boot.storedOverall;
+
+    function computeOverall(w){
+      var total=0,d;
+      for(d in w){ if(w.hasOwnProperty(d)) total+=Math.max(0,w[d]); }
+      if(total<=0) return null;
+      var sum=0;
+      for(d in boot.dims){
+        if(!boot.dims.hasOwnProperty(d)) continue;
+        var wd=(w[d]==null)?0:Math.max(0,w[d]);
+        sum+=(+boot.dims[d])*(wd/total);
+      }
+      return Math.round(sum*100)/100;
+    }
+    function currentWeights(){
+      var w={};
+      sliders.forEach(function(s){ w[s.dataset.dim]=+s.value; });
+      return w;
+    }
+    function isDefault(){
+      return sliders.every(function(s){
+        return Math.round(boot.defaultWeights[s.dataset.dim]*100)===+s.value;
+      });
+    }
+    function apply(){
+      var w=currentWeights();
+      sliders.forEach(function(s){
+        var lbl=document.getElementById('wv_'+s.dataset.dim);
+        if(lbl) lbl.textContent=s.value+'%';
+      });
+      var v=computeOverall(w);
+      if(v==null){ if(delta){delta.textContent='all weights at zero — no verdict'; delta.className='wdelta on';} return; }
+      if(obar) obar.style.width=Math.max(0,Math.min(100,v*10)).toFixed(1)+'%';
+      if(oval) oval.textContent=v.toFixed(1);
+      var def=isDefault();
+      if(ometer) ometer.className='meter'+(def?'':' custom');
+      if(delta){
+        if(def||stored==null){ delta.textContent=''; delta.className='wdelta'; }
+        else{
+          var diff=v-stored;
+          delta.textContent='default '+stored.toFixed(1)+'  ·  yours '+v.toFixed(1)+
+            '  ('+(diff>=0?'+':'')+diff.toFixed(1)+')';
+          delta.className='wdelta on';
+        }
+      }
+    }
+    sliders.forEach(function(s){ s.addEventListener('input',apply); });
+    var wreset=document.getElementById('wreset');
+    if(wreset) wreset.addEventListener('click',function(){
+      sliders.forEach(function(s){ s.value=Math.round(boot.defaultWeights[s.dataset.dim]*100); });
+      apply();
+    });
+  }
 })();
 """

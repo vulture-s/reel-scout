@@ -106,6 +106,26 @@ KEYFRAME_MAX = int(os.getenv("KEYFRAME_MAX", "8"))
 # small on-screen text (招④). 0 = keep native resolution (no scaling, default).
 KEYFRAME_RESOLUTION = int(os.getenv("KEYFRAME_RESOLUTION", "0"))
 
+# --- Scoring ---
+# The ONLY deterministic arithmetic in the whole scoring path. The four dimension
+# values themselves come straight out of an LLM call (scorer.score_video) — there
+# is no numeric threshold under them to tune, the rubric is English prose in the
+# prompt. So `overall` is the one number a reader can legitimately recompute
+# without re-invoking the model, which is exactly what makes the inspector's
+# weight sliders honest: re-weighting is real arithmetic on stored dimensions,
+# not a re-run dressed up as interactivity.
+#
+# Single source of truth. scorer builds its prompt sentence from this dict and
+# ingest.compute_overall reads it, so the two scoring paths cannot drift apart.
+SCORE_WEIGHTS = {
+    "hook_strength": 0.3,
+    "visual_storytelling": 0.25,
+    "pacing": 0.2,
+    "structure": 0.25,
+}
+#: Canonical dimension order — display and iteration both follow it.
+SCORE_DIMENSIONS = tuple(SCORE_WEIGHTS)
+
 # --- Audio ---
 PANNS_MODEL_PATH = os.getenv("PANNS_MODEL_PATH", "")
 AUDIO_WINDOW_SEC = float(os.getenv("AUDIO_WINDOW_SEC", "2.0"))
