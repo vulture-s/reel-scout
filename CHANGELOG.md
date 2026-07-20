@@ -3,6 +3,18 @@
 ## Unreleased
 
 ### Added
+- **`ingest {vision,score}` — an agent can be the backend.** Keyframe extraction is
+  ffmpeg, not a model, so the frames are on disk before the VLM stage runs. On a
+  machine with no `oMLX`/`ollama`, an agent that can see images now supplies the
+  visual layer and the craft score itself and writes them back, so the result lands
+  in `show` / `view` / `inspect` / `export` instead of living in a chat log. No API
+  key, no cloud, no local model. Rows are stamped `agent:<model>` because craft
+  scores are model-dependent (7.43 vs 5.5 on the same clip across two VLMs), and
+  `overall` is recomputed with `score`'s own weights rather than trusted from input.
+  `SKILL.md` documents this as tier **L1** between web-only (L0) and full local (L2).
+- **`show` now lists keyframes and the score.** Frame ids, timestamps and paths,
+  with `*` marking frames that have no description yet — the ids are how anything
+  outside the process addresses a specific frame.
 - **One app instead of two.** The library index and the interactive inspector now
   share a single server and port — a row in the list opens straight into the
   player/waveform view. `view` lands on the library, `inspect <id>` opens one clip.

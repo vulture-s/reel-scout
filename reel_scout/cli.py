@@ -118,6 +118,25 @@ def main(argv: List[str] = None) -> None:
     p_score.add_argument("video_id", help="Video ID to score")
     p_score.add_argument("--backend", help="LLM backend (omlx, ollama, openclaw)")
 
+    # --- ingest (agent-produced analysis, no local model required) ---
+    p_ingest = sub.add_parser(
+        "ingest", help="Write agent-produced vision/score JSON back into the DB")
+    p_ing_sub = p_ingest.add_subparsers(dest="ingest_command")
+
+    p_ing_vision = p_ing_sub.add_parser("vision", help="Frame descriptions from an agent")
+    p_ing_vision.add_argument("video_id", help="Video ID the frames belong to")
+    p_ing_vision.add_argument("--from-json", dest="from_json", required=True,
+                              help="JSON file, or - to read stdin")
+    p_ing_vision.add_argument("--model", default="",
+                              help="Model that produced it (stamped as agent:<model>)")
+
+    p_ing_score = p_ing_sub.add_parser("score", help="Craft score from an agent")
+    p_ing_score.add_argument("video_id", help="Video ID to score")
+    p_ing_score.add_argument("--from-json", dest="from_json", required=True,
+                             help="JSON file, or - to read stdin")
+    p_ing_score.add_argument("--model", default="",
+                             help="Model that produced it (stamped as agent:<model>)")
+
     # --- compare ---
     p_compare = sub.add_parser("compare", help="Compare analyzed videos side by side")
     p_compare.add_argument("video_ids", nargs="+", help="Video IDs (exact or unique prefix)")
@@ -198,6 +217,7 @@ def main(argv: List[str] = None) -> None:
         "inspect": _cmd_inspect,
         "view": _cmd_view,
         "score": _cmd_score,
+        "ingest": _cmd_ingest,
         "compare": _cmd_compare,
         "stats": _cmd_stats,
         "patterns": _cmd_patterns,
@@ -490,6 +510,32 @@ def _cmd_show(args) -> None:
         print(f"\n--- Transcript ({transcript['language']}) ---")
         print(transcript["text_full"][:500])
 
+    # Keyframes are listed with their ids because that is the only way to address
+    # a specific frame from outside (`ingest vision --from-json`), and an agent
+    # supplying the visual layer needs both the id and the path it should read.
+    keyframes = db.get_keyframes_with_descriptions(conn, args.video_id)
+    if keyframes:
+        described = sum(1 for k in keyframes if k["description"])
+        print(f"\n--- Keyframes ({described}/{len(keyframes)} described) ---")
+        for k in keyframes:
+            mark = " " if k["description"] else "*"
+            print(f" {mark}[id {k['id']:>5}  #{k['frame_index']:<3} {k['timestamp_sec']:>6.1f}s] "
+                  f"{k['file_path']}")
+            if k["description"]:
+                print(f"        {k['description'][:100]}")
+        if described < len(keyframes):
+            print("  * = no description yet")
+
+    score = db.get_score(conn, args.video_id)
+    if score:
+        src = score["model_used"] or "(unknown)"
+        print(f"\n--- Score ({src}) ---")
+        print(f"  Overall: {score['overall']:.2f}   Hook: {score['hook_strength']:.1f}   "
+              f"Visual: {score['visual_storytelling']:.1f}   "
+              f"Pacing: {score['pacing']:.1f}   Structure: {score['structure']:.1f}")
+        if score["reasoning"]:
+            print(f"  {score['reasoning']}")
+
     if analysis:
         print(f"\n--- Analysis ---")
         full = json.loads(analysis["full_json"]) if analysis["full_json"] else {}
@@ -612,6 +658,52 @@ def _cmd_score(args) -> None:
         print(f"Error: {e}")
 
     conn.close()
+
+
+def _cmd_ingest(args) -> None:
+    import json
+    import sys
+
+    from . import db, ingest
+
+    if not getattr(args, "ingest_command", None):
+        print("Usage: reel-scout ingest {vision|score} <video_id> --from-json <path|->")
+        return
+
+    raw = sys.stdin.read() if args.from_json == "-" else open(
+        args.from_json, encoding="utf-8").read()
+    try:
+        payload = json.loads(raw)
+    except ValueError as e:
+        print(f"Error: input is not valid JSON: {e}")
+        return
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        if not db.get_video(conn, args.video_id):
+            print(f"Video not found: {args.video_id}")
+            return
+
+        if args.ingest_command == "vision":
+            written, warnings = ingest.ingest_vision(
+                conn, args.video_id, payload, model=args.model)
+            print(f"Wrote {written} frame description(s) for {args.video_id}")
+            for w in warnings:
+                print(f"  warning: {w}")
+        else:
+            score = ingest.ingest_score(
+                conn, args.video_id, payload, model=args.model)
+            print(f"Score for: {args.video_id}  (source: {score.model_used})")
+            print(f"  Overall:    {score.overall:.1f}   <- recomputed from the dimensions")
+            print(f"  Hook:       {score.hook_strength:.1f}")
+            print(f"  Visual:     {score.visual_storytelling:.1f}")
+            print(f"  Pacing:     {score.pacing:.1f}")
+            print(f"  Structure:  {score.structure:.1f}")
+    except ValueError as e:
+        print(f"Error: {e}")
+    finally:
+        conn.close()
 
 
 def _cmd_compare(args) -> None:
