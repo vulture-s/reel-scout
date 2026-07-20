@@ -53,6 +53,21 @@ reel-scout-mcp = "reel_scout.mcp.server:main"
 [tool.hatch.version]
 path = "reel_scout/__init__.py"
 
+# The skill is half the product and none of it used to ship. `pip install
+# reel-scout` gave you the CLI and nothing an agent could load — no SKILL.md, no
+# /scout command, no prompt pack, no setup preflight — so the documented flow was
+# reachable only by cloning. Vendor those assets into the wheel under
+# reel_scout/skill/ and `reel-scout skill install` lays them down where Claude
+# looks. Paths here are repo-root-relative sources → in-wheel destinations.
+[tool.hatch.build.targets.wheel]
+packages = ["reel_scout"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"SKILL.md" = "reel_scout/skill/SKILL.md"
+"commands" = "reel_scout/skill/commands"
+"prompts" = "reel_scout/skill/prompts"
+"scripts/setup.py" = "reel_scout/skill/scripts/setup.py"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

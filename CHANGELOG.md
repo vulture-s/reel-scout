@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Added
+- **`skill install` — the skill now ships with the package.** Measured on a clean
+  venv: `pip install reel-scout` produced a working CLI and *none* of `SKILL.md`,
+  `commands/scout.md`, `prompts/` or `scripts/setup.py`, so an agent had nothing to
+  load and `/scout` did not exist. Those assets are vendored into the wheel and
+  `reel-scout skill install` lays them down in `~/.claude/skills/reel-scout`
+  (`--dest`, `--force`; `skill path` shows the source). A clone still installs from
+  the working tree rather than a stale snapshot. Full install is now two commands.
 - **`ingest {vision,score}` — an agent can be the backend.** Keyframe extraction is
   ffmpeg, not a model, so the frames are on disk before the VLM stage runs. On a
   machine with no `oMLX`/`ollama`, an agent that can see images now supplies the

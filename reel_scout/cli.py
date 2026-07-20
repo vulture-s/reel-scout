@@ -8,7 +8,7 @@ import subprocess
 import sys
 from typing import List
 
-from . import __version__, config
+from . import __version__, config, skill_install
 
 
 def main(argv: List[str] = None) -> None:
@@ -187,6 +187,19 @@ def main(argv: List[str] = None) -> None:
     p_track.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
 
     # --- db ---
+    # --- skill (install the agent-facing half) ---
+    p_skill = sub.add_parser(
+        "skill", help="Install the Claude skill (SKILL.md, /scout, prompt pack)")
+    p_skill_sub = p_skill.add_subparsers(dest="skill_command")
+
+    p_skill_install = p_skill_sub.add_parser("install", help="Copy the skill into ~/.claude/skills")
+    p_skill_install.add_argument("--dest", default=skill_install.DEFAULT_DEST,
+                                 help="Destination (default: %(default)s)")
+    p_skill_install.add_argument("--force", action="store_true",
+                                 help="Overwrite a non-empty destination")
+
+    p_skill_sub.add_parser("path", help="Show where the skill assets are read from")
+
     p_db = sub.add_parser("db", help="Database operations")
     p_db_sub = p_db.add_subparsers(dest="db_command")
     p_db_sub.add_parser("stats", help="Show database stats")
@@ -218,6 +231,7 @@ def main(argv: List[str] = None) -> None:
         "view": _cmd_view,
         "score": _cmd_score,
         "ingest": _cmd_ingest,
+        "skill": _cmd_skill,
         "compare": _cmd_compare,
         "stats": _cmd_stats,
         "patterns": _cmd_patterns,
@@ -704,6 +718,34 @@ def _cmd_ingest(args) -> None:
         print(f"Error: {e}")
     finally:
         conn.close()
+
+
+def _cmd_skill(args) -> None:
+    cmd = getattr(args, "skill_command", None)
+    root, which = skill_install.source_root()
+
+    if cmd == "path":
+        if which == "missing":
+            print("Skill assets: NOT FOUND in this install")
+        else:
+            print(f"Skill assets ({which}): {root}")
+        print(f"Default destination: {os.path.expanduser(skill_install.DEFAULT_DEST)}")
+        return
+
+    if cmd != "install":
+        print("Usage: reel-scout skill {install|path} [--dest PATH] [--force]")
+        return
+
+    try:
+        dest, copied = skill_install.install(args.dest, force=args.force)
+    except RuntimeError as e:
+        print(f"Error: {e}")
+        return
+
+    print(f"Installed the reel-scout skill ({which} source) to:")
+    print(f"  {dest}")
+    print(f"  {', '.join(copied)}")
+    print("\nRestart Claude Code to pick it up, then: /scout <video-url>")
 
 
 def _cmd_compare(args) -> None:

@@ -10,11 +10,31 @@ Crawl, transcribe, and visually analyze YouTube Shorts, Instagram Reels, and Tik
 
 ```bash
 pip install reel-scout
-pip install "reel-scout[whisper]"  # for faster-whisper transcription
+reel-scout skill install       # only if you drive it from Claude — see below
 ```
 
-Needs `ffmpeg` and `yt-dlp` on PATH (macOS: `brew install ffmpeg yt-dlp`).
-Other extras: `audio` (audio events + BPM), `ocr`, `diarize`, `instagram`.
+`ffmpeg` must be on PATH (macOS: `brew install ffmpeg`). `yt-dlp` comes with the
+package. Extras: `whisper` (faster-whisper transcription), `audio` (audio events
++ BPM), `ocr`, `diarize`, `instagram` — e.g. `pip install "reel-scout[whisper]"`.
+
+### Using it from Claude
+
+`pip install` gives you the CLI. The **skill** is the half an agent reads:
+`SKILL.md` (the pipeline procedure and the L0/L1/L2 tiers), the `/scout` slash
+command, and the reverse-decode `prompts/`. `reel-scout skill install` copies
+them to `~/.claude/skills/reel-scout` (`--dest` to put them elsewhere, `--force`
+to overwrite). Restart Claude Code, then:
+
+```
+/scout https://www.instagram.com/reel/XXXXXXXX/
+```
+
+`reel-scout skill path` shows where the assets are being read from.
+
+**No local model?** You do not need one. Keyframe extraction is ffmpeg, so the
+frames exist before any model runs — the skill's **L1** tier has the agent
+describe them and apply the craft rubric itself, then writes that back with
+`reel-scout ingest`. No API key, no cloud, no GPU. See `SKILL.md`.
 
 From a clone, for development:
 

@@ -8,6 +8,7 @@
 > 2026-07-20 GUI + 學生包：view/inspect 合併成單一 app、vulture.s 換膚（`theme.py`，偏離已 narrate）、品牌字型內嵌 + CJK 動態 subset、`export --format bundle` 自包含學生包、inspector 返回鍵、`view` 併發修復（ThreadingHTTPServer）。測試 →244
 > 2026-07-18 Wave 3 一波：3B patterns / 3A instaloader / 4B inspire / 4D track（schema v9）/ 4C MCP(8 tools) / 5A CHANGELOG + 5C docs 全落地，測試 →228（含 codex+harness 雙審修正：inspire 非-JSON fallback、track partial-update COALESCE、MCP channels 驗證、instaloader limit=0）
 > 2026-07-20 §5A L0/L1/L2 安裝階梯：新增 `ingest {vision,score}`（agent 當 backend，零本地模型／零 API key）+ `show` 補列 keyframe id 與分數；SKILL.md 三層 surface 改寫。測試 →263
+> 2026-07-20 §5A 分發補洞（乾淨機器實測）：wheel 原本只含 `reel_scout/`，`pip install` 後 SKILL.md／`/scout`／prompts／setup.py **全部缺席**＝agent 無物可載；改 force-include 進 wheel + 新增 `skill install`。另修 setup.py 對無 clone 使用者印 `<repo-root>` 佔位符的 bug（該檔原本零測試覆蓋）。測試 →280
 
 ## 定位與 Non-goals
 
@@ -42,7 +43,7 @@ Phase 4  ████████████████████  ✅ Conte
 Phase 5  ████████████████████  ✅ Tool Hygiene — LICENSE/README/CHANGELOG ✅、analyze-local ✅、yt-dlp 健壯性 ✅、CI ✅、config check ✅、**PyPI 上架 ✅（v1.2.0，Trusted Publishing 零 token）**
 ```
 
-**目前版本**：v1.2.0 ｜ **測試**：244 passing ｜ **DB schema**：v9
+**目前版本**：v1.2.0 ｜ **測試**：280 passing ｜ **DB schema**：v9
 
 ### 已完成功能清單（2026-07-15 驗證）
 
@@ -177,6 +178,10 @@ Phase 5  ████████████████████  ✅ Tool 
       新增 `ingest {vision,score} --from-json`：看得見圖的 agent 自己補視覺層與 rubric 評分再寫回 DB，結果照常進 `show`/`view`/`inspect`/`export`。
       **零本地模型、零 API key、零額外費用**（用學員本來就有的 Claude）。守住兩條紅線：出處一律標 `agent:<model>`（craft 分數依模型而異，同片 7.43 vs 5.5），`overall` 一律用 `score` 的權重重算、不採信輸入。
       順帶把 `show` 補成會列 keyframe id／時間／路徑（外部定位單一影格的唯一途徑）與分數。SKILL.md 的 surface 段從二分法改寫成 L0/L1/L2 三層。測試 →263
+- [x] **分發：skill 隨套件出貨** ✅ 2026-07-20 — **乾淨 venv 實測**發現上一條做的 L1 其目標使用者根本拿不到：wheel 只含 `reel_scout/`，`pip install reel-scout` 後 `SKILL.md`／`commands/scout.md`／`prompts/`／`scripts/setup.py` **四個全缺**，agent 無物可載、`/scout` 不存在，整條流程只有 clone 的人碰得到。
+      而 repo 內唯一提到「怎麼裝 skill」的文字，是競品分析在講 crv 的 `npx skills add`——對標表 §103 早就誠實記著易安裝這項 **crv 贏**。
+      修法＝pyproject `force-include` 把資產 vendored 進 wheel（`reel_scout/skill/`）＋新增 `skill {install,path}` 複製到 `~/.claude/skills/reel-scout`；clone 仍讀工作樹而非快照，`scripts/` 只取 setup.py。
+      **學生完整安裝＝兩行**：`pip install reel-scout` → `reel-scout skill install`。順帶修掉 `setup.py` 對無 clone 使用者印字面 `<repo-root>` 佔位符的 bug（該檔原本**零測試覆蓋**，故補 6 支）。測試 →280
 
 ### 5B. 不會安靜爛掉
 

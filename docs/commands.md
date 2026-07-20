@@ -24,6 +24,7 @@ see [`../prompts/signal-reliability-cheatsheet.md`](../prompts/signal-reliabilit
 | `inspire --based-on <ref> [--angle]` | Generate a fresh variant (titles/hook/structure/length) from a high scorer. |
 | `track --my-video <ref> --views --likes [--comments --notes]` | Record real performance + structural iteration hints vs the top corpus. |
 | `research --niche <n> --channels <url…> [--depth --out --no-analyze]` | Competitor research report. |
+| `skill {install,path}` | Copy the agent-facing assets (SKILL.md, `/scout`, prompt pack, setup preflight) to `~/.claude/skills/reel-scout`. `--dest`, `--force`. `pip install` alone does **not** give an agent anything to load. |
 | `db {stats,reset,migrate}` / `config {show,check}` | DB / config utilities. |
 
 Refs (`<ref>`, `<id>`) accept a full 16-hex video id or a unique prefix; `track --my-video` also accepts a URL already in the DB.
