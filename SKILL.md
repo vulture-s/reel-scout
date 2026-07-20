@@ -44,7 +44,7 @@ exact remediation strings, then act):
 | Exit | Meaning | Action |
 |------|---------|--------|
 | `2` | Missing `ffmpeg` / `ffprobe` / `yt-dlp` | macOS: `brew install ffmpeg` + `pip install -U yt-dlp`. Linux/Windows: tell the user the install commands the script printed. |
-| `3` | `reel-scout` not installed | From the repo root: `pip install -e .` (add `pip install -e ".[whisper]"` for transcription). |
+| `3` | `reel-scout` not installed | `pip install reel-scout` (add `pip install "reel-scout[whisper]"` for transcription). Only use `pip install -e .` when the user actually has a clone — run the script without `--check` and use the path it prints. |
 | `4` | Both | Do both of the above. |
 
 Within one session you can skip Step 0 on follow-up runs — once `--check` returned
