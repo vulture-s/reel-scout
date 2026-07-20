@@ -207,9 +207,15 @@ def _render_scores(view: Dict[str, Any]) -> str:
         return ""
     reasoning = score.get("reasoning")
     note = ('<p class="reasoning">%s</p>' % _e(reasoning)) if reasoning else ""
+    # Which model produced these. The same clip scores 7.43 under one VLM and 5.5
+    # under another, so a number with no origin cannot be compared with anything —
+    # and `stats` averages agent-scored and locally-scored rows together.
+    model = score.get("model_used")
+    source = ('<span class="q">%s</span>' % _e(model)) if model else ""
     return ('<section class="block"><div class="eyebrow">Craft scores '
-            '<span class="q">reference, not authority</span></div>'
-            '<div class="meters">%s</div>%s</section>' % ("".join(meters), note))
+            '<span class="q">reference, not authority</span>%s</div>'
+            '<div class="meters">%s</div>%s</section>'
+            % (source, "".join(meters), note))
 
 
 def _render_structure(view: Dict[str, Any]) -> str:

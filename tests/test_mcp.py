@@ -33,6 +33,7 @@ EXPECTED_TOOLS = {
     "batch_start",
     "batch_status",
     "batch_cancel",
+    "inspect",
     "export",
     "patterns",
     "inspire",
