@@ -141,9 +141,15 @@ def _video_id(platform: str, platform_id: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-def get_connection() -> sqlite3.Connection:
+def get_connection(timeout: float = 5.0) -> sqlite3.Connection:
+    """A connection to the project database.
+
+    `timeout` is sqlite's busy timeout. The 5s default is fine for a CLI command
+    but not for anything running alongside a batch, where an analyze child can
+    hold the write lock while it flushes a video's worth of keyframes.
+    """
     config.ensure_dirs()
-    conn = sqlite3.connect(config.DB_PATH)
+    conn = sqlite3.connect(config.DB_PATH, timeout=timeout)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
