@@ -84,3 +84,21 @@ def test_json_status_is_machine_readable(setup_mod, monkeypatch, capsys):
     assert payload["status"] == "needs_install_and_deps"
     assert payload["missing_binaries"] == ["ffmpeg"]
     assert payload["reel_scout_installed"] is False
+
+
+# --- platform-appropriate remediation ---------------------------------------
+
+@pytest.mark.parametrize("plat,expect,forbid", [
+    ("win32", "winget", "brew install"),
+    ("darwin", "brew install", "winget"),
+    ("linux", "apt install", "brew install"),
+])
+def test_missing_binary_advice_matches_the_platform(
+        setup_mod, monkeypatch, capsys, plat, expect, forbid):
+    """Telling a Windows user to `brew install` is worse than silence — it reads
+    like an instruction and isn't one. Found while handing the flow to a PC."""
+    monkeypatch.setattr(setup_mod.sys, "platform", plat)
+    _, out = _run(setup_mod, monkeypatch, capsys,
+                  missing=["ffmpeg"], installed=True, repo_root=None)
+    assert expect in out
+    assert forbid not in out
