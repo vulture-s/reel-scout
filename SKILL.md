@@ -192,6 +192,26 @@ Rules that are enforced, not suggestions:
   scores are not directly comparable with locally-scored videos in the same corpus
   (`stats` averages do not separate the two).
 
+## A list instead of one link — `batch`
+
+When the user points at a Google Doc/Sheet, a file, or several links at once,
+use `reel-scout batch` rather than looping `analyze` yourself:
+
+```bash
+reel-scout batch --doc "<google doc or sheet url>" --dry-run   # show what it parsed
+reel-scout batch --doc "<url>" --mode agent --out ~/reel-scout-batch
+```
+
+Sharing set to "anyone with the link" is enough — `/edit` URLs are rewritten to
+Google's export endpoints, so there is no API key or OAuth step.
+
+`batch` probes the backends first. With a VLM reachable it runs `full`. Without
+one it **stops and prints the choice** rather than silently producing
+transcript-only bundles — relay those options to the user and let them pick; do
+not choose for them. If they pick `agent`, the run ends with the list of videos
+still missing a visual layer and the exact `ingest` command per video: work
+through them with Step 2b, then re-export to refresh the bundles.
+
 ## Step 3 — read the structured output
 
 `analyze` prints the new `video_id`(s). Pull the full record:

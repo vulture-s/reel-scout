@@ -24,6 +24,7 @@ see [`../prompts/signal-reliability-cheatsheet.md`](../prompts/signal-reliabilit
 | `inspire --based-on <ref> [--angle]` | Generate a fresh variant (titles/hook/structure/length) from a high scorer. |
 | `track --my-video <ref> --views --likes [--comments --notes]` | Record real performance + structural iteration hints vs the top corpus. |
 | `research --niche <n> --channels <url…> [--depth --out --no-analyze]` | Competitor research report. |
+| `batch --doc <url>` / `--file` / `--stdin` | Analyze every reel listed in a Google Doc/Sheet (or file/stdin), one bundle each. `--dry-run`, `--limit`, `--out`, `--mode`. Google `/edit` links are rewritten to no-auth export endpoints — sharing set to "anyone with the link" is enough, no API key. |
 | `skill {install,path}` | Copy the agent-facing assets (SKILL.md, `/scout`, prompt pack, setup preflight) to `~/.claude/skills/reel-scout`. `--dest`, `--force`. `pip install` alone does **not** give an agent anything to load. |
 | `db {stats,reset,migrate}` / `config {show,check}` | DB / config utilities. |
 
@@ -47,6 +48,21 @@ existing DB by default; pass `analyze: true` to crawl+analyze first (slow).
   code-switching interviews.
 
 All inference defaults to localhost — no cloud API keys required.
+
+### `batch` picks nothing for you
+
+`batch` probes the configured backends before it runs. A reachable VLM means
+`--mode full` is unambiguous and it just goes. Without one it **stops and makes
+you choose**, because the alternative — quietly producing transcript-only
+bundles — drops the craft score without anyone noticing:
+
+    full        local VLM does the visual layer and the score
+    agent       skip the VLM; an agent reads the keyframes and writes its own
+                findings back via `ingest` (see below and SKILL.md Step 2b)
+    transcript  transcript and structure only, stated plainly
+
+In `agent` mode the run ends by listing the videos still missing a visual layer,
+with the exact `ingest` command for each.
 
 ### No local model at all
 

@@ -3,6 +3,18 @@
 ## Unreleased
 
 ### Added
+- **`batch` — a doc full of links, one bundle each.** Point it at a Google
+  Doc/Sheet (or a file, or stdin) and every IG/TikTok/Shorts link in it gets
+  analyzed and exported. `/edit` URLs are rewritten to Google's export endpoints,
+  so "anyone with the link" sharing is enough — no API key, no OAuth, no publish
+  step. `--dry-run` shows what was parsed before anything runs. It **picks nothing
+  for you**: a reachable VLM makes `--mode full` unambiguous, but without one it
+  stops and presents `agent` / `transcript` / `full` rather than quietly shipping
+  transcript-only bundles with the craft score missing. In `agent` mode it ends by
+  listing the videos still needing a visual layer with the `ingest` command for
+  each. Entries are paired to videos by set difference, never by URL equality —
+  shared links carry tracking parameters, and giving one person's analysis to
+  another is worse than producing one bundle fewer.
 - **`skill install` — the skill now ships with the package.** Measured on a clean
   venv: `pip install reel-scout` produced a working CLI and *none* of `SKILL.md`,
   `commands/scout.md`, `prompts/` or `scripts/setup.py`, so an agent had nothing to

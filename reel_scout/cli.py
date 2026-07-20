@@ -8,7 +8,7 @@ import subprocess
 import sys
 from typing import List
 
-from . import __version__, config, skill_install
+from . import __version__, batch, config, skill_install
 
 
 def main(argv: List[str] = None) -> None:
@@ -187,6 +187,25 @@ def main(argv: List[str] = None) -> None:
     p_track.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
 
     # --- db ---
+    # --- batch (a doc full of links -> one bundle each) ---
+    p_batch = sub.add_parser(
+        "batch", help="Analyze every reel listed in a Google Doc/Sheet, file or stdin")
+    p_batch_src = p_batch.add_mutually_exclusive_group(required=True)
+    p_batch_src.add_argument("--doc", help="Google Doc/Sheet URL (or any text/CSV URL)")
+    p_batch_src.add_argument("--file", dest="src_file", help="Local .txt/.csv")
+    p_batch_src.add_argument("--stdin", action="store_true", help="Read the list from stdin")
+    p_batch.add_argument("--out", default=os.path.expanduser("~/reel-scout-batch"),
+                         help="Output root (default: %(default)s)")
+    p_batch.add_argument("--mode", choices=list(batch.MODES),
+                         help="full | agent | transcript (see docs); asked for when "
+                              "no local VLM is reachable")
+    p_batch.add_argument("--dry-run", dest="dry_run", action="store_true",
+                         help="Show what was parsed and planned; analyze nothing")
+    p_batch.add_argument("--limit", type=int, default=0, help="Only the first N entries")
+    p_batch.add_argument("--max-mb", dest="batch_max_mb", default="25",
+                         help="Skip reels whose video exceeds this (default 25)")
+    p_batch.add_argument("--verbose", action="store_true", help="Echo each sub-command")
+
     # --- skill (install the agent-facing half) ---
     p_skill = sub.add_parser(
         "skill", help="Install the Claude skill (SKILL.md, /scout, prompt pack)")
@@ -231,6 +250,7 @@ def main(argv: List[str] = None) -> None:
         "view": _cmd_view,
         "score": _cmd_score,
         "ingest": _cmd_ingest,
+        "batch": _cmd_batch,
         "skill": _cmd_skill,
         "compare": _cmd_compare,
         "stats": _cmd_stats,
@@ -718,6 +738,63 @@ def _cmd_ingest(args) -> None:
         print(f"Error: {e}")
     finally:
         conn.close()
+
+
+def _cmd_batch(args) -> None:
+    if args.doc:
+        try:
+            text = batch.fetch(args.doc)
+        except (RuntimeError, OSError) as e:
+            print(f"Error: {e}")
+            return
+    elif args.src_file:
+        with open(args.src_file, encoding="utf-8") as f:
+            text = f.read()
+    else:
+        text = sys.stdin.read()
+
+    entries = batch.parse_rows(text)
+    if args.limit:
+        entries = entries[:args.limit]
+    if not entries:
+        print("No Instagram / TikTok / YouTube Shorts links found in that source.")
+        print("  If it's a Google doc, check sharing is 'Anyone with the link - Viewer'.")
+        return
+
+    print("Found %d:" % len(entries))
+    for i, (label, url) in enumerate(entries, 1):
+        print("  %2d. %-14s %s" % (i, label or "(unlabelled)", url))
+
+    caps = batch.probe()
+    mode, msg = batch.resolve_mode(args.mode, caps)
+    print("\nVLM reachable: %s   Whisper: %s"
+          % ("yes" if caps["vlm"] else "no", "yes" if caps["whisper"] else "no"))
+    if mode is None:
+        print("\n" + msg)
+        return
+    print("Mode: %s" % mode)
+
+    if args.dry_run:
+        print("\n--dry-run: nothing was analyzed. Bundles would land in %s/<label>/"
+              % args.out)
+        return
+
+    result = batch.run_batch(entries, args.out, mode,
+                             max_mb=args.batch_max_mb, verbose=args.verbose)
+
+    print("\n---")
+    print("%d/%d exported to %s" % (len(result["done"]), len(entries), args.out))
+    if result["pending_completion"]:
+        print("\n%d still need a visual layer (mode=agent). For each, read the "
+              "keyframes and write your findings back:" % len(result["pending_completion"]))
+        for e in result["pending_completion"]:
+            print("  reel-scout ingest vision %s --from-json - --model <you>" % e["video_id"])
+        print("  (then `ingest score`, and re-export to refresh the bundle — "
+              "see SKILL.md Step 2b)")
+    if result["failed"]:
+        print("\n%d failed:" % len(result["failed"]))
+        for e in result["failed"]:
+            print("  %-14s %s\n                 %s" % (e["label"], e["url"], e["reason"]))
 
 
 def _cmd_skill(args) -> None:
