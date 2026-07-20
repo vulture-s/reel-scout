@@ -548,3 +548,24 @@ def test_ingest_never_writes_to_stdout(temp_db, tmp_path, capsys, tool):
         "frames": [{"frame_index": 0, "description": "d"}],
         "hook_strength": 5, "visual_storytelling": 5, "pacing": 5, "structure": 5})
     assert capsys.readouterr().out == ""
+
+
+def test_show_video_reads_back_the_score_with_its_origin(temp_db, tmp_path):
+    """An agent that writes a score over MCP has no other way to confirm it, and
+    model_used is the field that matters: `stats` averages agent-scored and
+    locally-scored rows together, so a score without its origin is
+    unattributable forever."""
+    vid = _seed_frames(temp_db, tmp_path, frames=1)
+    tools.call_tool("ingest_score", {
+        "video_id": vid, "model": "test-model",
+        "hook_strength": 6, "visual_storytelling": 4, "pacing": 6, "structure": 5,
+        "reasoning": "why",
+    })
+    score = _parse_result(tools.call_tool("show_video", {"video_id": vid}))["score"]
+    assert score["overall"] == 5.25
+    assert score["model_used"] == "agent:test-model"
+
+
+def test_show_video_score_is_none_before_anything_scores_it(temp_db, tmp_path):
+    vid = _seed_frames(temp_db, tmp_path, frames=1)
+    assert _parse_result(tools.call_tool("show_video", {"video_id": vid}))["score"] is None
