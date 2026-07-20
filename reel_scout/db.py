@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from . import config
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -89,6 +89,11 @@ CREATE TABLE IF NOT EXISTS batches (
     completed       INTEGER DEFAULT 0,
     failed          INTEGER DEFAULT 0,
     status          TEXT DEFAULT 'running',
+    mode            TEXT,
+    out_root        TEXT,
+    pid             INTEGER,
+    heartbeat_at    TEXT,
+    cancel_requested INTEGER DEFAULT 0,
     created_at      TEXT DEFAULT (datetime('now')),
     updated_at      TEXT DEFAULT (datetime('now'))
 );
@@ -99,6 +104,9 @@ CREATE TABLE IF NOT EXISTS batch_items (
     video_id        TEXT REFERENCES videos(id),
     status          TEXT DEFAULT 'pending',
     error_message   TEXT,
+    label           TEXT,
+    slug            TEXT,
+    bundle_dir      TEXT,
     PRIMARY KEY (batch_id, url)
 );
 
@@ -334,6 +342,37 @@ def _migrate_v8_to_v9(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _migrate_v9_to_v10(conn: sqlite3.Connection) -> None:
+    """Batch columns for the background runner (schema v9 -> v10).
+
+    A batch started over MCP outlives the call that started it, so the row has to
+    carry everything needed to report on it later and to recognise a worker that
+    died: what it was told to do (mode, out_root), who is doing it (pid) and
+    whether that is still true (heartbeat_at), plus a flag it can be asked to
+    stop by. On batch_items, the label/slug/bundle_dir that used to live only in
+    run_batch's return value, so progress survives the process.
+
+    All nullable ADD COLUMN: no rewrite, no backfill, existing rows keep working
+    and `analyze` -- the other writer of these tables -- is untouched.
+    """
+    for table, column, decl in (
+        ("batches", "mode", "TEXT"),
+        ("batches", "out_root", "TEXT"),
+        ("batches", "pid", "INTEGER"),
+        ("batches", "heartbeat_at", "TEXT"),
+        ("batches", "cancel_requested", "INTEGER DEFAULT 0"),
+        ("batch_items", "label", "TEXT"),
+        ("batch_items", "slug", "TEXT"),
+        ("batch_items", "bundle_dir", "TEXT"),
+    ):
+        try:
+            conn.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, decl))
+        except sqlite3.OperationalError:
+            pass  # already there
+    conn.execute("UPDATE schema_version SET version = 10 WHERE version = 9")
+    conn.commit()
+
+
 def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
     if conn is None:
         conn = get_connection()
@@ -369,6 +408,9 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
             current_ver = 8
         if current_ver < 9:
             _migrate_v8_to_v9(conn)
+            current_ver = 9
+        if current_ver < 10:
+            _migrate_v9_to_v10(conn)
     # Always ensure audio_events table exists for fresh installs
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS audio_events (
@@ -907,3 +949,89 @@ def db_stats(conn: sqlite3.Connection) -> Dict[str, Any]:
     stats["videos_by_platform"] = {r["platform"]: r["cnt"] for r in rows}
 
     return stats
+
+
+def set_batch_meta(conn: sqlite3.Connection, batch_id: str, **fields: Any) -> None:
+    """Set mode / out_root / pid / status on a batch row."""
+    allowed = ("mode", "out_root", "pid", "status")
+    sets = [(k, v) for k, v in fields.items() if k in allowed]
+    if not sets:
+        return
+    conn.execute(
+        "UPDATE batches SET %s, updated_at = datetime('now') WHERE id = ?"
+        % ", ".join("%s = ?" % k for k, _ in sets),
+        [v for _, v in sets] + [batch_id],
+    )
+    conn.commit()
+
+
+def set_batch_item_progress(conn: sqlite3.Connection, batch_id: str, url: str,
+                            **fields: Any) -> None:
+    """Move one item along without touching the batch counters.
+
+    Separate from update_batch_item on purpose: that one increments
+    batches.completed / failed on every call, so routing intermediate states
+    through it would inflate the counters by however many stages an item passes
+    through. update_batch_item stays the terminal transition, called once.
+    """
+    allowed = ("status", "label", "slug", "video_id", "bundle_dir", "error_message")
+    sets = [(k, v) for k, v in fields.items() if k in allowed]
+    if not sets:
+        return
+    conn.execute(
+        "UPDATE batch_items SET %s WHERE batch_id = ? AND url = ?"
+        % ", ".join("%s = ?" % k for k, _ in sets),
+        [v for _, v in sets] + [batch_id, url],
+    )
+    conn.commit()
+
+
+def touch_batch_heartbeat(conn: sqlite3.Connection, batch_id: str) -> None:
+    """Say the worker is still alive.
+
+    The only way to tell 'running' from 'the process died and took the job with
+    it': there is no shutdown hook, so a killed worker leaves status='running'
+    forever unless something notices the clock.
+    """
+    conn.execute(
+        "UPDATE batches SET heartbeat_at = datetime('now'), "
+        "updated_at = datetime('now') WHERE id = ?", (batch_id,))
+    conn.commit()
+
+
+def request_batch_cancel(conn: sqlite3.Connection, batch_id: str) -> None:
+    conn.execute(
+        "UPDATE batches SET cancel_requested = 1, updated_at = datetime('now') "
+        "WHERE id = ?", (batch_id,))
+    conn.commit()
+
+
+def batch_cancel_requested(conn: sqlite3.Connection, batch_id: str) -> bool:
+    row = conn.execute(
+        "SELECT cancel_requested FROM batches WHERE id = ?", (batch_id,)).fetchone()
+    return bool(row and row[0])
+
+
+def get_batch(conn: sqlite3.Connection, batch_id: str) -> Optional[sqlite3.Row]:
+    return conn.execute("SELECT * FROM batches WHERE id = ?", (batch_id,)).fetchone()
+
+
+def get_batch_items(conn: sqlite3.Connection, batch_id: str) -> List[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM batch_items WHERE batch_id = ? ORDER BY rowid", (batch_id,)
+    ).fetchall()
+
+
+def get_latest_batch(conn: sqlite3.Connection,
+                     source: Optional[str] = None) -> Optional[sqlite3.Row]:
+    """Newest batch, optionally restricted to one source.
+
+    So a caller that has lost the batch_id across a long conversation -- the
+    situation a background runner exists for -- can still ask about it.
+    """
+    if source:
+        return conn.execute(
+            "SELECT * FROM batches WHERE source = ? ORDER BY created_at DESC, rowid DESC "
+            "LIMIT 1", (source,)).fetchone()
+    return conn.execute(
+        "SELECT * FROM batches ORDER BY created_at DESC, rowid DESC LIMIT 1").fetchone()
