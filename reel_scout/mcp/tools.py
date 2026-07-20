@@ -6,8 +6,24 @@ import os
 import sys
 from typing import Any, Dict, List
 
-from .. import config, db
+from .. import config, db, ingest
 from ..export.json_export import export_csv, export_json
+
+# `ingest` is imported at module level, against the deferred-import convention the
+# handlers below follow, because `_enum()` reads its whitelists while `list_tools()`
+# is being built. It is cheap -- ingest imports only db, which is already here.
+# Making it lazy would break the schema at list time.
+
+
+def _enum(section, field) -> Dict[str, Any]:
+    """A string property whose allowed values come from ingest's own validator.
+
+    Retyping the seven whitelists here would create a second copy that drifts
+    from the one that actually rejects payloads, and the schema is the only
+    place the model learns them before a failed round-trip.
+    """
+    return {"type": "string", "enum": list(ingest._ENUMS[(section, field)])}
+
 
 #: Frames returned by `keyframes` when the caller does not say.
 _KEYFRAMES_DEFAULT_MAX = 8
@@ -100,6 +116,137 @@ def list_tools() -> List[Dict[str, Any]]:
                     },
                 },
                 "required": ["video_id"],
+            },
+        },
+        {
+            "name": "ingest_vision",
+            "description": (
+                "Write your own keyframe descriptions into the DB — this is how the "
+                "visual layer gets produced when there is no local VLM (L1). Call "
+                "`keyframes` first and describe what you actually saw. Address each "
+                "frame by keyframe_id, frame_index, or file."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "video_id": {"type": "string", "description": "Video id or a unique prefix."},
+                    "model": {
+                        "type": "string",
+                        "description": (
+                            "Your model name. Stamped as agent:<model> so the row's "
+                            "origin stays traceable — craft scores vary a lot between "
+                            "models."
+                        ),
+                    },
+                    "frames": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "keyframe_id": {"type": "integer"},
+                                "frame_index": {"type": "integer"},
+                                "file": {"type": "string",
+                                         "description": "Full path or bare basename."},
+                                "description": {"type": "string"},
+                                "objects": {"type": "array", "items": {"type": "string"}},
+                                "text_in_frame": {"type": "string"},
+                            },
+                            "required": ["description"],
+                        },
+                    },
+                },
+                "required": ["video_id", "model", "frames"],
+            },
+        },
+        {
+            "name": "ingest_analysis",
+            "description": (
+                "Write the structured analysis (4-beat timeline, hook, style, "
+                "content type) into the DB. The low-cardinality fields are validated "
+                "enums that `stats` and `patterns` group on: omit any you cannot "
+                "determine — never invent a value, since a coined one adds a "
+                "one-member category to every aggregate."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "video_id": {"type": "string"},
+                    "model": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "topics": {"type": "array", "items": {"type": "string"}},
+                    "timeline": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "timestamp": {"type": "string", "description": "e.g. '0-3s'"},
+                                "event": {"type": "string"},
+                            },
+                        },
+                    },
+                    "hook": {
+                        "type": "object",
+                        "properties": {
+                            "opening_type": _enum("hook", "opening_type"),
+                            "opening_text": {"type": "string"},
+                            "cta_type": _enum("hook", "cta_type"),
+                            "cta_text": {"type": "string"},
+                        },
+                    },
+                    "style": {
+                        "type": "object",
+                        "properties": {
+                            "format": _enum("style", "format"),
+                            "pacing": _enum("style", "pacing"),
+                            "has_captions": {"type": "boolean"},
+                            "has_background_music": {"type": "boolean"},
+                            "text_overlay_count": {"type": "integer"},
+                        },
+                    },
+                    "engagement_signals": {
+                        "type": "object",
+                        "properties": {
+                            "face_visible": {"type": "boolean"},
+                            "face_count": {"type": "integer"},
+                            "emotion": _enum("engagement_signals", "emotion"),
+                            "spoken_language": {"type": "string"},
+                            "subtitle_language": {"type": "string"},
+                        },
+                    },
+                    "content_type": _enum(None, "content_type"),
+                    "content_structure": _enum(None, "content_structure"),
+                },
+                # Only summary: every enum stays optional on purpose. Marking them
+                # required would push the model to invent a value rather than omit
+                # the field, which is exactly what the whitelist exists to prevent.
+                "required": ["video_id", "model", "summary"],
+            },
+        },
+        {
+            "name": "ingest_score",
+            "description": (
+                "Write your rubric score (L1). Do NOT send `overall` — it is "
+                "recomputed as hook*0.3 + visual*0.25 + pacing*0.2 + structure*0.25 "
+                "and anything you send is discarded. Values outside 0-10 are "
+                "rejected, not clamped. Read the prompt pack first so the four "
+                "dimensions mean what they mean everywhere else."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "video_id": {"type": "string"},
+                    "model": {"type": "string"},
+                    "hook_strength": {"type": "number", "minimum": 0, "maximum": 10},
+                    "visual_storytelling": {"type": "number", "minimum": 0, "maximum": 10},
+                    "pacing": {"type": "number", "minimum": 0, "maximum": 10},
+                    "structure": {"type": "number", "minimum": 0, "maximum": 10},
+                    "reasoning": {"type": "string"},
+                },
+                "required": [
+                    "video_id", "model",
+                    "hook_strength", "visual_storytelling", "pacing", "structure",
+                ],
             },
         },
         {
@@ -333,7 +480,7 @@ def _tool_show_video(args: Dict[str, Any]) -> Dict[str, Any]:
 
         transcript = db.get_transcript(conn, video_id)
         analysis = db.get_analysis(conn, video_id)
-        keyframes = db.get_keyframes(conn, video_id)
+        keyframes = db.get_keyframes_with_descriptions(conn, video_id)
         payload = {
             "video": {
                 "video_id": video["id"],
@@ -375,6 +522,12 @@ def _tool_show_video(args: Dict[str, Any]) -> Dict[str, Any]:
                     "timestamp_sec": keyframe["timestamp_sec"],
                     "file_path": keyframe["file_path"],
                     "strategy": keyframe["strategy"],
+                    # Without these the agent can write a visual layer and then
+                    # have no way to read it back: over MCP `show_video` is the
+                    # only view it has.
+                    "description": keyframe["description"],
+                    "text_in_frame": keyframe["text_in_frame"],
+                    "objects": json.loads(keyframe["objects_json"] or "[]"),
                 }
             )
         return _text_result(payload)
@@ -534,6 +687,156 @@ def _tool_keyframes(args: Dict[str, Any]) -> Dict[str, Any]:
         conn.close()
 
 
+def _resolve_video(conn: Any, ref: str):
+    """(video_id, error_result). Exactly one of the two is None.
+
+    ingest.py has no existence check of its own, and without one a bad id reaches
+    save_analysis / save_score as a foreign-key violation -- sqlite3.IntegrityError,
+    not ValueError, so it would sail past the handler's error mapping and surface
+    as "FOREIGN KEY constraint failed".
+    """
+    from ..compare import resolve_ref
+
+    video_id, matches = resolve_ref(conn, ref)
+    if video_id is not None:
+        return video_id, None
+    if len(matches) > 1:
+        return None, _error_result(
+            "Ambiguous video id %r — matches: %s" % (ref, ", ".join(matches))
+        )
+    return None, _error_result("Video not found: %s" % ref)
+
+
+def _ingest_payload(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Everything except the two routing keys.
+
+    `video_id` in particular has to go: ingest_analysis stores whatever it is
+    handed inside full_json, and it only pops `model` itself.
+    """
+    return {k: v for k, v in args.items() if k not in ("video_id", "model")}
+
+
+def _tool_ingest_vision(args: Dict[str, Any]) -> Dict[str, Any]:
+    video_ref = args.get("video_id") or ""
+    if not video_ref:
+        return _error_result("video_id is required")
+    frames = args.get("frames")
+    if not isinstance(frames, list) or not frames:
+        return _error_result("frames must be a non-empty list")
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        video_id, err = _resolve_video(conn, video_ref)
+        if err is not None:
+            return err
+        try:
+            written, warnings = ingest.ingest_vision(
+                conn, video_id, _ingest_payload(args), model=args.get("model", "")
+            )
+        except ValueError as exc:
+            return _error_result(str(exc))
+
+        total = len(db.get_keyframes(conn, video_id))
+        described = len(db.get_described_keyframe_ids(conn, video_id))
+        payload = {
+            "video_id": video_id,
+            "written": written,
+            "submitted": len(frames),
+            "source": ingest.provenance(args.get("model", "")),
+            "keyframes_total": total,
+            "keyframes_described": described,
+        }
+        # Partial success is by design, so a bare count would let the caller
+        # believe every frame landed.
+        if warnings:
+            payload["warnings"] = warnings
+        if described < total:
+            payload["still_undescribed"] = total - described
+        return _text_result(payload)
+    finally:
+        conn.close()
+
+
+def _tool_ingest_analysis(args: Dict[str, Any]) -> Dict[str, Any]:
+    video_ref = args.get("video_id") or ""
+    if not video_ref:
+        return _error_result("video_id is required")
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        video_id, err = _resolve_video(conn, video_ref)
+        if err is not None:
+            return err
+        payload_in = _ingest_payload(args)
+        try:
+            stored = ingest.ingest_analysis(
+                conn, video_id, payload_in, model=args.get("model", "")
+            )
+        except ValueError as exc:
+            return _error_result(str(exc))
+
+        hook = stored.get("hook") or {}
+        style = stored.get("style") or {}
+        signals = stored.get("engagement_signals") or {}
+        landed = {
+            "content_type": stored.get("content_type"),
+            "content_structure": stored.get("content_structure"),
+            "opening_type": hook.get("opening_type"),
+            "cta_type": hook.get("cta_type"),
+            "style_format": style.get("format"),
+            "style_pacing": style.get("pacing"),
+            "emotion": signals.get("emotion"),
+        }
+        payload = {
+            "video_id": video_id,
+            "source": stored.get("_source"),
+            "summary": (stored.get("summary") or "")[:200],
+            "stored": landed,
+        }
+        # Omission is the documented right answer for an undeterminable enum, so
+        # make it visible rather than silent.
+        omitted = sorted(k for k, v in landed.items() if v in (None, ""))
+        if omitted:
+            payload["omitted"] = omitted
+        return _text_result(payload)
+    finally:
+        conn.close()
+
+
+def _tool_ingest_score(args: Dict[str, Any]) -> Dict[str, Any]:
+    import dataclasses
+
+    video_ref = args.get("video_id") or ""
+    if not video_ref:
+        return _error_result("video_id is required")
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        video_id, err = _resolve_video(conn, video_ref)
+        if err is not None:
+            return err
+        try:
+            score = ingest.ingest_score(
+                conn, video_id, _ingest_payload(args), model=args.get("model", "")
+            )
+        except ValueError as exc:
+            return _error_result(str(exc))
+
+        payload = dataclasses.asdict(score)
+        payload["video_id"] = video_id
+        payload["note"] = (
+            "overall was recomputed from the four dimensions; any value you sent "
+            "was discarded. This is an L1 (agent-scored) row — it is not directly "
+            "comparable with locally-scored videos in the same corpus."
+        )
+        return _text_result(payload)
+    finally:
+        conn.close()
+
+
 def _tool_export(args: Dict[str, Any]) -> Dict[str, Any]:
     fmt = args.get("format", "json")
     output = args.get("output", "./export")
@@ -568,6 +871,9 @@ _HANDLERS = {
     "list_videos": _tool_list_videos,
     "show_video": _tool_show_video,
     "keyframes": _tool_keyframes,
+    "ingest_vision": _tool_ingest_vision,
+    "ingest_analysis": _tool_ingest_analysis,
+    "ingest_score": _tool_ingest_score,
     "export": _tool_export,
     "patterns": _tool_patterns,
     "inspire": _tool_inspire,
