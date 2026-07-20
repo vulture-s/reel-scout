@@ -20,7 +20,7 @@ package. Extras: `whisper` (faster-whisper transcription), `audio` (audio events
 ### Using it from Claude
 
 `pip install` gives you the CLI. The **skill** is the half an agent reads:
-`SKILL.md` (the pipeline procedure and the L0/L1/L2 tiers), the `/scout` slash
+`SKILL.md` (the pipeline procedure and the capability/surface matrix), the `/scout` slash
 command, and the reverse-decode `prompts/`. `reel-scout skill install` copies
 them to `~/.claude/skills/reel-scout` (`--dest` to put them elsewhere, `--force`
 to overwrite). Restart Claude Code, then:

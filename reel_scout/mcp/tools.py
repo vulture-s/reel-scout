@@ -316,6 +316,31 @@ def list_tools() -> List[Dict[str, Any]]:
             },
         },
         {
+            "name": "inspect",
+            "description": (
+                "Open the interactive inspector for a clip — video player, waveform, "
+                "keyframe filmstrip and transcript, all synced to the playhead — and "
+                "return a localhost URL for the user to click. Starts a local server "
+                "on first use and reuses it afterwards. Local only; it stops when "
+                "this session ends."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "video_id": {
+                        "type": "string",
+                        "description": "Video id or a unique prefix. Omit to land on "
+                                       "the library index.",
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["open", "status", "stop"],
+                        "default": "open",
+                    },
+                },
+            },
+        },
+        {
             "name": "export",
             "description": "Export analyses to JSON or CSV",
             "inputSchema": {
@@ -1241,6 +1266,72 @@ def _tool_batch_cancel(args: Dict[str, Any]) -> Dict[str, Any]:
         conn.close()
 
 
+def _link_result(headline: str, payload: Any) -> Dict[str, Any]:
+    """A plain-text block carrying the bare URL, then the JSON.
+
+    A URL buried in a JSON blob does not reliably become a clickable link in a
+    chat client, and the whole point of this tool is that the user clicks it.
+    """
+    return {
+        "content": [
+            {"type": "text", "text": headline},
+            {"type": "text", "text": json.dumps(payload, ensure_ascii=False, indent=2)},
+        ]
+    }
+
+
+def _tool_inspect(args: Dict[str, Any]) -> Dict[str, Any]:
+    from . import live
+
+    action = args.get("action") or "open"
+
+    if action == "stop":
+        return _text_result({"stopped": live.stop_inspector(),
+                             "note": "The inspector is no longer listening."})
+
+    if action == "status":
+        return _text_result({"running": live.is_running(), "base_url": live.base_url()})
+
+    if action != "open":
+        return _error_result("action must be one of: open, status, stop")
+
+    was_running = live.is_running()
+    video_ref = args.get("video_id") or ""
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        video_id, title = None, None
+        if video_ref:
+            video_id, err = _resolve_video(conn, video_ref)
+            if err is not None:
+                return err
+            row = db.get_video(conn, video_id)
+            title = row["title"] if row else None
+    finally:
+        conn.close()
+
+    try:
+        base = live.ensure_inspector()
+    except OSError as exc:
+        return _error_result("could not start the inspector: %s" % exc)
+
+    url = "%s/inspect/%s" % (base, video_id) if video_id else base + "/"
+    payload = {
+        "url": url,
+        "base_url": base,
+        "video_id": video_id,
+        "title": title,
+        "reused": was_running,
+        "note": "Local only (127.0.0.1, no authentication). It stops when this "
+                "MCP session ends, so ask again rather than bookmarking it.",
+    }
+    headline = ("Inspector ready: %s\nOpen that link in your browser — video "
+                "player, waveform, keyframe filmstrip and transcript, all "
+                "synced to the playhead." % url)
+    return _link_result(headline, payload)
+
+
 #: Name -> handler. Defined here, after every handler exists, and kept module-level
 #: so a test can assert it against `list_tools()`: the two are the only things that
 #: decide whether a tool is callable and whether it is visible, and nothing about
@@ -1258,6 +1349,7 @@ _HANDLERS = {
     "batch_start": _tool_batch_start,
     "batch_status": _tool_batch_status,
     "batch_cancel": _tool_batch_cancel,
+    "inspect": _tool_inspect,
     "export": _tool_export,
     "patterns": _tool_patterns,
     "inspire": _tool_inspire,
