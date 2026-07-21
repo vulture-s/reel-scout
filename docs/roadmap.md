@@ -12,6 +12,8 @@
 > 2026-07-20 §5A `batch`：Google Doc／Sheet 清單批次跑（免 API 金鑰，`/edit` 自動轉匯出端點）；能力偵測後**由使用者選 mode**（full／agent／transcript），無 VLM 不靜默降級。測試 →304
 > 🔴 2026-07-20 §4E 回填發現：`shot_metrics` / `ocr_captions` **實際 0 列** — §4E/§4F 的 code 上了但從沒在語料上跑過，`_measured_block()` 永遠回空字串 → 現有 12 筆分數的 pacing 仍 100% 是 LLM 猜的，§4E 想解的問題原封不動。roadmap 標 ✅ 但資料為空＝completion-blind drift，見 §4E 回填段
 > 2026-07-20 §4G 評分透明化：inspector 加權重滑桿（即時重算 overall + default-vs-yours），權重從三處重複收斂成 `config.SCORE_WEIGHTS` 單一定義。測試 →324（PR #35）
+> 2026-07-21 §4G 真瀏覽器驗證 + bug 修：M2 Max 實拖滑桿驗證,抓到 zero-weight 顯示 bug（訊息說 no verdict 但 overall 仍顯示殘值）→ 修為顯示 `—` + 清空 bar（`fe87ff2`）。JS/Python 對拍測不到（回傳值等價 ≠ 渲染正確）→ 加迴歸測試釘住。
+> 2026-07-21 §4H 介面中英切換（i18n）：inspector + viewer（列表頁 + 學生包 export）全支援 EN/中文即時切換,瀏覽器語言自動偵測,localStorage 持久化。抽 `reel_scout/i18n.py` 單一翻譯來源（51 鍵 en/zh）。**只翻介面 chrome,模型產出（reasoning／逐字稿／decoded 值）永不翻**。測試 →329（PR #35）
 > 2026-07-20 §5A 分發補洞（乾淨機器實測）：wheel 原本只含 `reel_scout/`，`pip install` 後 SKILL.md／`/scout`／prompts／setup.py **全部缺席**＝agent 無物可載；改 force-include 進 wheel + 新增 `skill install`。另修 setup.py 對無 clone 使用者印 `<repo-root>` 佔位符的 bug（該檔原本零測試覆蓋）。測試 →280
 
 ## 定位與 Non-goals
