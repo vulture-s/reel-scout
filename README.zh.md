@@ -12,11 +12,26 @@
 
 一條把影片變成可分析資料的 pipeline，全部在本機跑（也可接雲端模型）：
 
+![reel-scout 檢視器 —— 工藝評分、即時重新加權面板、中英介面。中文標籤與模型自己吐的英文原始輸出並存，模型產出原樣保留。](docs/assets/inspector.jpg)
+
+```mermaid
+flowchart LR
+  U([URL]) --> C[crawl<br/>yt-dlp]
+  C --> T[transcribe<br/>Whisper]
+  C --> K[keyframes<br/>ffmpeg]
+  K --> V[vision<br/>VLM / agent]
+  T --> A[analyze<br/>merge]
+  V --> A
+  A --> S[score<br/>craft 四維]
+  S --> I[inspect / view<br/>互動檢視]
+  S --> E[export<br/>json · csv · bundle]
+```
+
 1. **crawl** — 用 yt-dlp 下載影片
 2. **transcribe** — faster-whisper 逐字轉錄（含時間碼）
-3. **vision** — 抽關鍵幀、用 VLM 描述畫面
+3. **vision** — 抽關鍵幀、用 VLM 描述畫面（關鍵幀是 ffmpeg 不是模型，所以無本機模型時可由 **agent** 代打 = L1）
 4. **merge** — 用 LLM 把轉錄 + 視覺合併成結構化分析（hook / 主題 / 風格 / engagement）
-5. **score** — LLM 對 craft 四維（hook / 視覺敘事 / 節奏 / 結構）評分
+5. **score** — LLM 對 craft 四維（hook / 視覺敘事 / 節奏 / 結構）評分（**參考，非判決**）
 
 資料存在本機 SQLite（`data/reel_scout.db`），可再 export 成 JSON / CSV / 向量庫。
 
@@ -59,8 +74,15 @@ reel-scout show <video_id>                           # 看完整拆解結果
 | `vision` | 只抽關鍵幀 + VLM 描述 |
 | `score` | 對已分析影片做 LLM 評分 |
 | `list` / `show` | 列出 / 檢視已分析影片 |
-| `export` | 匯出分析（JSON / CSV / 向量庫）|
+| `inspect` | 單支影片的互動檢視 web app（播放器 + 波形 + 關鍵影格 + 逐字稿）|
+| `view` | 唯讀瀏覽伺服器（影片庫列表）|
+| `export` | 匯出分析（JSON / CSV / 向量庫 / 自包含 bundle）|
 | `config` | 設定與環境檢查 |
+
+`inspect` 開一個本機 web app：**播放器是唯一真相來源**，波形、關鍵影格、逐字稿全部跟著播放跳轉。兩個 v1.3.0 的重點：
+
+- **工藝評分是參考、不是判決 —— 介面自己說明白。** 四維分數來自模型、同一支影片跨模型會飄，所以數字從來不是重點。收合的**重新加權**面板讓你拖四維的比重、`overall` 即時重算（你的比重 vs 預設）。四維本身不動，只改「怎麼組合」，你就看得到評分有多取決於**你**重視什麼。
+- **介面中英切換（EN / 中文）。** inspector 與 `view` 兩本字典都在頁面裡，即時切換、自動跟瀏覽器語言、記住選擇。**只翻介面標籤**，模型產出（逐字稿／描述／decoded 值）原樣保留。（這是**介面**語言；音訊的中英對照轉錄見上面「中英對照訪談」段。）
 
 常用旗標：
 
@@ -114,11 +136,15 @@ WHISPER_MULTILINGUAL=1 WHISPER_CHUNK_LENGTH=15 reel-scout analyze "<url>"
 
 ## 接 Claude Code（MCP）
 
+agent 可以完全走 MCP 驅動整條 pipeline，不用敲 shell。
+
 ```bash
-reel-scout-mcp   # stdio transport，給 Claude Code 直接呼叫
+reel-scout mcp install    # 把 server 註冊進 client 設定（免手改 JSON）
+reel-scout mcp path       # 看註冊在哪
+reel-scout-mcp            # 或直接跑（stdio transport）
 ```
 
-接好後在 Claude Code 裡就能用 `mcp__reel-scout__analyze` 等工具直接拆影片，不用每次敲 bash。設定方式：`claude mcp add reel-scout --scope user`（寫進 `~/.claude.json`，不是 settings.json）。
+工具涵蓋兩側：**讀** —— `list_videos`、`show_video`、`get_transcript`、以及 `keyframes`（讓沒有檔案系統的 agent 也看得到抽好的關鍵幀）；**寫** —— `ingest`（vision／score／analysis）、背景 `batch`、`inspect`。這就是 **L1** 的運作方式：一個看得到圖的 agent 自己補上視覺層與工藝評分，結果落進 `show` / `view` / `inspect` / `export` 而不是聊天記錄。
 
 ---
 
