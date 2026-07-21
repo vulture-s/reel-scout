@@ -31,6 +31,33 @@ def export_html(
     return output_path
 
 
+def _parse_segments(segments_json: Optional[str]) -> list:
+    """Project stored transcript segments to [{start,end,text,speaker?}] — the
+    timecoded structure the flat `text_full` drops (R-seg). Never raises: a corrupt
+    or missing column degrades to []."""
+    if not segments_json:
+        return []
+    try:
+        rows = json.loads(segments_json)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(rows, list):
+        return []
+    out = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        seg = {
+            "start": r.get("start"),
+            "end": r.get("end"),
+            "text": (r.get("text") or "").strip(),
+        }
+        if r.get("speaker") is not None:   # only when diarization ran
+            seg["speaker"] = r["speaker"]
+        out.append(seg)
+    return out
+
+
 def export_json(
     conn: sqlite3.Connection,
     output_dir: str,
@@ -64,6 +91,10 @@ def export_json(
             "upload_date": video["upload_date"],
             "transcript": transcript["text_full"] if transcript else None,
             "language": transcript["language"] if transcript else None,
+            # R-seg: keep the timecoded (and, when diarized, speaker-tagged)
+            # segments, not just the flat text_full — so a JSON consumer can locate
+            # and cut on a line, not only read the words.
+            "segments": _parse_segments(transcript["segments_json"] if transcript else None),
             "analysis": json.loads(analysis["full_json"]) if analysis["full_json"] else {},
         }
 
