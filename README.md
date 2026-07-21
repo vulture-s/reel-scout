@@ -6,6 +6,27 @@ Short-form video analysis CLI tool.
 
 Crawl, transcribe, and visually analyze YouTube Shorts, Instagram Reels, and TikTok videos into structured data.
 
+![The reel-scout inspector — craft scores, a live re-weight panel, and a bilingual interface. Chinese labels sit beside the model's own English output, which is left exactly as produced.](docs/assets/inspector.jpg)
+
+## How it works
+
+```mermaid
+flowchart LR
+  U([URL]) --> C[crawl<br/>yt-dlp]
+  C --> T[transcribe<br/>Whisper]
+  C --> K[keyframes<br/>ffmpeg]
+  K --> V[vision<br/>VLM / agent]
+  T --> A[analyze<br/>merge]
+  V --> A
+  A --> S[score<br/>craft rubric]
+  S --> I[inspect / view<br/>interactive]
+  S --> E[export<br/>json · csv · bundle]
+```
+
+Keyframes are ffmpeg, not a model, so the frames exist before any model runs — which
+is why an **agent** can stand in for the VLM/score stage when no local model is
+present (the **L1** tier). Craft scores are a *reference*, not a verdict.
+
 ## Install
 
 ```bash
@@ -64,6 +85,20 @@ video file on disk. (Design ported from arkiv's live inspector.) `export --forma
 html` remains the offline multi-clip bundle; `view` is the read-only browsing
 server.
 
+**Craft scores are a reference, not a verdict — and the page shows why.** The four
+dimensions come from a model, and the same clip scores differently across models,
+so the number is never the point. A collapsed **re-weight** panel lets you drag the
+weighting of the four dimensions and watch `overall` recompute live, your blend
+beside the stored default. The dimensions themselves never move — only how they are
+combined — so you can see exactly how much the verdict depends on what *you* value.
+
+**Interface language toggle (EN / 中文).** The inspector and the read-only `view`
+carry both English and Traditional Chinese in the page: an instant client-side
+switch that follows your browser's language on first load and remembers your
+choice. Only interface labels translate — the model's own output (transcript,
+descriptions, decoded values) is left exactly as produced. (This is the *interface*
+language; for bilingual *audio* transcription, see the section below.)
+
 ## Bilingual / code-switching audio (中英對照)
 
 Whisper `large-v3` locks onto the language it detects in the opening window and, on
@@ -86,9 +121,20 @@ adds cost). Other levers: `WHISPER_LANGUAGE=en` (force one language),
 
 ## MCP Server
 
+An agent can drive the whole pipeline over MCP — no shell needed.
+
 ```bash
-reel-scout-mcp  # stdio transport for Claude Code integration
+reel-scout mcp install    # register the server in the client's config (no hand-editing JSON)
+reel-scout mcp path       # show where it's registered
+reel-scout-mcp            # or run it directly (stdio transport)
 ```
+
+Tools cover both sides: **read** — `list_videos`, `show_video`, `get_transcript`,
+and a `keyframes` tool so an agent with no filesystem can still see the extracted
+frames; **write** — `ingest` (vision / score / analysis), a background `batch`, and
+`inspect`. This is how the **L1** tier works: an agent that can see images supplies
+the visual layer and craft score itself, so results land in `show` / `view` /
+`inspect` / `export` instead of a chat log.
 
 ## Prompt Pack (analysis layer)
 
