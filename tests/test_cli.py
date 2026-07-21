@@ -227,3 +227,57 @@ def test_cmd_crawl_survives_one_failing_download(temp_db, fake_crawler, capsys):
     assert conn.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 2
     conn.close()
     assert "boom" in capsys.readouterr().out
+
+
+# --- Windows console encoding ------------------------------------------------
+# A short-form title is full of emoji and this module prints em dashes by the
+# hundred; neither survives the locale codepage Python picks on Windows
+# (cp950 zh-TW, cp1252 US/EU, cp437 legacy cmd). `show` used to die on a
+# UnicodeEncodeError before it could print the keyframe paths Step 2b needs.
+
+
+def _legacy_console(codepage):
+    """A text stream that behaves like a Windows console on `codepage`."""
+    return io.TextIOWrapper(io.BytesIO(), encoding=codepage, errors="strict")
+
+
+@pytest.mark.parametrize("codepage", ["cp950", "cp1252", "cp437"])
+def test_legacy_codepages_really_cannot_encode_a_short_form_title(codepage):
+    # Guards the premise: if this ever stops raising, the fix below is moot.
+    stream = _legacy_console(codepage)
+    with pytest.raises(UnicodeEncodeError):
+        stream.write("3 CapCut Tips for Viral \U0001f525 Shorts")
+        stream.flush()
+
+
+@pytest.mark.parametrize("codepage", ["cp950", "cp1252", "cp437"])
+def test_force_utf8_stdio_makes_titles_printable(codepage, monkeypatch):
+    out, err = _legacy_console(codepage), _legacy_console(codepage)
+    monkeypatch.setattr(cli.sys, "stdout", out)
+    monkeypatch.setattr(cli.sys, "stderr", err)
+
+    cli._force_utf8_stdio()
+
+    out.write("3 CapCut Tips for Viral \U0001f525 Shorts — pick one:")
+    out.flush()
+    assert out.encoding == "utf-8"
+    assert err.encoding == "utf-8"
+
+
+def test_force_utf8_stdio_survives_a_stream_without_reconfigure(monkeypatch):
+    # pytest's capture, and anything else that swaps in a plain buffer.
+    monkeypatch.setattr(cli.sys, "stdout", io.StringIO())
+    monkeypatch.setattr(cli.sys, "stderr", io.StringIO())
+    cli._force_utf8_stdio()  # must not raise
+
+
+def test_force_utf8_stdio_survives_a_detached_stream(monkeypatch):
+    class _Detached:
+        encoding = "cp950"
+
+        def reconfigure(self, **kw):
+            raise ValueError("underlying buffer has been detached")
+
+    monkeypatch.setattr(cli.sys, "stdout", _Detached())
+    monkeypatch.setattr(cli.sys, "stderr", _Detached())
+    cli._force_utf8_stdio()  # must not raise

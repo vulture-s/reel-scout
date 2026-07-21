@@ -8,10 +8,33 @@ import subprocess
 import sys
 from typing import List
 
-from . import __version__, batch, config, skill_install
+from . import __version__, batch, config, mcp_install, skill_install
+
+
+def _force_utf8_stdio() -> None:
+    """Print UTF-8 regardless of the console's codepage.
+
+    Python encodes stdout with the locale codepage, which on Windows is cp950
+    (zh-TW), cp1252 (US/EU) or cp437 (legacy cmd). None of them can encode the
+    emoji that short-form titles are full of, and cp437 cannot even encode the
+    em dash this module prints 163 times -- so `show` died on a traceback
+    before it could list the keyframe paths that Step 2b needs. Replacement
+    characters are a bad look; a UnicodeEncodeError is a broken tool.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            # pytest's capture and anything else that swaps in a plain buffer.
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            # Detached or already-closed stream; printing is not our job to fix.
+            pass
 
 
 def main(argv: List[str] = None) -> None:
+    _force_utf8_stdio()
     parser = argparse.ArgumentParser(
         prog="reel-scout",
         description="Short-form video analysis tool",
@@ -227,6 +250,30 @@ def main(argv: List[str] = None) -> None:
 
     p_skill_sub.add_parser("path", help="Show where the skill assets are read from")
 
+    # --- mcp ---
+    p_mcp = sub.add_parser(
+        "mcp", help="Register the MCP server with Claude Desktop / Claude Code")
+    p_mcp_sub = p_mcp.add_subparsers(dest="mcp_command")
+
+    p_mcp_install = p_mcp_sub.add_parser(
+        "install", help="Write the MCP server config so a client can launch it")
+    p_mcp_install.add_argument(
+        "--client", choices=list(mcp_install.CLIENTS) + ["both"],
+        default=mcp_install.CLAUDE_DESKTOP)
+    p_mcp_install.add_argument(
+        "--data", default="",
+        help="REEL_SCOUT_DATA to pin (default: this directory's data dir, made absolute)")
+    p_mcp_install.add_argument("--name", default=mcp_install.DEFAULT_SERVER_NAME)
+    p_mcp_install.add_argument(
+        "--path", default="",
+        help="Write to this file instead (e.g. ./.mcp.json for a project-scoped config)")
+    p_mcp_install.add_argument("--force", action="store_true",
+                               help="Overwrite an existing reel-scout entry")
+    p_mcp_install.add_argument("--dry-run", action="store_true",
+                               help="Print the JSON that would be written and stop")
+
+    p_mcp_sub.add_parser("path", help="Show where MCP config lives and what is configured")
+
     p_db = sub.add_parser("db", help="Database operations")
     p_db_sub = p_db.add_subparsers(dest="db_command")
     p_db_sub.add_parser("stats", help="Show database stats")
@@ -260,6 +307,7 @@ def main(argv: List[str] = None) -> None:
         "ingest": _cmd_ingest,
         "batch": _cmd_batch,
         "skill": _cmd_skill,
+        "mcp": _cmd_mcp,
         "compare": _cmd_compare,
         "stats": _cmd_stats,
         "patterns": _cmd_patterns,
@@ -843,6 +891,100 @@ def _cmd_skill(args) -> None:
     print(f"  {dest}")
     print(f"  {', '.join(copied)}")
     print("\nRestart Claude Code to pick it up, then: /scout <video-url>")
+
+
+def _cmd_mcp(args) -> None:
+    cmd = getattr(args, "mcp_command", None)
+
+    if cmd == "path":
+        summary = mcp_install.status_summary()
+        print("This directory resolves to:")
+        videos = summary["here_videos"]
+        print("  REEL_SCOUT_DATA: %s   (%s)" % (
+            summary["here_data_dir"],
+            "no database yet" if videos is None else "%d videos" % videos))
+        print("  would install:   %s %s   (%s)" % (
+            summary["would_command"], " ".join(summary["would_args"]),
+            summary["would_how"]))
+        print()
+        mismatch = False
+        for row in summary["clients"]:
+            print("%s:" % row["client"])
+            print("  config: %s%s" % (row["path"], "" if row["exists"] else "   (not created yet)"))
+            if row["error"]:
+                print("  !! %s" % row["error"])
+                mismatch = True
+                continue
+            if not row["configured"]:
+                print("  reel-scout: not configured — run `reel-scout mcp install`")
+            else:
+                print("  command:         %s %s" % (row["command"], " ".join(row.get("args") or [])))
+                count = row["configured_videos"]
+                print("  REEL_SCOUT_DATA: %s   (%s)" % (
+                    row["data_dir"] or "NOT SET",
+                    "no database" if count is None else "%d videos" % count))
+                if row["command_matches"] is False:
+                    print("  !! that command is not the one this install would use — "
+                          "you probably reinstalled into a different environment")
+                    mismatch = True
+                if row["data_dir_matches"] is False:
+                    print("  !! that data dir is not the one this directory resolves to — "
+                          "the client is reading a different library")
+                    mismatch = True
+                if not row["data_dir"]:
+                    print("  !! REEL_SCOUT_DATA is unset, so the server will resolve "
+                          "./data against whatever directory the client launches it from")
+                    mismatch = True
+            if row["other_servers"]:
+                print("  (%d other MCP server(s) in this file, left alone)" % row["other_servers"])
+            print()
+        if mismatch:
+            raise SystemExit(1)
+        return
+
+    if cmd != "install":
+        print("Usage: reel-scout mcp {install|path} [--client claude-desktop|claude-code|both]")
+        return
+
+    if args.dry_run:
+        data_dir = mcp_install.resolve_data_dir(args.data)
+        entry = mcp_install.server_entry(data_dir)
+        targets = ([args.path] if args.path
+                   else [mcp_install.client_paths()[c] for c in
+                         (mcp_install.CLIENTS if args.client == "both" else [args.client])])
+        for target in targets:
+            print("would write to %s:" % target)
+        print(json.dumps({"mcpServers": {args.name: entry}}, indent=2))
+        return
+
+    clients = list(mcp_install.CLIENTS) if args.client == "both" else [args.client]
+    installed = []
+    for client in clients:
+        try:
+            installed.append(mcp_install.install(
+                client, data_dir=args.data, name=args.name,
+                force=args.force, path=args.path))
+        except RuntimeError as e:
+            print(f"Error: {e}")
+            return
+
+    for row in installed:
+        print("Configured '%s' in %s:" % (args.name, row["client"]))
+        print("  %s" % row["path"])
+        print("  command:         %s %s   (%s)" % (
+            row["command"], " ".join(row["args"]), row["how"]))
+        count = mcp_install._video_count(row["data_dir"])
+        print("  REEL_SCOUT_DATA: %s   (%s)" % (
+            row["data_dir"],
+            "no database yet" if count is None else "%d videos" % count))
+        if row["backup"]:
+            print("  backup:          %s" % row["backup"])
+        print()
+
+    # Load-bearing: both clients only re-read their config on a real relaunch,
+    # and "I ran it and nothing happened" is otherwise the first support question.
+    print("Fully quit the client (not just close the window) and reopen it,")
+    print('then ask: "list my reel-scout videos"')
 
 
 def _cmd_compare(args) -> None:

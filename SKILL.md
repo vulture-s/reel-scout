@@ -57,32 +57,51 @@ use it when you need to branch on specifics.
 
 ## Surface limits — read this honestly
 
-Three tiers, by what the machine actually has. Pick the highest one available and
-say which you used — never imply a richer tier than you ran.
+Two questions, not one ladder. **What can produce the visual layer** is a capability;
+**how you drive the tool** is a surface. They are independent, and conflating them
+tells a GUI user they are on a lower rung when their output is identical.
 
-| | Needs | Visual layer | Craft score |
+| | claude.ai web | Claude Desktop (MCP) | Claude Code (CLI) |
 |---|---|---|---|
-| **L2 full** | shell + ffmpeg/yt-dlp + **local VLM** (`oMLX`/`ollama`) | local VLM | local LLM |
-| **L1 agent-as-backend** | shell + ffmpeg/yt-dlp, **no model** | **you, from the keyframes** | **you, via the rubric** |
-| **L0 prompt-only** | nothing (claude.ai web) | user's screen recording | described, not stored |
+| **Capability 0** — described, never stored | the only cell | — | — |
+| **Capability 1** — you are the model; full record | ✗ | ✓ | ✓ |
+| **Capability 2** — a local VLM is the model | ✗ | ✓ | ✓ |
 
-- **L2** — the default when `reel-scout config check` reports a reachable VLM
-  endpoint. Run Step 2 as written.
-- **L1** — the machine has a shell and the binaries but **no local model**. This is
-  the common case for someone who just `pip install`ed. Do **not** stop here and do
-  **not** report a transcript-only result as if it were the whole analysis: keyframe
-  extraction is ffmpeg, not a model, so the frames are already on disk and you can
-  see them. Follow **Step 2b**.
-- **L0** — claude.ai web: no shell, no ffmpeg/yt-dlp, no model. The automated
-  extraction genuinely cannot run. Apply the **prompt pack** to a clip the user
-  describes or screen-records and uploads — that is exactly what
-  `prompts/hook-reverse-structure.md` **Prompt B** is for (the screen-recording
-  variant with anti-hallucination guardrails). Do **not** pretend the automated
-  extraction works on the web; route to Prompt B instead.
+**The capabilities**
 
-If you are unsure which tier you're on, run Step 0 — a non-zero exit with missing
-binaries on every attempt means L0; binaries present but `config check` finding no
-VLM endpoint means L1.
+- **Capability 0** — nothing is installed. The automated extraction genuinely cannot
+  run, so apply the **prompt pack** to a clip the user describes or screen-records:
+  `prompts/hook-reverse-structure.md` **Prompt B** is the screen-recording variant,
+  with anti-hallucination guardrails. Do **not** pretend the pipeline ran.
+- **Capability 1** — ffmpeg and yt-dlp are present, no local model. **You** are the
+  vision backend. Keyframe extraction is ffmpeg, not a model, so the frames are
+  already on disk: look at them and write your findings back. This is the common
+  case for someone who just `pip install`ed, and it is a complete analysis — do not
+  report a transcript-only result as though it were the whole thing. Follow
+  **Step 2b**.
+- **Capability 2** — `reel-scout config check` reports a reachable VLM endpoint. Run
+  Step 2 as written.
+
+**What capability 2 actually buys** is not accuracy — it is *one ruler*. The same
+clip scores 7.43 under one VLM and 5.5 under another, so what a local model gives
+you is every video in the corpus measured by the same instrument, which is what
+makes `stats` and `patterns` comparable across rows. A capability-1 analysis is not
+a lesser one; it is one whose scores should not be averaged against locally-scored
+rows. (`stats` does not currently separate them — say so when you report.)
+
+**The surfaces**
+
+- **Claude Code (CLI)** — run the commands in this document.
+- **Claude Desktop (MCP)** — same capabilities, no shell. Everything below has an
+  MCP tool: `analyze` / `batch_start` / `batch_status`, then `keyframes` →
+  `ingest_vision` / `ingest_analysis` / `ingest_score` for Step 2b, `show_video` to
+  read a video back, `inspect` for the interactive player, `export` for the bundle.
+  Where this document shows a shell command, use the tool of the same name.
+  Install with `reel-scout mcp install`.
+- **claude.ai web** — capability 0 only.
+
+If you are unsure which capability you are on, run Step 0: missing binaries on every
+attempt means 0; binaries present but `config check` finding no VLM endpoint means 1.
 
 ## Step 1 — parse the input
 
@@ -139,13 +158,20 @@ If `analyze` fails on the VLM step (no local `omlx`/`ollama` endpoint), re-run w
 `--skip-vision` — then **go to Step 2b and supply the visual layer yourself**. Only
 report a transcript-only result if Step 2b is also impossible, and say so plainly.
 
-## Step 2b — no local model? You are the backend (L1)
+## Step 2b — no local model? You are the backend (capability 1)
 
 Only when there is no reachable VLM/LLM endpoint. The frames exist regardless —
 ffmpeg extracted them — so the visual layer is not lost, it just has no model
 attached to it yet. Attach yourself, then write the result back so it lands in
 `show` / `view` / `inspect` / the exported bundle instead of living only in this
 conversation.
+
+**No shell? Same four steps, as MCP tools.** `keyframes` returns the frame images
+themselves — `show_video` only gives file paths, which are useless without a
+filesystem — then `ingest_vision`, `ingest_analysis` and `ingest_score` take the
+same payloads shown below as their arguments. Read the frames before you describe
+them; describing frames you have not seen is the one failure this whole path
+exists to avoid.
 
 **1. Find the frames.**
 
@@ -216,25 +242,41 @@ Rules that are enforced, not suggestions:
   another — so a row's origin has to stay visible.
 - **Values outside 0–10 are rejected, not clamped.** Fix the number; don't retry
   with a squashed one.
-- Tell the user their analysis was produced at **L1 (agent-scored)**, and that those
+- Tell the user their analysis was **agent-scored**, and that those
   scores are not directly comparable with locally-scored videos in the same corpus
   (`stats` averages do not separate the two).
 
 ## A list instead of one link — `batch`
 
-When the user points at a Google Doc/Sheet, a file, or several links at once,
-use `reel-scout batch` rather than looping `analyze` yourself:
+When the user has several links at once, use `reel-scout batch` rather than
+looping `analyze` yourself.
+
+**Default to the links themselves.** They are already in the conversation, and
+keeping them there means the user's research list never leaves their machine:
 
 ```bash
-reel-scout batch --doc "<google doc or sheet url>" --dry-run   # show what it parsed
-reel-scout batch --doc "<url>" --mode agent --out ~/reel-scout-batch
+# what the user pasted, one per line
+reel-scout batch --stdin --mode agent --out ~/reel-scout-batch < links.txt
+reel-scout batch --file links.txt --dry-run          # show what it parsed
 ```
 
-Sharing set to "anyone with the link" is enough — `/edit` URLs are rewritten to
-Google's export endpoints, so there is no API key or OAuth step.
+**`--doc` is for a list you are handing *out*** — a teacher's reading list, a
+shared brief. It requires sharing set to "anyone with the link", which makes that
+document readable by anyone who has the URL, so it is the wrong default for
+someone's own competitor research. `/edit` URLs are rewritten to Google's export
+endpoints, so there is no API key or OAuth step:
+
+```bash
+reel-scout batch --doc "<google doc or sheet url>" --dry-run
+```
+
+**No shell?** `batch_start` takes `urls` directly — that is the natural shape when
+the user has just pasted them into the chat. It returns immediately and the job
+keeps running; poll `batch_status`, which also tells you which videos still need a
+visual layer. `batch_cancel` stops it after the video in flight.
 
 `batch` probes the backends first. With a VLM reachable it runs `full`. Without
-one it **stops and prints the choice** rather than silently producing
+one it **stops and offers the choice** rather than silently producing
 transcript-only bundles — relay those options to the user and let them pick; do
 not choose for them. If they pick `agent`, the run ends with the list of videos
 still missing a visual layer and the exact `ingest` command per video: work

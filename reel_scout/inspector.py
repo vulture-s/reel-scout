@@ -226,6 +226,12 @@ def _render_scores(view: Dict[str, Any]) -> str:
         return ""
     reasoning = score.get("reasoning")
     note = ('<p class="reasoning">%s</p>' % _e(reasoning)) if reasoning else ""
+    # Which model produced these (from master). The same clip scores 7.43 under
+    # one VLM and 5.5 under another, so a number with no origin cannot be compared
+    # with anything — and `stats` averages agent-scored and locally-scored rows
+    # together. This is a model identifier, not translatable chrome.
+    model = score.get("model_used")
+    source = ('<span class="q">%s</span>' % _e(model)) if model else ""
 
     # Weight sliders. Deliberately collapsed by default: the point is that the
     # weighting is *available* for inspection, not that every reader must tune it.
@@ -257,9 +263,10 @@ def _render_scores(view: Dict[str, Any]) -> str:
                "".join(sliders), _e(I18N["en"]["reset"])))
 
     return ('<section class="block"><div class="eyebrow">%s '
-            '<span class="q" data-i18n="refNotAuthority">reference, not authority</span></div>'
+            '<span class="q" data-i18n="refNotAuthority">reference, not authority</span>%s</div>'
             '<div class="meters">%s</div>%s%s</section>'
-            % (_t("craftScores", "Craft scores"), "".join(meters), note, weights_block))
+            % (_t("craftScores", "Craft scores"), source,
+               "".join(meters), note, weights_block))
 
 
 def _render_structure(view: Dict[str, Any]) -> str:
