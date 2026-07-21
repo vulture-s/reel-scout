@@ -342,12 +342,14 @@ def list_tools() -> List[Dict[str, Any]]:
         },
         {
             "name": "export",
-            "description": "Export analyses to JSON or CSV",
+            "description": "Export analyses to JSON, CSV, or skeleton (beat/rhythm "
+                           "hand-off JSON for downstream auto-editing)",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "format": {"type": "string", "enum": ["json", "csv"], "default": "json"},
+                    "format": {"type": "string", "enum": ["json", "csv", "skeleton"], "default": "json"},
                     "output": {"type": "string", "default": "./export"},
+                    "video": {"type": "string", "description": "skeleton: single video id (exact or unique prefix)"},
                 },
             },
         },
@@ -961,6 +963,17 @@ def _tool_export(args: Dict[str, Any]) -> Dict[str, Any]:
                 csv_output = os.path.join(output, "export.csv")
             count = export_csv(conn, csv_output)
             return _text_result({"format": fmt, "count": count, "output": csv_output})
+        if fmt == "skeleton":
+            from ..export.skeleton import export_skeleton
+            video_id = None
+            ref = args.get("video")
+            if ref:
+                from ..compare import resolve_ref
+                video_id, _ = resolve_ref(conn, ref)
+                if video_id is None:
+                    return _error_result("Video not found: %s" % ref)
+            count = export_skeleton(conn, output, video_id=video_id)
+            return _text_result({"format": fmt, "count": count, "output": output})
         return _error_result("Unsupported export format: %s" % fmt)
     finally:
         conn.close()

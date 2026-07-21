@@ -126,7 +126,7 @@ def main(argv: List[str] = None) -> None:
 
     # --- export ---
     p_export = sub.add_parser("export", help="Export analyses")
-    p_export.add_argument("--format", choices=["json", "csv", "html", "bundle"],
+    p_export.add_argument("--format", choices=["json", "csv", "html", "bundle", "skeleton"],
                           default="json")
     p_export.add_argument("--output", "-o", default="./export")
     p_export.add_argument("--video", help="Single video id (html/bundle: exact or unique prefix)")
@@ -671,6 +671,18 @@ def _cmd_export(args) -> None:
     if args.format == "json":
         count = export_json(conn, args.output)
         print(f"Exported {count} analyses to {args.output}/")
+    elif args.format == "skeleton":
+        from .export.skeleton import export_skeleton
+        video_id = None
+        if getattr(args, "video", None):
+            from .compare import resolve_ref
+            video_id, _ = resolve_ref(conn, args.video)
+            if video_id is None:
+                print(f"Video not found: {args.video}")
+                conn.close()
+                return
+        count = export_skeleton(conn, args.output, video_id=video_id)
+        print(f"Wrote {count} skeleton JSON file(s) to {args.output}/")
     elif args.format == "csv":
         count = export_csv(conn, args.output)
         print(f"Exported {count} rows to {args.output}")
