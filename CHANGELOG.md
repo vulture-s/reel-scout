@@ -2,7 +2,34 @@
 
 ## Unreleased
 
+## 1.3.0 — 2026-07-21
+
 ### Added
+- **Interface speaks Traditional Chinese now — a toggle, not a rebuild.** The
+  inspector *and* the read-only viewer (library list + take-home bundle) carry
+  both `en` and `zh-Hant` dictionaries in the page, so `EN / 中文` is an instant
+  client swap with nothing to fetch — a bundle stays bilingual offline. It follows
+  the browser's language on first load and remembers the choice. The line held
+  everywhere: only interface chrome carries a `data-i18n` key; the model's own
+  output — reasoning, transcript, decoded-structure *values* like `educational`,
+  OCR text — is never touched, because translating it would mean silently
+  re-running the model. One `reel_scout/i18n.py` is the single source both pages
+  read, so they cannot drift.
+- **Re-weight the craft score without re-running anything.** The inspector's score
+  block hides a collapsed panel of weight sliders: drag them and `overall`
+  recomputes live against the four stored dimensions, showing your result beside
+  the stored default. The dimensions themselves never move — they come from the
+  model, and the rubric behind them is prose, not a tunable threshold — so the
+  honest thing to expose is the *blend*, and the panel says so. Weights renormalize
+  to sum to 100 % so the number can't leave the 0–10 axis. The weights used to live
+  in three hand-kept copies; they now collapse to one `config.SCORE_WEIGHTS` that
+  both the scorer prompt and the recompute read.
+- **MCP server — an agent can drive reel-scout without a shell.** The tools cover
+  the read side (`list_videos`, `show_video`, `get_transcript`, and a `keyframes`
+  tool so an agent with no filesystem can still see the frames) and the write side
+  (`ingest` vision/score/analysis, a background `batch`, and `inspect`). `reel-scout
+  mcp install` / `mcp path` register the server in the client's JSON without
+  hand-editing it.
 - **`ingest analysis` — the third thing only a model can give you.** `merge_analysis`
   needs a reachable LLM; without one it fails with a connection error and the
   `analyses` row is never written, so the 4-beat timeline, hook type and CTA type —
@@ -65,6 +92,12 @@
 ### Fixed
 - `view` served requests single-threaded, so one idle browser keep-alive could
   stall the whole viewer. Now `ThreadingHTTPServer`.
+- Windows console printed mojibake when its code page wasn't UTF-8 (the default on
+  many machines); output is now forced to UTF-8 regardless of the console codepage.
+- Re-weighting showed a contradiction at the zero-weight edge — the panel said
+  "no verdict" while the overall meter still displayed the last computed number.
+  It now blanks to `—` with an empty bar. (Return-value parity tests could not
+  catch it; it was a DOM-state bug, found by driving the real sliders.)
 
 ## 1.2.0 — 2026-07-19
 
