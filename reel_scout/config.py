@@ -90,6 +90,12 @@ WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "")
 WHISPER_TASK = os.getenv("WHISPER_TASK", "transcribe")
 WHISPER_MULTILINGUAL = os.getenv("WHISPER_MULTILINGUAL", "false").lower() in ("true", "1", "yes")
 WHISPER_CHUNK_LENGTH = int(os.getenv("WHISPER_CHUNK_LENGTH", "0"))  # 0 = library default
+# Anti-hallucination guard (whisper-guard package). Filters silence / low-logprob /
+# high-compression / repetition / char-loop segments out of the Whisper transcript
+# before it's saved — the same 4-layer guard arkiv/media-manager already run.
+# Default on; set WHISPER_GUARD_ENABLED=0 to keep raw Whisper output. Only the
+# faster-whisper backend carries the per-segment probabilities the guard needs.
+WHISPER_GUARD_ENABLED = os.getenv("WHISPER_GUARD_ENABLED", "true").lower() in ("true", "1", "yes")
 
 # --- Crawl ---
 IG_COOKIES_FILE = os.getenv("IG_COOKIES_FILE", "")
@@ -192,6 +198,7 @@ def show() -> str:
         f"WHISPER_TASK:         {WHISPER_TASK}",
         f"WHISPER_MULTILINGUAL: {WHISPER_MULTILINGUAL}",
         f"WHISPER_CHUNK_LENGTH: {WHISPER_CHUNK_LENGTH or '(default)'}",
+        f"WHISPER_GUARD:        {WHISPER_GUARD_ENABLED}",
         f"IG_COOKIES_FILE:      {IG_COOKIES_FILE or '(not set)'}",
         f"RATE_LIMIT_PER_MINUTE:{RATE_LIMIT_PER_MINUTE}",
         f"KEYFRAME_STRATEGY:    {KEYFRAME_STRATEGY}",
