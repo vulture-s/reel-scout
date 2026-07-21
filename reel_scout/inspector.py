@@ -39,9 +39,116 @@ _SCORE_DIMS = [
 
 _WAVEFORM_BINS = 200
 
+# UI-chrome translations. Deliberately scoped to interface labels only — the
+# model's own output (reasoning, transcript, scene descriptions, decoded-structure
+# VALUES like "educational") is data, not chrome, and stays in whatever language
+# the model produced. Switching it would mean re-running the model, which a
+# language toggle must not silently do.
+#
+# The page renders English as the baseline text of each element so it still reads
+# with JS disabled (and so string-contains tests keep passing); a `[data-i18n]`
+# attribute names the key, and applyLang() swaps textContent client-side. Chinese
+# is Traditional (zh-Hant) to match the rest of the toolchain.
+I18N = {
+    "en": {
+        "brand": "reel-scout inspect",
+        "allReels": "← all reels",
+        "source": "source ↗",
+        "noVideo": "video file not on disk — keyframes & transcript only",
+        "waveform": "Waveform",
+        "noIO": "no in/out",
+        "in": "IN",
+        "out": "OUT",
+        "setIn": "set IN",
+        "setOut": "set OUT",
+        "clear": "clear",
+        "exportSrt": "export SRT (window)",
+        "keyframes": "Keyframes",
+        "seek": "click to seek",
+        "described": "described",
+        "transcript": "Transcript",
+        "craftScores": "Craft scores",
+        "refNotAuthority": "reference, not authority",
+        "reweightSummary": "Re-weight — see how much the verdict depends on what you value",
+        "reweightNote": ("The four dimensions come from the model and do not change "
+                         "here — only how they are combined. Weights are rescaled "
+                         "to sum to 100%, so the result stays on the same 0–10 axis "
+                         "as the stored score."),
+        "reset": "reset to default",
+        "wDefault": "default",
+        "wYours": "yours",
+        "zeroWeights": "all weights at zero — no verdict",
+        "decoded": "Decoded structure",
+        "dim.overall": "Overall",
+        "dim.hook_strength": "Hook",
+        "dim.visual_storytelling": "Visual",
+        "dim.pacing": "Pacing",
+        "dim.structure": "Structure",
+        "row.Structure": "Structure",
+        "row.Content": "Content",
+        "row.Format": "Format",
+        "row.Pacing": "Pacing",
+        "row.Hook": "Hook",
+        "row.Hook text": "Hook text",
+        "row.CTA": "CTA",
+        "row.CTA text": "CTA text",
+    },
+    "zh": {
+        "brand": "reel-scout 檢視",
+        "allReels": "← 所有短片",
+        "source": "來源 ↗",
+        "noVideo": "影片檔不在磁碟，僅關鍵影格與逐字稿",
+        "waveform": "波形",
+        "noIO": "未設進出點",
+        "in": "進",
+        "out": "出",
+        "setIn": "設進點",
+        "setOut": "設出點",
+        "clear": "清除",
+        "exportSrt": "匯出 SRT（區間）",
+        "keyframes": "關鍵影格",
+        "seek": "點擊跳轉",
+        "described": "有描述",
+        "transcript": "逐字稿",
+        "craftScores": "工藝評分",
+        "refNotAuthority": "參考，非定論",
+        "reweightSummary": "重新加權 — 看評分有多取決於你重視什麼",
+        "reweightNote": ("四個維度來自模型，在這裡"
+                         "不會改變，只改變它們如何"
+                         "組合。權重會重新縮放為總"
+                         "和 100%，因此結果維持在與儲"
+                         "存分數相同的 0–10 尺度上。"),
+        "reset": "重設為預設",
+        "wDefault": "預設",
+        "wYours": "你的",
+        "zeroWeights": "所有權重為零 — 無評分",
+        "decoded": "解構分析",
+        "dim.overall": "總分",
+        "dim.hook_strength": "開場鉤子",
+        "dim.visual_storytelling": "視覺敘事",
+        "dim.pacing": "節奏",
+        "dim.structure": "結構",
+        "row.Structure": "內容結構",
+        "row.Content": "內容類型",
+        "row.Format": "格式",
+        "row.Pacing": "節奏",
+        "row.Hook": "開場類型",
+        "row.Hook text": "開場文字",
+        "row.CTA": "行動呼籲",
+        "row.CTA text": "行動呼籲文字",
+    },
+}
+
 
 def _e(value: Any) -> str:
     return html.escape("" if value is None else str(value))
+
+
+def _t(key: str, en: Optional[str] = None) -> str:
+    """Inline translatable label: English baseline text + a data-i18n key that
+    applyLang() swaps client-side. `en` defaults to the English dict entry."""
+    text = en if en is not None else I18N["en"].get(key, key)
+    return '<span data-i18n="%s">%s</span>' % (_e(key), _e(text))
 
 
 def _fmt_ts(sec: Any) -> str:
@@ -202,10 +309,10 @@ def _render_scores(view: Dict[str, Any]) -> str:
         # `overall` is the only meter JS ever rewrites — the dimension meters are
         # model output and stay frozen no matter where the sliders go.
         meters.append(
-            '<div class="meter" data-dim="%s"><span class="mlabel">%s</span>'
+            '<div class="meter" data-dim="%s"><span class="mlabel" data-i18n="dim.%s">%s</span>'
             '<span class="mbar"><i%s style="width:%.1f%%"></i></span>'
             '<span class="mval"%s>%.1f</span></div>'
-            % (_e(key), _e(label),
+            % (_e(key), _e(key), _e(label),
                ' id="obar"' if key == "overall" else "",
                pct,
                ' id="oval"' if key == "overall" else "",
@@ -225,29 +332,29 @@ def _render_scores(view: Dict[str, Any]) -> str:
         if w is None:
             continue
         sliders.append(
-            '<div class="wrow"><label for="w_%s">%s</label>'
+            '<div class="wrow"><label for="w_%s" data-i18n="dim.%s">%s</label>'
             '<input type="range" id="w_%s" data-dim="%s" min="0" max="100" step="1" value="%d">'
             '<span class="wval" id="wv_%s">%d%%</span></div>'
-            % (_e(key), _e(label), _e(key), _e(key), round(w * 100), _e(key), round(w * 100)))
+            % (_e(key), _e(key), _e(label), _e(key), _e(key),
+               round(w * 100), _e(key), round(w * 100)))
 
     weights_block = ""
     if sliders:
         weights_block = (
-            '<details class="weights" id="wpanel"><summary>Re-weight &mdash; '
-            'see how much the verdict depends on what you value</summary>'
-            '<p class="wnote">The four dimensions come from the model and do '
-            '<em>not</em> change here &mdash; only how they are combined. '
-            'Weights are rescaled to sum to 100%%, so the result stays on the '
-            'same 0&ndash;10 axis as the stored score.</p>'
+            '<details class="weights" id="wpanel"><summary data-i18n="reweightSummary">'
+            '%s</summary>'
+            '<p class="wnote" data-i18n="reweightNote">%s</p>'
             '<div class="wrows">%s</div>'
             '<div class="wfoot"><span id="wdelta" class="wdelta"></span>'
-            '<button type="button" id="wreset" class="tbtn">reset to default</button>'
-            '</div></details>' % "".join(sliders))
+            '<button type="button" id="wreset" class="tbtn" data-i18n="reset">%s</button>'
+            '</div></details>'
+            % (_e(I18N["en"]["reweightSummary"]), _e(I18N["en"]["reweightNote"]),
+               "".join(sliders), _e(I18N["en"]["reset"])))
 
-    return ('<section class="block"><div class="eyebrow">Craft scores '
-            '<span class="q">reference, not authority</span></div>'
+    return ('<section class="block"><div class="eyebrow">%s '
+            '<span class="q" data-i18n="refNotAuthority">reference, not authority</span></div>'
             '<div class="meters">%s</div>%s%s</section>'
-            % ("".join(meters), note, weights_block))
+            % (_t("craftScores", "Craft scores"), "".join(meters), note, weights_block))
 
 
 def _render_structure(view: Dict[str, Any]) -> str:
@@ -263,11 +370,12 @@ def _render_structure(view: Dict[str, Any]) -> str:
         ("CTA", hook.get("cta_type")),
         ("CTA text", hook.get("cta_text")),
     ]
-    cells = ['<div class="mk">%s</div><div class="mv">%s</div>' % (_e(k), _e(v))
-             for k, v in rows if v]
+    # Only the row LABEL is translatable; the value is model output and stays.
+    cells = ['<div class="mk" data-i18n="row.%s">%s</div><div class="mv">%s</div>'
+             % (_e(k), _e(k), _e(v)) for k, v in rows if v]
     if not cells:
         return ""
-    return ('<section class="block"><div class="eyebrow">Decoded structure</div>'
+    return ('<section class="block"><div class="eyebrow" data-i18n="decoded">Decoded structure</div>'
             '<div class="metagrid">%s</div></section>' % "".join(cells))
 
 
@@ -293,7 +401,7 @@ def render_inspector(view: Dict[str, Any], base: str = "",
         keyframe_src = lambda kf: "%s/keyframe/%s" % (base, kf["id"])  # noqa: E731
     # Only rendered when the caller knows an index exists to go back to — a
     # single-reel export has none, and `inspect <id>` pins "/" to this very page.
-    back = ('<a class="back" href="%s">&larr; all reels</a>' % _e(back_href)) \
+    back = ('<a class="back" href="%s" data-i18n="allReels">&larr; all reels</a>' % _e(back_href)) \
         if back_href else ""
 
     meta_bits = [_e(view["platform"])]
@@ -310,7 +418,7 @@ def render_inspector(view: Dict[str, Any], base: str = "",
         preview = ('<video id="player" class="player" preload="metadata" '
                    'controls playsinline src="%s"></video>' % src)
     else:
-        preview = ('<div class="noplayer">video file not on disk &mdash; '
+        preview = ('<div class="noplayer" data-i18n="noVideo">video file not on disk &mdash; '
                    'keyframes &amp; transcript only</div>')
 
     # Filmstrip. Each cell carries what was seen in that frame, so the exported
@@ -331,12 +439,17 @@ def render_inspector(view: Dict[str, Any], base: str = "",
                _e(("%s — %s" % (_fmt_ts(ts), desc)) if desc else _fmt_ts(ts)),
                _e(keyframe_src(kf) or ""), _e(_fmt_ts(ts))))
     if strip:
-        note = "click to seek" if not described else "click to seek &middot; %d described" % described
+        # Numbers stay language-neutral; only the words carry data-i18n, so the
+        # count survives a language switch untouched.
+        note = '<span data-i18n="seek">click to seek</span>'
+        if described:
+            note += (' &middot; %d <span data-i18n="described">described</span>' % described)
         caption = ('<div class="kfdesc" id="kfdesc"></div>' if described else "")
-        filmstrip = ('<section class="block"><div class="eyebrow">Keyframes '
+        filmstrip = ('<section class="block"><div class="eyebrow">%s '
                      '<span class="q">%d &middot; %s</span></div>'
                      '<div class="strip">%s</div>%s</section>'
-                     % (len(strip), note, "".join(strip), caption))
+                     % (_t("keyframes", "Keyframes"), len(strip), note,
+                        "".join(strip), caption))
     else:
         filmstrip = ""
 
@@ -346,12 +459,14 @@ def render_inspector(view: Dict[str, Any], base: str = "",
                 '<span class="tc">%s</span><span class="tx">%s</span></button>'
                 % (s["start"], s["end"], _e(_fmt_ts(s["start"])), _e(s["text"]))
                 for s in view["segments"]]
-        transcript = ('<section class="block"><div class="eyebrow">Transcript '
-                      '<span class="q">click to seek</span></div>'
-                      '<div class="segs">%s</div></section>' % "".join(rows))
+        transcript = ('<section class="block"><div class="eyebrow">%s '
+                      '<span class="q" data-i18n="seek">click to seek</span></div>'
+                      '<div class="segs">%s</div></section>'
+                      % (_t("transcript", "Transcript"), "".join(rows)))
     elif view.get("transcript"):
-        transcript = ('<section class="block"><div class="eyebrow">Transcript</div>'
-                      '<div class="flat">%s</div></section>' % _e(view["transcript"]))
+        transcript = ('<section class="block"><div class="eyebrow">%s</div>'
+                      '<div class="flat">%s</div></section>'
+                      % (_t("transcript", "Transcript"), _e(view["transcript"])))
     else:
         transcript = ''
 
@@ -375,27 +490,37 @@ def render_inspector(view: Dict[str, Any], base: str = "",
     if peaks is not None:
         # file:// blocks fetch(), so a frozen page carries its peaks inline.
         boot_data["peaks"] = [round(float(x), 4) for x in peaks]
-    boot = json.dumps(boot_data)
+    # Both languages travel with the page so the toggle is a pure client swap —
+    # no round-trip, and a frozen export stays fully bilingual offline.
+    boot_data["i18n"] = I18N
+    boot = json.dumps(boot_data, ensure_ascii=False)
+
+    # Language toggle. Sits in the header; JS wires it and persists the choice.
+    langtoggle = ('<div class="lang" id="lang">'
+                  '<button type="button" class="langbtn" data-lang="en">EN</button>'
+                  '<button type="button" class="langbtn" data-lang="zh">中文</button></div>')
 
     body = (
-        '<header class="top">%s<div class="eyebrow">reel-scout inspect '
-        '<span class="q">%s</span></div><h1>%s</h1>'
-        '<p class="meta">%s &middot; <a href="%s" rel="noopener">source &#8599;</a></p>'
+        '<header class="top">%s%s<div class="eyebrow"><span data-i18n="brand">'
+        'reel-scout inspect</span> <span class="q">%s</span></div><h1>%s</h1>'
+        '<p class="meta">%s &middot; <a href="%s" rel="noopener" data-i18n="source">'
+        'source &#8599;</a></p>'
         '%s</header>'
         '<section class="block preview">%s</section>'
-        '<section class="block"><div class="eyebrow">Waveform '
-        '<span class="q" id="io">no in/out</span></div>'
+        '<section class="block"><div class="eyebrow">%s '
+        '<span class="q" id="io" data-i18n="noIO">no in/out</span></div>'
         '<div class="wf" id="wf"><svg id="wfsvg" viewBox="0 0 %d 60" preserveAspectRatio="none">'
         '<g id="bars"></g><rect id="sel" class="sel" x="0" y="0" width="0" height="60"></rect>'
         '<line id="head" class="head" x1="0" y1="0" x2="0" y2="60"></line></svg></div>'
-        '<div class="wfbtns"><button id="setin" class="tbtn">set IN</button>'
-        '<button id="setout" class="tbtn">set OUT</button>'
-        '<button id="clrio" class="tbtn">clear</button>'
-        '<button id="srt" class="tbtn">export SRT (window)</button></div></section>'
+        '<div class="wfbtns"><button id="setin" class="tbtn" data-i18n="setIn">set IN</button>'
+        '<button id="setout" class="tbtn" data-i18n="setOut">set OUT</button>'
+        '<button id="clrio" class="tbtn" data-i18n="clear">clear</button>'
+        '<button id="srt" class="tbtn" data-i18n="exportSrt">export SRT (window)</button>'
+        '</div></section>'
         '%s%s%s%s'
-        % (back, _e(vid), _e(view["title"]), meta, _e(view["url"]), summary,
-           preview, _WAVEFORM_BINS, filmstrip, transcript,
-           _render_scores(view), _render_structure(view)))
+        % (back, langtoggle, _e(vid), _e(view["title"]), meta, _e(view["url"]),
+           summary, preview, _t("waveform", "Waveform"), _WAVEFORM_BINS,
+           filmstrip, transcript, _render_scores(view), _render_structure(view)))
 
     return (
         '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
@@ -614,7 +739,15 @@ def serve(video_id: str, host: str = "127.0.0.1", port: int = 0,
 _COMPONENTS = """
 a{color:inherit}
 .eyebrow .q{text-transform:none;letter-spacing:0;color:var(--quiet)}
-.top{padding:26px 0 16px;border-bottom:2px solid var(--rule)}
+.top{position:relative;padding:26px 0 16px;border-bottom:2px solid var(--rule)}
+.lang{position:absolute;top:26px;right:0;display:flex;gap:2px;font-family:var(--mono)}
+.lang .langbtn{border:1px solid var(--rule-soft);background:none;color:var(--quiet);
+  font-family:inherit;font-size:10px;letter-spacing:.1em;padding:3px 8px;cursor:pointer;
+  line-height:1.4}
+.lang .langbtn:first-child{border-radius:3px 0 0 3px}
+.lang .langbtn:last-child{border-radius:0 3px 3px 0;border-left:0}
+.lang .langbtn:hover{color:var(--ink)}
+.lang .langbtn.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .back{display:inline-block;margin-bottom:12px;font-family:var(--mono);font-size:11px;
   letter-spacing:.16em;text-transform:uppercase;color:var(--quiet);text-decoration:none}
 .back:hover{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
@@ -706,6 +839,30 @@ _SCRIPT = r"""
   var inSec=null, outSec=null;
   var BINS=boot.bins||200;
 
+  // --- i18n: pure client-side chrome swap. Both dictionaries ride in boot, so
+  //     switching is instant and works offline in a frozen export. Model output
+  //     (reasoning, transcript, decoded values) has no data-i18n and never moves. ---
+  var LANG='en';
+  function T(k){ var t=boot.i18n&&(boot.i18n[LANG]||boot.i18n.en); return (t&&t[k]!=null)?t[k]:k; }
+  function applyLang(lang){
+    if(!boot.i18n||!boot.i18n[lang]) lang='en';
+    LANG=lang;
+    var d=boot.i18n[lang];
+    document.documentElement.lang=(lang==='zh'?'zh-Hant':'en');
+    [].forEach.call(document.querySelectorAll('[data-i18n]'),function(el){
+      var k=el.getAttribute('data-i18n'); if(d[k]!=null) el.textContent=d[k];
+    });
+    [].forEach.call(document.querySelectorAll('#lang .langbtn'),function(b){
+      b.classList.toggle('on', b.getAttribute('data-lang')===lang);
+    });
+    if(window.__rsRepaintIO) window.__rsRepaintIO();  // io label is JS-built
+    if(window.__rsReapply) window.__rsReapply();       // reweight delta is JS-built
+    try{ localStorage.setItem('rs_lang', lang); }catch(e){}
+  }
+  [].forEach.call(document.querySelectorAll('#lang .langbtn'),function(b){
+    b.addEventListener('click',function(){ applyLang(b.getAttribute('data-lang')); });
+  });
+
   function fmt(t){t=Math.max(0,t|0);return (t/60|0)+':'+('0'+(t%60)).slice(-2);}
   function cur(){return player?player.currentTime:0;}
   function seek(t){ if(!player)return; player.currentTime=Math.max(0,Math.min(dur||t,t)); player.play&&player.play().catch(function(){}); }
@@ -745,8 +902,10 @@ _SCRIPT = r"""
       rects[i].classList.toggle('in', inw);
     }
     ioLabel.textContent = (inSec!=null||outSec!=null)
-      ? ('IN '+(inSec!=null?fmt(inSec):'—')+'  OUT '+(outSec!=null?fmt(outSec):'—')) : 'no in/out';
+      ? (T('in')+' '+(inSec!=null?fmt(inSec):'—')+'  '+T('out')+' '+(outSec!=null?fmt(outSec):'—'))
+      : T('noIO');
   }
+  window.__rsRepaintIO=paintWindow;
 
   wf.addEventListener('click',function(e){ if(dur<=0)return; seek(xToFrac(e.clientX)*dur); });
 
@@ -846,7 +1005,7 @@ _SCRIPT = r"""
         if(oval) oval.textContent='—';
         if(obar) obar.style.width='0%';
         if(ometer) ometer.className='meter custom';
-        if(delta){delta.textContent='all weights at zero — no verdict'; delta.className='wdelta on';}
+        if(delta){delta.textContent=T('zeroWeights'); delta.className='wdelta on';}
         return;
       }
       if(obar) obar.style.width=Math.max(0,Math.min(100,v*10)).toFixed(1)+'%';
@@ -857,7 +1016,7 @@ _SCRIPT = r"""
         if(def||stored==null){ delta.textContent=''; delta.className='wdelta'; }
         else{
           var diff=v-stored;
-          delta.textContent='default '+stored.toFixed(1)+'  ·  yours '+v.toFixed(1)+
+          delta.textContent=T('wDefault')+' '+stored.toFixed(1)+'  ·  '+T('wYours')+' '+v.toFixed(1)+
             '  ('+(diff>=0?'+':'')+diff.toFixed(1)+')';
           delta.className='wdelta on';
         }
@@ -869,6 +1028,14 @@ _SCRIPT = r"""
       sliders.forEach(function(s){ s.value=Math.round(boot.defaultWeights[s.dataset.dim]*100); });
       apply();
     });
+    // Exposed so a language switch re-renders the JS-built delta text in place.
+    window.__rsReapply=apply;
   }
+
+  // --- initial language: remembered choice > browser language > English ---
+  var initLang;
+  try{ initLang=localStorage.getItem('rs_lang'); }catch(e){}
+  if(!initLang) initLang=((navigator.language||'').toLowerCase().indexOf('zh')===0)?'zh':'en';
+  applyLang(initLang);
 })();
 """
