@@ -38,7 +38,7 @@ Issues = "https://github.com/vulture-s/reel-scout/issues"
 Changelog = "https://github.com/vulture-s/reel-scout/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
-whisper = ["faster-whisper>=1.1.0"]
+whisper = ["faster-whisper>=1.1.0", "whisper-guard>=0.3.0"]
 audio = ["onnxruntime>=1.15.0", "numpy>=1.21.0"]
 vector = ["lancedb>=0.4.0", "chromadb>=0.4.0"]
 diarize = ["pyannote.audio>=3.1", "torch>=2.0"]
