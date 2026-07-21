@@ -26,7 +26,7 @@ import re
 import subprocess
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import config, db, theme
+from . import config, db, i18n, theme
 from .viewer import build_video_view
 
 _SCORE_DIMS = [
@@ -39,105 +39,10 @@ _SCORE_DIMS = [
 
 _WAVEFORM_BINS = 200
 
-# UI-chrome translations. Deliberately scoped to interface labels only — the
-# model's own output (reasoning, transcript, scene descriptions, decoded-structure
-# VALUES like "educational") is data, not chrome, and stays in whatever language
-# the model produced. Switching it would mean re-running the model, which a
-# language toggle must not silently do.
-#
-# The page renders English as the baseline text of each element so it still reads
-# with JS disabled (and so string-contains tests keep passing); a `[data-i18n]`
-# attribute names the key, and applyLang() swaps textContent client-side. Chinese
-# is Traditional (zh-Hant) to match the rest of the toolchain.
-I18N = {
-    "en": {
-        "brand": "reel-scout inspect",
-        "allReels": "← all reels",
-        "source": "source ↗",
-        "noVideo": "video file not on disk — keyframes & transcript only",
-        "waveform": "Waveform",
-        "noIO": "no in/out",
-        "in": "IN",
-        "out": "OUT",
-        "setIn": "set IN",
-        "setOut": "set OUT",
-        "clear": "clear",
-        "exportSrt": "export SRT (window)",
-        "keyframes": "Keyframes",
-        "seek": "click to seek",
-        "described": "described",
-        "transcript": "Transcript",
-        "craftScores": "Craft scores",
-        "refNotAuthority": "reference, not authority",
-        "reweightSummary": "Re-weight — see how much the verdict depends on what you value",
-        "reweightNote": ("The four dimensions come from the model and do not change "
-                         "here — only how they are combined. Weights are rescaled "
-                         "to sum to 100%, so the result stays on the same 0–10 axis "
-                         "as the stored score."),
-        "reset": "reset to default",
-        "wDefault": "default",
-        "wYours": "yours",
-        "zeroWeights": "all weights at zero — no verdict",
-        "decoded": "Decoded structure",
-        "dim.overall": "Overall",
-        "dim.hook_strength": "Hook",
-        "dim.visual_storytelling": "Visual",
-        "dim.pacing": "Pacing",
-        "dim.structure": "Structure",
-        "row.Structure": "Structure",
-        "row.Content": "Content",
-        "row.Format": "Format",
-        "row.Pacing": "Pacing",
-        "row.Hook": "Hook",
-        "row.Hook text": "Hook text",
-        "row.CTA": "CTA",
-        "row.CTA text": "CTA text",
-    },
-    "zh": {
-        "brand": "reel-scout 檢視",
-        "allReels": "← 所有短片",
-        "source": "來源 ↗",
-        "noVideo": "影片檔不在磁碟，僅關鍵影格與逐字稿",
-        "waveform": "波形",
-        "noIO": "未設進出點",
-        "in": "進",
-        "out": "出",
-        "setIn": "設進點",
-        "setOut": "設出點",
-        "clear": "清除",
-        "exportSrt": "匯出 SRT（區間）",
-        "keyframes": "關鍵影格",
-        "seek": "點擊跳轉",
-        "described": "有描述",
-        "transcript": "逐字稿",
-        "craftScores": "工藝評分",
-        "refNotAuthority": "參考，非定論",
-        "reweightSummary": "重新加權 — 看評分有多取決於你重視什麼",
-        "reweightNote": ("四個維度來自模型，在這裡"
-                         "不會改變，只改變它們如何"
-                         "組合。權重會重新縮放為總"
-                         "和 100%，因此結果維持在與儲"
-                         "存分數相同的 0–10 尺度上。"),
-        "reset": "重設為預設",
-        "wDefault": "預設",
-        "wYours": "你的",
-        "zeroWeights": "所有權重為零 — 無評分",
-        "decoded": "解構分析",
-        "dim.overall": "總分",
-        "dim.hook_strength": "開場鉤子",
-        "dim.visual_storytelling": "視覺敘事",
-        "dim.pacing": "節奏",
-        "dim.structure": "結構",
-        "row.Structure": "內容結構",
-        "row.Content": "內容類型",
-        "row.Format": "格式",
-        "row.Pacing": "節奏",
-        "row.Hook": "開場類型",
-        "row.Hook text": "開場文字",
-        "row.CTA": "行動呼籲",
-        "row.CTA text": "行動呼籲文字",
-    },
-}
+# UI-chrome translations now live in reel_scout.i18n (shared with the viewer so
+# the two pages cannot drift). Kept here as I18N for the existing call sites and
+# tests. Scope is unchanged: interface chrome only, never model output.
+I18N = i18n.STRINGS
 
 
 def _e(value: Any) -> str:
@@ -495,10 +400,9 @@ def render_inspector(view: Dict[str, Any], base: str = "",
     boot_data["i18n"] = I18N
     boot = json.dumps(boot_data, ensure_ascii=False)
 
-    # Language toggle. Sits in the header; JS wires it and persists the choice.
-    langtoggle = ('<div class="lang" id="lang">'
-                  '<button type="button" class="langbtn" data-lang="en">EN</button>'
-                  '<button type="button" class="langbtn" data-lang="zh">中文</button></div>')
+    # Language toggle (shared markup). Inspector's own inline JS wires it and
+    # drives the waveform/reweight dynamic strings; see _SCRIPT.
+    langtoggle = i18n.TOGGLE_HTML
 
     body = (
         '<header class="top">%s%s<div class="eyebrow"><span data-i18n="brand">'
