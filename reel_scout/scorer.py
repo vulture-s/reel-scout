@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-from . import config, db
+from . import config, db, ingest
 from .llm import get_llm
 
 _SCORE_PROMPT = """You are a short-form video content analyst. Based on the analysis below, score this video on 4 dimensions (0-10 scale, decimals ok).
@@ -29,9 +29,26 @@ _SCORE_PROMPT = """You are a short-form video content analyst. Based on the anal
   "reasoning": "1-2 sentence explanation"
 }}
 
-The overall score is the weighted average: hook_strength*0.3 + visual_storytelling*0.25 + pacing*0.2 + structure*0.25
+The overall score is the weighted average: {weight_formula}
 
 Return ONLY valid JSON."""
+
+
+def _fmt_weight(w: float) -> str:
+    """Render a weight the way a human writes it (0.3, not 0.30) so the prompt
+    sentence reads naturally and stays byte-comparable with the config dict."""
+    return ("%g" % w)
+
+
+def weight_formula(weights: Optional[dict] = None) -> str:
+    """`hook_strength*0.3 + visual_storytelling*0.25 + ...` built from config.
+
+    Generated rather than hardcoded: the prompt and ingest.compute_overall used
+    to hold separate copies of these numbers, and the only thing preventing a
+    silent divergence was a test. Now there is one dict and this renderer.
+    """
+    w = weights or config.SCORE_WEIGHTS
+    return " + ".join("%s*%s" % (d, _fmt_weight(w[d])) for d in config.SCORE_DIMENSIONS)
 
 
 def _measured_block(analysis_json: str) -> str:
@@ -85,6 +102,7 @@ def score_video(
     prompt = _SCORE_PROMPT.format(
         analysis_json=analysis_json,
         measured_metrics=_measured_block(analysis_json),
+        weight_formula=weight_formula(),
     )
 
     llm = get_llm(llm_backend)
@@ -104,10 +122,16 @@ def score_video(
     visual = float(data.get("visual_storytelling", 0))
     pacing = float(data.get("pacing", 0))
     structure = float(data.get("structure", 0))
-    # overall is COMPUTED from the dimensions (weights must match _SCORE_PROMPT).
-    # The LLM's self-reported "overall" drifts ~0.1 from the formula, so we ignore it
-    # and recompute — keeps tool output self-consistent with the four dimensions.
-    overall = round(hook * 0.3 + visual * 0.25 + pacing * 0.2 + structure * 0.25, 2)
+    # overall is COMPUTED from the dimensions, never read from the model's own
+    # "overall" field (it drifts ~0.1 from the formula). Delegating to
+    # ingest.compute_overall means the agent-ingest path and this path are the
+    # same arithmetic over the same weights, by construction rather than by test.
+    overall = ingest.compute_overall({
+        "hook_strength": hook,
+        "visual_storytelling": visual,
+        "pacing": pacing,
+        "structure": structure,
+    })
     score = VideoScore(
         hook_strength=hook,
         visual_storytelling=visual,

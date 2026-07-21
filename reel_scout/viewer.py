@@ -20,7 +20,7 @@ import json
 import os
 from typing import Any, Callable, Dict, List, Optional
 
-from . import config, db, theme
+from . import config, db, i18n, theme
 
 # A keyframe-src strategy maps a keyframe row → the string that goes in <img src>.
 # Export uses a base64 data URI (self-contained); the server uses a URL.
@@ -111,7 +111,7 @@ def render_video_section(view: Dict[str, Any], keyframe_src: KeyframeSrc) -> str
     parts.append('<section class="video" id="v-%s">' % _e(view["video_id"]))
     parts.append('<h2>%s</h2>' % _e(view["title"]))
     parts.append(
-        '<p class="meta">%s · %s · <a href="%s">source</a></p>' % (
+        '<p class="meta">%s · %s · <a href="%s" data-i18n="sourcePlain">source</a></p>' % (
             _e(view["platform"]), _fmt_dur(view["duration_sec"]), _e(view["url"])))
 
     if view["summary"]:
@@ -130,18 +130,21 @@ def render_video_section(view: Dict[str, Any], keyframe_src: KeyframeSrc) -> str
         ("CTA type", hook.get("cta_type")),
         ("CTA text", hook.get("cta_text")),
     ]
-    parts.append('<h3>Decoded structure</h3><table class="kv">')
+    parts.append('<h3 data-i18n="decoded">Decoded structure</h3><table class="kv">')
     for label, val in rows:
         if val:
-            parts.append('<tr><th>%s</th><td>%s</td></tr>' % (_e(label), _e(val)))
+            # Only the label is translatable; the value is model output.
+            parts.append('<tr><th data-i18n="row.%s">%s</th><td>%s</td></tr>'
+                         % (_e(label), _e(label), _e(val)))
     parts.append('</table>')
 
     if view["topics"]:
-        parts.append('<p class="topics">Topics: %s</p>' % _e(", ".join(view["topics"])))
+        parts.append('<p class="topics"><span data-i18n="topics">Topics:</span> %s</p>'
+                     % _e(", ".join(view["topics"])))
 
     # Timeline / narrative arc.
     if view["timeline"]:
-        parts.append('<h3>Timeline</h3><ul class="timeline">')
+        parts.append('<h3 data-i18n="timeline">Timeline</h3><ul class="timeline">')
         for item in view["timeline"]:
             if isinstance(item, dict):
                 parts.append('<li><span class="ts">%s</span> %s</li>' % (
@@ -150,40 +153,49 @@ def render_video_section(view: Dict[str, Any], keyframe_src: KeyframeSrc) -> str
 
     # Scores — reference, not authority.
     if view["score"]:
-        parts.append('<h3>Craft scores <small>(reference, not authority — '
-                     'human judgment leads)</small></h3><table class="scores">')
+        parts.append('<h3><span data-i18n="craftScores">Craft scores</span> '
+                     '<small>(<span data-i18n="craftScoresNote">reference, not '
+                     'authority — human judgment leads</span>)</small></h3>'
+                     '<table class="scores">')
         for key, label in _SCORE_DIMS:
             val = view["score"].get(key)
             if val is not None:
-                parts.append('<tr><th>%s</th><td>%.1f</td></tr>' % (_e(label), val))
+                parts.append('<tr><th data-i18n="dim.%s">%s</th><td>%.1f</td></tr>'
+                             % (_e(key), _e(label), val))
         parts.append('</table>')
 
     # Keyframes.
     if view["keyframes"]:
-        parts.append('<h3>Keyframes</h3><div class="frames">')
+        parts.append('<h3 data-i18n="keyframes">Keyframes</h3><div class="frames">')
         for kf in view["keyframes"]:
             src = keyframe_src(kf)
             img = ('<img src="%s" alt="keyframe" loading="lazy">' % _e(src)
-                   if src else '<div class="noimg">image unavailable</div>')
+                   if src else '<div class="noimg" data-i18n="imgUnavailable">image unavailable</div>')
             desc = kf.get("description") or ""
             text = kf.get("text_in_frame") or ""
+            # desc / on-screen text are model output; only the "on-screen:" label swaps.
             parts.append('<figure>%s<figcaption>'
                          '<span class="ts">%ss</span> %s%s</figcaption></figure>' % (
                              img, _e(int(kf["timestamp_sec"]) if kf["timestamp_sec"] is not None else 0),
                              _e(desc),
-                             (' <em>on-screen: %s</em>' % _e(text)) if text else ''))
+                             (' <em><span data-i18n="onScreen">on-screen:</span> %s</em>'
+                              % _e(text)) if text else ''))
         parts.append('</div>')
 
     # Transcript.
     if view["transcript"]:
-        parts.append('<h3>Transcript</h3><div class="transcript">%s</div>'
-                     % _e(view["transcript"]))
+        parts.append('<h3 data-i18n="transcript">Transcript</h3>'
+                     '<div class="transcript">%s</div>' % _e(view["transcript"]))
 
     parts.append('</section>')
     return "\n".join(parts)
 
 
 _COMPONENTS = """
+/* Language toggle: pinned to the header's top-right, aligned to .inner padding. */
+header.top .inner{position:relative}
+header.top .inner .lang{position:absolute;top:24px;right:24px}
+
 /* Library index — a list of rules, not a grid of cards. The row is the chrome;
    the title is the loud part. */
 nav.index{margin:8px 0 0}
@@ -233,16 +245,21 @@ def render_page(sections: List[str], index_html: str, title: str,
                 embed_fonts: bool = False) -> str:
     # Server pages link the fonts (/font/...); the take-home export inlines
     # them so the file still looks right offline and after being moved.
-    style = theme.stylesheet(_COMPONENTS, embed_fonts=embed_fonts)
+    style = theme.stylesheet(_COMPONENTS, embed_fonts=embed_fonts) + i18n.TOGGLE_CSS
+    # Both dictionaries travel with the page (boot island) so the toggle is a
+    # pure client swap and a take-home bundle stays bilingual offline. English is
+    # the baseline text; applyLang() swaps to the reader's language on load.
     return (
         '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>%s</title><style>%s</style></head><body>'
-        '<header class="top"><div class="inner"><h1>%s</h1>'
-        '<div class="sub">reel-scout · decoded structure · read-only</div>'
+        '<header class="top"><div class="inner">%s<h1>%s</h1>'
+        '<div class="sub">reel-scout · <span data-i18n="sub">decoded structure '
+        '· read-only</span></div>'
         '</div></header>'
-        '<main>%s%s</main></body></html>' % (
-            _e(title), style, _e(title), index_html, "\n".join(sections))
+        '<main>%s%s</main>%s<script>%s</script></body></html>' % (
+            _e(title), style, i18n.TOGGLE_HTML, _e(title), index_html,
+            "\n".join(sections), i18n.boot_island(), i18n.APPLY_JS)
     )
 
 
@@ -277,7 +294,8 @@ def render_bundle(conn: db.sqlite3.Connection, video_id: Optional[str] = None,
     sections = [render_video_section(v, src) for v in views]
     index = render_index(views, href=lambda vid: "#v-%s" % vid)
     if not views:
-        sections = ['<section class="video"><p>No analyzed videos to show.</p></section>']
+        sections = ['<section class="video"><p data-i18n="emptyBundle">'
+                    'No analyzed videos to show.</p></section>']
     # Take-home export: inline the fonts too, so it holds its look offline.
     return render_page(sections, index, title, embed_fonts=True)
 
@@ -295,7 +313,8 @@ def render_index_page(conn: db.sqlite3.Connection, title: str = "reel-scout",
     views = [v for v in (build_video_view(conn, r["id"])
                          for r in db.list_videos(conn, status="analyzed", limit=9999)) if v]
     if not views:
-        body = '<section class="video"><p>No analyzed videos yet.</p></section>'
+        body = ('<section class="video"><p data-i18n="emptyLibrary">'
+                'No analyzed videos yet.</p></section>')
         return render_page([body], "", title)
     nav = render_index(views, href=href)
     # render_index returns "" for a single video; always show the list on the server.
@@ -310,7 +329,8 @@ def render_video_page(conn: db.sqlite3.Connection, video_id: str) -> Optional[st
     if view is None:
         return None
     section = render_video_section(view, keyframe_src=lambda kf: "/keyframe/%s" % kf["id"])
-    back = '<nav class="index"><a href="/">&larr; all videos</a></nav>'
+    back = ('<nav class="index"><a href="/" data-i18n="allVideos">'
+            '&larr; all videos</a></nav>')
     return render_page([section], back, view["title"])
 
 

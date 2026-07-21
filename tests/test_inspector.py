@@ -333,7 +333,9 @@ def test_filmstrip_carries_what_was_seen_in_each_frame(temp_db):
         assert "close-up of fried chicken" in page
         assert 'data-desc="close-up of fried chicken"' in page
         assert 'id="kfdesc"' in page          # the caption slot the JS fills
-        assert "1 described" in page
+        # The described count is shown; the label word is now a translatable span,
+        # so the count and the word are adjacent rather than one literal phrase.
+        assert '1 <span data-i18n="described">described</span>' in page
     finally:
         conn.close()
 
@@ -353,6 +355,67 @@ def test_no_descriptions_means_no_empty_caption_slot(temp_db):
         conn.commit()
         page = inspector.render_inspector(inspector.build_inspect_view(conn, vid))
         assert 'id="kfdesc"' not in page
-        assert "described" not in page
+        # No described-count span in the filmstrip. (The word "described" now also
+        # lives in the embedded i18n dictionary, so assert on the rendered span,
+        # not the bare word.)
+        assert 'data-i18n="described"' not in page
     finally:
         conn.close()
+
+
+def test_zero_weight_guard_blanks_the_overall_meter():
+    """Regression: the all-zero branch must clear the meter, not just message.
+
+    Found by driving the real sliders in a browser, NOT by the JS/Python parity
+    check — that only compared `computeOverall` return values, so it could not
+    see that the early `return` left the previously-computed overall sitting in
+    the DOM. The panel then said "all weights at zero — no verdict" while still
+    displaying a verdict (8.0), which is worse than either state alone.
+
+    Asserted at source level because there is no JS test runner here; it is a
+    tripwire against the blanking being deleted, not a behavioural test.
+    """
+    src = inspector._SCRIPT
+    guard = src[src.index("if(v==null){"):src.index("var def=isDefault();")]
+    assert "oval.textContent='—'" in guard, (
+        "the zero-weight branch no longer blanks the overall value — the panel "
+        "will claim 'no verdict' while still showing the last computed one")
+    assert "obar.style.width='0%'" in guard, (
+        "the zero-weight branch no longer collapses the overall bar")
+
+
+def test_i18n_chrome_translated_but_model_content_untouched(temp_db):
+    """The language toggle swaps interface chrome only; model output stays put.
+
+    Guards the boundary that makes the toggle honest — reasoning, transcript and
+    decoded-structure VALUES come from the model and must never be silently
+    "translated" (that would mean re-running the model), while every label a
+    reader reads as chrome must carry a data-i18n key so applyLang can swap it.
+    """
+    conn = _conn(temp_db)
+    try:
+        vid = _seed(conn)  # has a scored video with reasoning + segments
+        page = inspector.render_inspector(inspector.build_inspect_view(conn, vid))
+
+        # Both dictionaries ship with the page (offline-capable toggle).
+        assert '"zh"' in page and '"en"' in page
+        assert "工藝評分" in page and "重新加權" in page   # zh chrome present in boot
+        # The toggle control exists.
+        assert 'class="langbtn" data-lang="zh"' in page
+
+        # Chrome labels carry keys.
+        for key in ("brand", "waveform", "craftScores", "reset",
+                    "dim.overall", "row.Structure", "reweightSummary"):
+            assert 'data-i18n="%s"' % key in page
+
+        # Model content is NOT wrapped for translation.
+        assert 'data-i18n' not in page.split('class="reasoning"')[1][:40]
+        # applyLang + persistence wired.
+        assert "applyLang" in page and "localStorage.setItem('rs_lang'" in page
+    finally:
+        conn.close()
+
+
+def test_i18n_dicts_have_identical_keys():
+    """en and zh must cover the same keys, or a switch leaves stale text behind."""
+    assert set(inspector.I18N["en"]) == set(inspector.I18N["zh"])

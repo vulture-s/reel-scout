@@ -13,7 +13,7 @@ import tempfile
 
 import pytest
 
-from reel_scout import db, ingest, scorer
+from reel_scout import config, db, ingest, scorer
 
 
 def _temp_db():
@@ -42,16 +42,73 @@ def _seed(conn, *, frames=3):
 # --- the scale must stay shared with the real scorer -------------------------
 
 def test_weights_match_the_scorer_prompt():
-    """If scorer's documented formula moves, this must move with it.
+    """The prompt must still tell the model the formula the code actually uses.
 
-    ingest duplicates the weights (scorer keeps them inline, not as a constant),
-    so the only thing standing between the two paths and a silent divergence is
-    this assertion.
+    This used to guard against two hand-maintained copies of the weights
+    drifting apart. There is now one copy (config.SCORE_WEIGHTS) and scorer
+    renders its prompt sentence from it, so that drift class is gone by
+    construction. What remains worth pinning is the other half: the sentence
+    the model reads must still name every dimension with its live weight — a
+    prompt that silently lost the formula would leave the LLM guessing at a
+    blend the code then overrides.
     """
+    rendered = scorer.weight_formula()
     for dim, weight in ingest._WEIGHTS.items():
-        assert "%s*%s" % (dim, weight) in scorer._SCORE_PROMPT, (
-            "scorer no longer documents %s*%s — ingest.compute_overall is now "
-            "on a different scale than score_video" % (dim, weight))
+        assert "%s*%g" % (dim, weight) in rendered, (
+            "the scoring prompt no longer states %s's weight — the model is "
+            "being asked to blend on a formula the code does not use" % dim)
+    # and the sentence must survive into the prompt the model is actually sent
+    assert "{weight_formula}" in scorer._SCORE_PROMPT
+    assert rendered in scorer._SCORE_PROMPT.format(
+        analysis_json="{}", measured_metrics="", weight_formula=rendered)
+
+
+def test_ingest_and_scorer_share_one_weight_definition():
+    """The single-source invariant itself: no module may hold a private copy."""
+    assert ingest._WEIGHTS is config.SCORE_WEIGHTS
+    assert ingest._DIMENSIONS is config.SCORE_DIMENSIONS
+
+
+def test_custom_weights_are_normalised_and_do_not_leave_the_scale():
+    """Re-weighting is a read-side view, so it must stay on the stored 0-10 axis.
+
+    Without rescaling, dragging every slider to the top would push `overall`
+    past 10 and quietly change what the number means — the "yours vs default"
+    comparison the inspector shows would stop being apples-to-apples.
+    """
+    dims = {"hook_strength": 8.0, "visual_storytelling": 6.0,
+            "pacing": 7.0, "structure": 5.0}
+    default = ingest.compute_overall(dims)
+    assert default == pytest.approx(6.55)
+
+    # all-equal weights => plain mean, still inside 0-10
+    assert ingest.compute_overall(dims, {k: 10 for k in dims}) == pytest.approx(6.5)
+    # a single dimension carrying all the weight => that dimension's own value
+    assert ingest.compute_overall(
+        dims, {"hook_strength": 1, "visual_storytelling": 0,
+               "pacing": 0, "structure": 0}) == pytest.approx(8.0)
+    # degenerate and hostile inputs fall back rather than divide by zero / go negative
+    assert ingest.compute_overall(dims, {k: 0 for k in dims}) == pytest.approx(default)
+    assert ingest.compute_overall(dims, None) == pytest.approx(default)
+    assert ingest.compute_overall(dims, {"hook_strength": "abc"}) == pytest.approx(default)
+    assert ingest.compute_overall(
+        dims, {"hook_strength": -5, "visual_storytelling": 1,
+               "pacing": 0, "structure": 0}) == pytest.approx(6.0)
+
+    # every combination stays on the axis
+    for probe in ({"hook_strength": 99}, {"structure": 1000},
+                  {"pacing": 0.001, "structure": 0.001}):
+        assert 0.0 <= ingest.compute_overall(dims, probe) <= 10.0
+
+
+def test_custom_weights_never_write_back():
+    """Slider exploration must not mutate the shared default."""
+    before = dict(config.SCORE_WEIGHTS)
+    ingest.compute_overall(
+        {"hook_strength": 9.0, "visual_storytelling": 1.0,
+         "pacing": 1.0, "structure": 1.0},
+        {"hook_strength": 100, "visual_storytelling": 0, "pacing": 0, "structure": 0})
+    assert dict(config.SCORE_WEIGHTS) == before
 
 
 def test_overall_is_recomputed_and_agent_supplied_value_ignored():

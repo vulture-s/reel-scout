@@ -221,3 +221,44 @@ def test_view_server_serves_while_a_connection_is_held_open(temp_db):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_viewer_i18n_chrome_bilingual_and_model_content_untouched(temp_db):
+    """The viewer's language toggle swaps chrome only; titles/values stay put.
+
+    Same boundary the inspector holds: interface labels carry data-i18n and both
+    dictionaries ship in the page (offline-capable toggle), but the video title,
+    decoded-structure values and transcript are model output and never move.
+    """
+    conn = sqlite3.connect(temp_db)
+    conn.row_factory = sqlite3.Row
+    kf = os.path.join(config.KEYFRAMES_DIR, "abc", "abc_scene_000.jpg")
+    os.makedirs(os.path.dirname(kf), exist_ok=True)
+    _tiny_jpeg(kf)
+    try:
+        vid = _seed(conn, kf_path=kf)
+
+        idx = viewer.render_index_page(conn)
+        # toggle + both dicts + applyLang wiring present on the list page.
+        assert 'class="langbtn" data-lang="zh"' in idx
+        assert '"zh"' in idx and '"en"' in idx
+        assert "解構分析" in idx and "工藝評分" in idx          # zh chrome in boot
+        assert "applyLang" in idx and "localStorage.setItem('rs_lang'" in idx
+        assert 'data-i18n="sub"' in idx                        # subtitle is chrome
+        assert "Fried Chicken" in idx                          # model title untranslated
+
+        page = viewer.render_video_page(conn, vid)
+        for key in ("decoded", "craftScores", "keyframes", "transcript",
+                    "allVideos", "dim.overall", "row.Structure"):
+            assert 'data-i18n="%s"' % key in page
+        # baseline English still present (JS-off / string-contains safety).
+        assert "Decoded structure" in page and "Craft scores" in page
+    finally:
+        conn.close()
+
+
+def test_viewer_and_inspector_share_one_i18n_dict():
+    """Both surfaces pull from reel_scout.i18n.STRINGS — no second copy to drift."""
+    from reel_scout import i18n, inspector
+    assert inspector.I18N is i18n.STRINGS
+    assert set(i18n.STRINGS["en"]) == set(i18n.STRINGS["zh"])

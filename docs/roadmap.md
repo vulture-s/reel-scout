@@ -10,6 +10,10 @@
 > 2026-07-20 §5A L0/L1/L2 安裝階梯：新增 `ingest {vision,score}`（agent 當 backend，零本地模型／零 API key）+ `show` 補列 keyframe id 與分數；SKILL.md 三層 surface 改寫。測試 →263
 > 2026-07-20 §5A L1 補完：`ingest analysis`（merger 同樣需要 LLM，無 LLM 時 `analyses` 整列不存在＝4-beat／hook／CTA 全缺；枚舉值驗證）+ 學生包 filmstrip 顯示逐格描述。另修 `--skip-vision` 連 keyframe 都不抽（L1 整條實際為空）與 batch 裸名呼叫。測試 →324
 > 2026-07-20 §5A `batch`：Google Doc／Sheet 清單批次跑（免 API 金鑰，`/edit` 自動轉匯出端點）；能力偵測後**由使用者選 mode**（full／agent／transcript），無 VLM 不靜默降級。測試 →304
+> 🔴 2026-07-20 §4E 回填發現：`shot_metrics` / `ocr_captions` **實際 0 列** — §4E/§4F 的 code 上了但從沒在語料上跑過，`_measured_block()` 永遠回空字串 → 現有 12 筆分數的 pacing 仍 100% 是 LLM 猜的，§4E 想解的問題原封不動。roadmap 標 ✅ 但資料為空＝completion-blind drift，見 §4E 回填段
+> 2026-07-20 §4G 評分透明化：inspector 加權重滑桿（即時重算 overall + default-vs-yours），權重從三處重複收斂成 `config.SCORE_WEIGHTS` 單一定義。測試 →324（PR #35）
+> 2026-07-21 §4G 真瀏覽器驗證 + bug 修：M2 Max 實拖滑桿驗證,抓到 zero-weight 顯示 bug（訊息說 no verdict 但 overall 仍顯示殘值）→ 修為顯示 `—` + 清空 bar（`fe87ff2`）。JS/Python 對拍測不到（回傳值等價 ≠ 渲染正確）→ 加迴歸測試釘住。
+> 2026-07-21 §4H 介面中英切換（i18n）：inspector + viewer（列表頁 + 學生包 export）全支援 EN/中文即時切換,瀏覽器語言自動偵測,localStorage 持久化。抽 `reel_scout/i18n.py` 單一翻譯來源（51 鍵 en/zh）。**只翻介面 chrome,模型產出（reasoning／逐字稿／decoded 值）永不翻**。測試 →329（PR #35）
 > 2026-07-20 §5A 分發補洞（乾淨機器實測）：wheel 原本只含 `reel_scout/`，`pip install` 後 SKILL.md／`/scout`／prompts／setup.py **全部缺席**＝agent 無物可載；改 force-include 進 wheel + 新增 `skill install`。另修 setup.py 對無 clone 使用者印 `<repo-root>` 佔位符的 bug（該檔原本零測試覆蓋）。測試 →280
 
 ## 定位與 Non-goals
@@ -148,6 +152,25 @@ Phase 5  ████████████████████  ✅ Tool 
 
 > ⚠️ 邊界：crv Pro 閉源、未購未跑，這裡偷的是**概念**（pacing 該用實測 shot-table / BPM 背書），不是抄它 cut 偵測的閾值或宣稱它準。
 
+#### 🔴 4E 回填：code 上了，但從沒在語料上跑過（2026-07-20 實查 DB 發現）
+
+上面三個 `[x]` 是**實作完成**，不是**生效**。查 `data/reel_scout.db` 實際內容：
+
+```
+videos 20 | analyses 18 | scores 12 | transcripts 19 | keyframes 213
+shot_metrics 0 | ocr_captions 0        ← §4E / §4F 的產物，兩張表都是空的
+```
+
+`shot_metrics` 零列 ⇒ merger 沒有 `measured` 可折 ⇒ `scorer._measured_block()` 對**每一支**影片都回 `""` ⇒ prompt 裡那段「Measured Signals（objective — prefer these for pacing）」從來沒出現過。
+
+也就是說：**§4E 想解的問題原封不動還在。** 現有 12 筆分數的 `pacing` 仍然百分之百是 LLM 憑感覺給的，跟 §4E 落地前沒有差別——差別只在「現在有能力算，但沒算」。roadmap 標 ✅ 而語料為空，是典型的 completion-blind drift：驗收看的是測試綠，不是資料有沒有真的長出來。
+
+- [ ] 🔴 **對既有語料補跑 §4E/§4F 抽取**，讓 `shot_metrics` / `ocr_captions` 真的有列。要先確認的兩件事：(a) 補跑是否需要原始影片檔仍在（`data/videos/`）——若已清掉，得先決定是重抓還是只對還在的補；(b) 補跑後**既有 12 筆分數要不要重評**——重評會讓分數跨版本不可比（§4E 落地時已知的問題，這次是第二次觸發）。
+- [ ] 🔴 **加一個「證據層是否為空」的可見性**：`stats` 或 `config check` 應該要能告訴你「N 支影片有分數、其中 M 支有實測證據」。這次是靠人工 `SELECT COUNT(*)` 才發現，等於這個洞可以無限期隱形——**能力存在但沒被使用，跟能力不存在，對使用者是同一件事**。
+- [ ] （順帶）`pipeline` 是否該在 `shot_metrics` 寫入失敗時出聲，而不是靜默留白。目前無從得知是「沒跑」還是「跑了但失敗」。
+
+> 這條的來源是 JapowDB 拆解（`hevin-ai-os` case-study 2026-07-20）。該站把評分門檻交給讀者調，逼出一個對照問題：**我們的分數底下有沒有東西可以被檢驗？** 答案是有設計、沒資料。PR #35 的權重滑桿讓「怎麼合成」變透明了，但被合成的四個數字本身，目前仍無客觀依據——先補證據層，滑桿才不只是漂亮。
+
 ### 4F. 燒錄字幕 OCR → 補強 transcript / 信號可靠度
 
 **問題**：純視覺 / 零口白 / 吵雜片，L3（transcript）給不出料或不可靠（見 `prompts/signal-reliability-cheatsheet.md` 4 層信號模型）。目前只靠 L4 VLM「讀招牌字」，沒有專門的時間戳 OCR。
@@ -250,4 +273,5 @@ Phase 5  ████████████████████  ✅ Tool 
 | **v0.4** | ~~3C 標籤正規化~~ ✅ + ~~3D（`stats`）~~ ✅ 2026-07-17（達成，隨 v1.0 一次發布） |
 | **v0.5** | ~~4A（競品研究報告）~~ ✅ 2026-07-17（達成，隨 v1.0 一次發布） |
 | **v1.0** | ~~5A + 5B 完成（PyPI build 就緒 + CI 綠 + yt-dlp 健康檢查 + config check）~~ ✅ 2026-07-17（PyPI 上架待人工 token） |
-| **v1.2** | ~~§4E 評分證據化 + §4F L3.5 OCR + Wave 3（3B patterns / 3A instaloader / 4B inspire / 4D track / 4C MCP 8-tools / 5A+5C docs）~~ ✅ 2026-07-19（PR #31/#32/#33，schema v9，228 tests；⚠️ pacing 評分行為改變，跨版本分數不可比） |
+| **v1.2** | ~~§4E 評分證據化 + §4F L3.5 OCR + Wave 3（3B patterns / 3A instaloader / 4B inspire / 4D track / 4C MCP 8-tools / 5A+5C docs）~~ ✅ 2026-07-19（PR #31/#32/#33，schema v9，228 tests；⚠️ pacing 評分行為改變，跨版本分數不可比）<br>🔴 **2026-07-20 更正：§4E「達成」僅指 code，語料上 `shot_metrics` 為 0 列、從沒真的跑過** → 證據層實質未生效，見 §4E 回填段 |
+| **v1.3（提議）** | 🔴 §4E 證據層**補跑到語料上**（不是再寫 code，是讓既有 code 真的產出資料）+ 證據為空的可見性（`stats` 要能講「N 支有分數、M 支有證據」）。<br>條件：`shot_metrics` 列數 > 0 且 `stats` 能報出證據覆蓋率。**這條沒過之前，任何評分 UI 精修都是在裝飾沒有地基的數字。** |
