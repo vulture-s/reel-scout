@@ -100,7 +100,7 @@ README teaser 那句 "and why it works" 是行銷話術;付費頁本身收斂成
 | 語料沉澱 | ❌ 資料夾 | ❌ 資料夾 | ✅ SQLite 可累積 | **Reel Scout** |
 | 互動 viewer(可點時間軸跳播) | ❌(靜態 viewer.html) | ✅ `--viewer` event timeline | ✅ `inspect` transcript↔keyframe 時間同步(port 自 arkiv,#29) | 平手 |
 | 分發 / 熱度 | ✅ 1,699★＋npx 一鍵 | ✅ 病毒核心→付費漏斗 | ❌ 刻意不追(見 §6) | **crv**(但見 §6) |
-| 易安裝 | ✅ pip／npx | ✅ pip | ⚠️ CLI＋ffmpeg／yt-dlp | **crv** |
+| 易安裝 | ✅ pip／npx | ✅ pip | 🟡 兩行 pip（`pip install reel-scout` yt-dlp 自動帶 → `reel-scout skill install` skill 隨包出貨）＋ffmpeg 系統裝 | 接近平手（crv 略勝在 npx 一鍵；ffmpeg 系統依賴兩邊 ingest 都要） |
 
 **公允結論**:擷取／測量層 crv 全面領先(尤其 Pro 的鏡頭運動與情緒測量);判讀／語料層 Reel Scout 全面領先(rubric 評分、反解、競品、入庫)。**兩邊各自把自己那一層做深,重疊只在最前面的 ingest。** crv Pro 是側翼威脅——它逼近但沒攻進 Reel Scout 的核心判斷軸。
 
