@@ -70,15 +70,29 @@ def collect(conn) -> Dict[str, Any]:
     # clip whose file is gone as a shot-table gap puts a row nobody here can
     # close into the actionable list -- which is the one distinction this whole
     # module exists to keep, and the first version got it wrong.
-    measurable = 0
+    #
+    # 🔴 **The numerator is drawn from the denominator, not from the table.**
+    # The first version counted every clip holding a shot table, measurable or
+    # not, and printed it over this denominator -- which produced a live
+    # `114 / 113 measurable clip(s)`: one clip built its shot table while its
+    # media was here and kept it after the file went. A ratio above 1 is the
+    # visible symptom; the one that matters is silent. The gap was
+    # `measurable - with_shots`, so a clip holding a table it can no longer be
+    # measured against **cancels out** a measurable clip that has no table, and
+    # the row goes green with real work outstanding. Counting the intersection
+    # makes the two populations the same one, and the cancellation impossible.
+    measurable = set()
     for r in conn.execute(
-            "SELECT v.file_path FROM videos v WHERE v.status = 'analyzed' "
+            "SELECT v.id, v.file_path FROM videos v WHERE v.status = 'analyzed' "
             "AND v.duration_sec > 0" + _NOT_INVALID):
-        if media_paths.exists(r[0]):
-            measurable += 1
-    with_shots = _one(
-        conn, "SELECT COUNT(DISTINCT s.video_id) FROM shots s "
-              "JOIN videos v ON v.id = s.video_id WHERE 1=1" + _NOT_INVALID)
+        if media_paths.exists(r[1]):
+            measurable.add(r[0])
+    has_shots = {
+        r[0] for r in conn.execute(
+            "SELECT DISTINCT s.video_id FROM shots s "
+            "JOIN videos v ON v.id = s.video_id WHERE 1=1" + _NOT_INVALID)
+    }
+    measurable_with_shots = len(measurable & has_shots)
 
     scored = _one(conn, "SELECT COUNT(*) FROM scores s "
                         "JOIN videos v ON v.id = s.video_id WHERE 1=1" + _NOT_INVALID)
@@ -112,8 +126,12 @@ def collect(conn) -> Dict[str, Any]:
             if _one(conn, "SELECT COUNT(*) FROM videos WHERE id = ? AND status != ?",
                     r["id"], validity.INVALID_STATUS)
         ]),
-        "measurable": measurable,
-        "with_shots": with_shots,
+        "measurable": len(measurable),
+        # Named for what it counts. The bug this replaces was a name that did
+        # not carry its constraint: `with_shots` read as "clips with a shot
+        # table" and was compared against a denominator that meant something
+        # narrower, and nothing in the expression said so.
+        "measurable_with_shots": measurable_with_shots,
         "orphaned_shot_labels": _one(
             conn,
             "SELECT COUNT(*) FROM shot_labels l JOIN videos v ON v.id = l.video_id "
@@ -182,9 +200,13 @@ def findings(h: Dict[str, Any]) -> List[Dict[str, Any]]:
         "db check-invalid --apply" if h["invalid_unmarked"] else None,
         actionable=h["invalid_unmarked"] > 0)
 
-    gap = max(0, h["measurable"] - h["with_shots"])
+    # No `max(0, ...)` here on purpose: the numerator is a subset of the
+    # denominator now, so a negative gap would mean the collector is wrong, and
+    # clamping it is exactly how the earlier version stayed quiet about that.
+    gap = h["measurable"] - h["measurable_with_shots"]
     add("shot table", gap == 0,
-        "%d / %d measurable clip(s)" % (h["with_shots"], h["measurable"]),
+        "%d / %d measurable clip(s)"
+        % (h["measurable_with_shots"], h["measurable"]),
         "db backfill-shots" if gap else None, actionable=gap > 0)
 
     add("shot sizes", True,

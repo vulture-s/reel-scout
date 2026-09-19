@@ -287,3 +287,42 @@ def test_an_orphaned_label_is_reported_with_no_remedy():
     assert row, "the orphan finding should be present"
     assert row[0]["fix"] is None and row[0]["actionable"] is False
     assert row[0]["ok"] is False
+
+
+def test_a_shot_table_on_a_clip_whose_media_is_gone_does_not_inflate_the_ratio():
+    # Live output read `114 / 113 measurable clip(s)` -- a numerator above its
+    # own denominator. One clip built its shot table while the file was here
+    # and kept it after the file went, so it counted in a population it had
+    # dropped out of.
+    conn, path = _temp_db()
+    try:
+        gone = _clip(conn, "gone", path="/definitely/not/here.mp4")
+        here = _clip(conn, "here", path="/tmp/here.mp4")
+        db.save_shots(conn, gone, [Shot(0, 0.0, 10.0, 10.0)])
+        db.save_shots(conn, here, [Shot(0, 0.0, 10.0, 10.0)])
+        with patch.object(health.media_paths, "exists",
+                          side_effect=lambda p: p == "/tmp/here.mp4"):
+            h = health.collect(conn)
+        assert h["measurable"] == 1
+        assert h["measurable_with_shots"] == 1, "the gone clip is not in this population"
+    finally:
+        conn.close(); os.unlink(path)
+
+
+def test_an_unmeasurable_shot_table_cannot_cancel_a_measurable_gap():
+    # The half that does not announce itself. The gap was
+    # `measurable - with_shots` across two different populations, so a clip
+    # holding a table nobody can measure against offset a clip that genuinely
+    # needed one, and the row went green with real work outstanding.
+    conn, path = _temp_db()
+    try:
+        gone = _clip(conn, "gone", path="/definitely/not/here.mp4")
+        db.save_shots(conn, gone, [Shot(0, 0.0, 10.0, 10.0)])
+        _clip(conn, "needs", path="/tmp/needs.mp4")
+        with patch.object(health.media_paths, "exists",
+                          side_effect=lambda p: p == "/tmp/needs.mp4"):
+            r = _rows(conn)["shot table"]
+        assert r["actionable"], "one measurable clip still has no shot table"
+        assert r["detail"].startswith("0 / 1")
+    finally:
+        conn.close(); os.unlink(path)
