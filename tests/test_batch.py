@@ -617,3 +617,41 @@ def test_a_child_that_already_exited_is_not_chased(monkeypatch):
             pass
 
     assert batch._group_to_kill(_Gone()) is None
+
+
+def test_skipped_links_reports_what_parse_rows_declined():
+    text = (
+        "https://www.instagram.com/reel/AAA111/\n"
+        "https://youtube.com/watch?v=UbXCpVg_VQU&si=x\n"
+        "https://www.threads.com/share/_eb8z3Xml/\n"
+        "https://youtube.com/shorts/Daedu4_rr9U?si=y\n"
+        "https://docs.google.com/document/d/abc123/edit\n"
+    )
+    assert [u for _, u in batch.parse_rows(text)] == [
+        "https://www.instagram.com/reel/AAA111/",
+        "https://youtube.com/shorts/Daedu4_rr9U?si=y",
+    ]
+    assert batch.skipped_links(text) == [
+        "https://youtube.com/watch?v=UbXCpVg_VQU&si=x",
+        "https://www.threads.com/share/_eb8z3Xml/",
+    ]
+
+
+def test_skipped_links_empty_when_everything_is_batchable():
+    assert batch.skipped_links("https://www.instagram.com/reel/AAA111/\n") == []
+
+
+def test_cli_batch_dry_run_prints_the_skipped_links(tmp_path, capsys, monkeypatch):
+    from reel_scout import cli
+    src = tmp_path / "q.txt"
+    src.write_text("https://www.instagram.com/reel/AAA111/\n"
+                   "https://youtube.com/watch?v=UbXCpVg_VQU\n", encoding="utf-8")
+    monkeypatch.setattr(batch, "probe", lambda: {"vlm": True, "whisper": True})
+    try:
+        cli.main(["batch", "--file", str(src), "--dry-run"])
+    except SystemExit:
+        pass
+    out = capsys.readouterr().out
+    assert "Found 1:" in out
+    assert "Not batched (1)" in out
+    assert "https://youtube.com/watch?v=UbXCpVg_VQU" in out

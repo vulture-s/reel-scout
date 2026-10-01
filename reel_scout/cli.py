@@ -1362,6 +1362,12 @@ def _cmd_batch(args) -> Optional[int]:
     print("Found %d:" % len(entries))
     for i, (label, url) in enumerate(entries, 1):
         print("  %2d. %-14s %s" % (i, label or "(unlabelled)", url))
+    skipped = batch.skipped_links(text)
+    if skipped:
+        print("\nNot batched (%d) -- batch only takes Reels / TikTok / Shorts:" % len(skipped))
+        for url in skipped:
+            print("      %s" % url)
+        print("  Long-form YouTube still works one at a time: reel-scout analyze <url>")
 
     caps = batch.probe()
     mode, msg = batch.resolve_mode(args.mode, caps)

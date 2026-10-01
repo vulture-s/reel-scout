@@ -149,6 +149,32 @@ def parse_rows(text: str) -> List[Tuple[str, str]]:
     return out
 
 
+#: Any link at all, for reporting what parse_rows declined. Deliberately loose:
+#: its only job is to make the declined rows visible.
+ANY_URL_RE = re.compile(r"https?://[^\s,\"'）)<>]+", re.IGNORECASE)
+
+
+def skipped_links(text: str) -> List[str]:
+    """Links in *text* that parse_rows will not batch, in document order.
+
+    URL_RE deliberately leaves out long-form YouTube, Threads, Facebook and Drive
+    links. Leaving them out is a decision; leaving them out *without saying so*
+    is not -- a queue of 75 printed "Found 70" and the other five simply never
+    ran, with nothing on screen to show they had been in the list.
+    """
+    taken = {u for _, u in parse_rows(text)}
+    out: List[str] = []
+    for m in ANY_URL_RE.finditer(text):
+        url = m.group(0).rstrip(".,;、。")
+        if DOC_ID_RE.search(url):
+            continue
+        if url in taken or URL_RE.match(url):
+            continue
+        if url not in out:
+            out.append(url)
+    return out
+
+
 def slugify(label: str, index: int) -> str:
     """Filesystem-safe directory name. CJK is kept — most labels are names."""
     if not label:
