@@ -227,7 +227,9 @@ def merge_analysis(
     )
 
     llm = get_llm()
-    result_json = llm.complete(prompt, max_tokens=800, temperature=0.1)
+    result_json = llm.complete(
+        prompt, max_tokens=config.MERGE_MAX_TOKENS, temperature=0.1
+    )
 
     try:
         data = json.loads(result_json)
