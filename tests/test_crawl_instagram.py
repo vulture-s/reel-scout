@@ -242,3 +242,62 @@ def test_a_dns_failure_is_reported_as_network_not_cookies_or_yt_dlp():
     msg = _metadata_failure(_DNS_STDERR)
     assert "(network)" in msg and "network failed" in msg
     assert "need cookies" not in msg and "yt-dlp -U" not in msg
+
+
+# --- carousels: one JSON line per slide ---------------------------------------
+
+import json as _json
+
+
+def _slide(i, vid=True):
+    d = {"id": "S%d" % i, "playlist_index": i, "title": "t", "uploader": "u", "duration": 5}
+    if vid:
+        d["formats"] = [{"format_id": "1"}]
+    return _json.dumps(d)
+
+
+def _carousel_download(stdout, url, returncode=0, stderr=""):
+    calls = []
+
+    def _rec(cmd, **kw):
+        calls.append(cmd)
+        if "--dump-json" in cmd:
+            return MagicMock(returncode=returncode, stdout=stdout, stderr=stderr)
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    c = InstagramCrawler()
+    with _patch_basecmd(), \
+         patch("reel_scout.crawl.instagram.get_limiter"), \
+         patch("reel_scout.crawl.instagram.subprocess.run", side_effect=_rec), \
+         patch("reel_scout.crawl.instagram.os.path.exists", return_value=True), \
+         patch("reel_scout.crawl.instagram.os.path.getsize", return_value=1234), \
+         patch("reel_scout.crawl.instagram.ffprobe.warn_if_not_apple_playable"):
+        meta = c.download(url, output_dir="/tmp")
+    dl = [cmd for cmd in calls if "--dump-json" not in cmd][0]
+    return meta, dl
+
+
+def test_a_video_carousel_downloads_one_slide_not_crash_on_extra_data():
+    out = "\n".join(_slide(i) for i in range(1, 6))
+    meta, dl = _carousel_download(out, "https://www.instagram.com/p/Dc4nX4FiBJx/")
+    assert dl[dl.index("--playlist-items") + 1] == "1"
+    assert meta.platform_id == "Dc4nX4FiBJx"
+
+
+def test_img_index_picks_the_slide_the_link_points_at():
+    out = "\n".join(_slide(i) for i in range(1, 6))
+    _meta, dl = _carousel_download(out, "https://www.instagram.com/p/Dc4nX4FiBJx/?img_index=4")
+    assert dl[dl.index("--playlist-items") + 1] == "4"
+
+
+def test_a_mixed_carousel_that_exits_non_zero_still_gets_its_video():
+    out = _slide(2)  # slides 1 and 3 were photos and only produced stderr
+    _meta, dl = _carousel_download(out, "https://www.instagram.com/p/X/", returncode=1,
+                                   stderr=_PHOTO_STDERR)
+    assert dl[dl.index("--playlist-items") + 1] == "2"
+
+
+def test_a_single_reel_does_not_get_playlist_items():
+    reel = _json.dumps({"id": "R", "title": "t", "duration": 5, "formats": [{}]})
+    _meta, dl = _carousel_download(reel, "https://www.instagram.com/reel/R/")
+    assert "--playlist-items" not in dl

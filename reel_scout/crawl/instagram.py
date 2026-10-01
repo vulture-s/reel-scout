@@ -4,7 +4,7 @@ import json
 import os
 import re
 import subprocess
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from .base import BaseCrawler, VideoMeta
 from .rate_limiter import get_limiter
@@ -12,6 +12,41 @@ from . import ytdlp
 from .. import config
 from .. import ffprobe
 from ..utils.stderr import warn
+
+
+def _video_entries(stdout: str) -> List[Tuple[int, dict]]:
+    """[(1-based playlist index, info)] for every slide yt-dlp returned with formats.
+
+    A single reel is one line; a carousel is one line per slide. Lines that do
+    not parse are skipped rather than fatal -- a mixed carousel exits non-zero
+    for its photo slides while still printing the video ones.
+    """
+    parsed: List[Tuple[int, dict]] = []
+    for n, line in enumerate((stdout or "").splitlines(), 1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            info = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(info, dict):
+            parsed.append((int(info.get("playlist_index") or n), info))
+    if len(parsed) <= 1:
+        # A single reel: trust it as before, whatever fields it carries.
+        return parsed
+    return [(i, info) for i, info in parsed if info.get("formats") or info.get("url")]
+
+
+def _pick_entry(entries: List[Tuple[int, dict]], url: str) -> int:
+    """Position in *entries* of the slide the link points at, else 0."""
+    m = re.search(r"[?&]img_index=(\d+)", url)
+    if m:
+        want = int(m.group(1))
+        for i, (idx, _info) in enumerate(entries):
+            if idx == want:
+                return i
+    return 0
 
 
 def photo_only_count(stderr: str) -> int:
@@ -75,7 +110,8 @@ class InstagramCrawler(BaseCrawler):
         result = subprocess.run(
             meta_cmd, capture_output=True, text=True, timeout=60,
         )
-        if result.returncode != 0:
+        entries = _video_entries(result.stdout)
+        if result.returncode != 0 and not entries:
             photos = photo_only_count(result.stderr)
             if photos:
                 raise RuntimeError(
@@ -89,8 +125,18 @@ class InstagramCrawler(BaseCrawler):
             raise RuntimeError(
                 f"yt-dlp IG metadata failed (need cookies?): {ytdlp.format_error(result.stderr)}"
             )
+        if not entries:
+            raise RuntimeError("yt-dlp IG metadata returned no video entry")
 
-        info = json.loads(result.stdout)
+        # A carousel prints one JSON object per slide, and json.loads on the
+        # whole stdout died with "Extra data: line 2 column 1" (Dc4nX4FiBJx, five
+        # video slides, 2026-10-02). One URL is one library row, so pick one
+        # slide: the one the shared link points at (img_index), else the first.
+        pick = _pick_entry(entries, url)
+        playlist_index, info = entries[pick]
+        if len(entries) > 1:
+            print("  carousel with %d video slide(s); analyzing slide %d"
+                  % (len(entries), playlist_index))
 
         # Download
         # Was a bare "bestvideo+bestaudio/best" -- no codec condition at all,
@@ -100,8 +146,13 @@ class InstagramCrawler(BaseCrawler):
             "-f", ytdlp.apple_safe_format(),
             "--merge-output-format", "mp4",
             "-o", output_template,
-            url,
         ]
+        if len(entries) > 1 or info.get("playlist_index"):
+            # A carousel slide, even a lone video among photos: without this
+            # every slide renders to the same ig_<post>.mp4 template, and the
+            # photo slides fail the whole download.
+            dl_cmd += ["--playlist-items", str(playlist_index)]
+        dl_cmd.append(url)
         result = subprocess.run(
             dl_cmd, capture_output=True, text=True, timeout=300,
         )
