@@ -231,3 +231,14 @@ def test_photo_carousel_says_no_video_not_update_yt_dlp():
 def test_a_mixed_failure_keeps_the_real_error_and_hint():
     msg = _metadata_failure(_PHOTO_STDERR + "\nERROR: [Instagram] x: login required")
     assert "need cookies" in msg and "login required" in msg
+
+
+_DNS_STDERR = ("ERROR: [Instagram] DZWQLaksluN: Unable to download webpage: "
+               "HTTPSConnection(host='www.instagram.com', port=443): Failed to resolve "
+               "'www.instagram.com' ([Errno 8] nodename nor servname provided, or not known)")
+
+
+def test_a_dns_failure_is_reported_as_network_not_cookies_or_yt_dlp():
+    msg = _metadata_failure(_DNS_STDERR)
+    assert "(network)" in msg and "network failed" in msg
+    assert "need cookies" not in msg and "yt-dlp -U" not in msg
