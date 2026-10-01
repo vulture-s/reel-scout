@@ -292,6 +292,13 @@ AUDIO_TOP_K = int(os.getenv("AUDIO_TOP_K", "3"))
 #: the timeline truncates but the per-label inventory is still printed, so
 #: "which effects does this video use" survives even when the timings do not.
 AUDIO_MERGE_MAX_EVENTS = int(os.getenv("AUDIO_MERGE_MAX_EVENTS", "40"))
+#: Output ceiling for the merge call. It was a literal 800, and 800 is not enough
+#: for a talk-heavy clip: a 14-minute interview needed 1038 tokens of JSON, so
+#: Ollama stopped at done_reason=length mid-string and every retry failed with
+#: "Expecting ',' delimiter" around char 2400-2600 -- read for weeks as "the
+#: model emits broken JSON". It is a ceiling, not a target: the model stops on
+#: its own when the object is closed, so short clips cost nothing extra.
+MERGE_MAX_TOKENS = int(os.getenv("MERGE_MAX_TOKENS", "2000"))
 
 # --- OCR / on-screen text (§4F, L3.5) ---
 # Collect burned-in on-screen captions with timestamps as an extra signal layer
