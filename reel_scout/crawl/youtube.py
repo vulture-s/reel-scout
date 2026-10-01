@@ -4,7 +4,7 @@ import json
 import os
 import re
 import subprocess
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .base import BaseCrawler, VideoMeta
 from .rate_limiter import get_limiter
@@ -45,6 +45,62 @@ def _download_timeout(duration) -> int:
     return max(_MIN_DOWNLOAD_TIMEOUT, scaled)
 
 
+def _primary(code: str) -> str:
+    return code.split("-")[0].lower()
+
+
+def choose_caption_track(info: Dict[str, Any]) -> Tuple[str, Optional[str], bool]:
+    """Pick the one caption track that is in the language actually spoken.
+
+    Returns ``("pick", code, is_auto)``, ``("none", None, False)`` when the
+    metadata shows no track in the spoken language (so Whisper should run), or
+    ``("legacy", None, False)`` when the metadata cannot decide.
+
+    The old fetch asked for ``en.*,zh.*`` and let find_subtitle sort it out on
+    disk. is_translated_track catches YouTube's ``<target>-<source>`` codes, but
+    the automatic-captions list also carries translations under *bare* codes:
+    a Japanese OVA (0DA5QflpGHA) offers ``ja-orig`` (the ASR) next to ``en``,
+    ``zh-Hans`` and ``zh-Hant`` -- all machine translations of the Japanese,
+    indistinguishable by name from a real ``en`` track. With ``en`` first in
+    the preference order, the transcript would have been an English
+    translation. A Taiwanese video (3aHhxOTwrZQ) has uploaded ``zh-TW`` and
+    ``en-US`` plus auto ``en``: same outcome.
+
+    What does distinguish them is in the metadata, not the filename:
+    ``language`` says what is spoken, ``subtitles`` holds uploaded tracks and
+    ``automatic_captions`` marks its ASR original with ``-orig``.
+    """
+    lang = info.get("language") or ""
+    uploaded = [k for k in (info.get("subtitles") or {}) if k != "live_chat"]
+    auto = list((info.get("automatic_captions") or {}).keys())
+    origs = [k for k in auto if k.endswith("-orig")]
+
+    if lang:
+        want = _primary(lang)
+        exact = [k for k in uploaded if k.lower() == lang.lower()]
+        same = exact or [k for k in uploaded if _primary(k) == want]
+        if same:
+            return "pick", same[0], False
+        same = [k for k in origs if _primary(k) == want]
+        if same:
+            return "pick", same[0], True
+        if not origs and lang in auto:
+            # No ASR marker at all: a bare track named exactly after the
+            # spoken language is the only candidate that can be the original.
+            return "pick", lang, True
+        if uploaded or auto:
+            return "none", None, False
+        return "legacy", None, False
+
+    if len(uploaded) == 1:
+        return "pick", uploaded[0], False
+    if not uploaded and len(origs) == 1:
+        return "pick", origs[0], True
+    if not uploaded and len(auto) == 1:
+        return "pick", auto[0], True
+    return "legacy", None, False
+
+
 class YouTubeCrawler(BaseCrawler):
     platform = "youtube"
 
@@ -61,7 +117,8 @@ class YouTubeCrawler(BaseCrawler):
                 return m.group(1)
         raise ValueError(f"Cannot extract YouTube video ID from: {url}")
 
-    def _fetch_subtitles(self, url: str, output_template: str) -> None:
+    def _fetch_subtitles(self, url: str, output_template: str,
+                         info: Optional[Dict[str, Any]] = None) -> None:
         """Fetch native + auto-generated subs alongside the media. Best effort.
 
         When subs exist the transcribe step can skip local Whisper entirely (招①);
@@ -73,11 +130,21 @@ class YouTubeCrawler(BaseCrawler):
         likelier the more videos you pull, which is exactly what channel crawling
         does, so it must never cost us media we already downloaded.
         """
+        decision, code, auto = choose_caption_track(info or {})
+        if decision == "none":
+            print("  No caption track in the spoken language (%s); "
+                  "using Whisper on the audio instead." % (info or {}).get("language"))
+            return
+        if decision == "pick":
+            write = ["--write-auto-subs"] if auto else ["--write-subs"]
+            langs = re.escape(code)
+        else:
+            write = ["--write-subs", "--write-auto-subs"]
+            langs = "en.*,zh.*"
         cmd = ytdlp.cmd(
             "--skip-download",
-            "--write-subs",
-            "--write-auto-subs",
-            "--sub-langs", "en.*,zh.*",
+            *write,
+            "--sub-langs", langs,
             "--convert-subs", "vtt",
             "-o", output_template,
             "--no-playlist",
@@ -245,7 +312,7 @@ class YouTubeCrawler(BaseCrawler):
                 # exception three frames up the stack.
                 warn("  codec check skipped: %r" % (exc,))
 
-        self._fetch_subtitles(url, output_template)
+        self._fetch_subtitles(url, output_template, info)
 
         meta = VideoMeta(
             platform=self.platform,

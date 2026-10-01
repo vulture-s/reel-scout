@@ -514,3 +514,77 @@ def test_probe_video_codec_returns_none_when_it_cannot_measure():
         assert ffprobe.probe_video_codec("whatever.mp4") is None
     finally:
         subprocess.run = orig
+
+
+# --- caption track choice ---------------------------------------------------
+# Shapes copied from real `yt-dlp -J` output (2026-10-02).
+
+from reel_scout.crawl.youtube import choose_caption_track
+
+_JA_OVA = {  # 0DA5QflpGHA: Japanese audio, translations under bare codes
+    "language": "ja", "subtitles": {},
+    "automatic_captions": {k: [{}] for k in
+                           ("zh-Hans", "zh-Hant", "en", "ja-orig", "ja", "fr")},
+}
+_TW_UPLOADED = {  # 3aHhxOTwrZQ: uploaded zh-TW + creator English, auto en
+    "language": "zh-Hant",
+    "subtitles": {"zh-TW": [{}], "en-US": [{}]},
+    "automatic_captions": {k: [{}] for k in ("zh-TW", "en-US", "zh-Hans", "en")},
+}
+
+
+def test_japanese_audio_takes_the_asr_original_not_the_english_translation():
+    assert choose_caption_track(_JA_OVA) == ("pick", "ja-orig", True)
+
+
+def test_uploaded_track_in_the_spoken_language_beats_english():
+    assert choose_caption_track(_TW_UPLOADED) == ("pick", "zh-TW", False)
+
+
+def test_english_video_keeps_its_english_asr():
+    info = {"language": "en", "subtitles": {},
+            "automatic_captions": {"en-orig": [{}], "en": [{}], "zh-Hant": [{}]}}
+    assert choose_caption_track(info) == ("pick", "en-orig", True)
+
+
+def test_no_track_in_the_spoken_language_means_whisper():
+    info = {"language": "ja", "subtitles": {"en": [{}]}, "automatic_captions": {}}
+    assert choose_caption_track(info)[0] == "none"
+
+
+def test_unknown_language_with_one_uploaded_track_takes_it():
+    info = {"language": None, "subtitles": {"zh-TW": [{}], "live_chat": [{}]},
+            "automatic_captions": {"zh-TW": [{}]}}
+    assert choose_caption_track(info) == ("pick", "zh-TW", False)
+
+
+def test_metadata_without_caption_fields_falls_back_to_the_old_fetch():
+    assert choose_caption_track({"title": "T"})[0] == "legacy"
+
+
+class _CaptionRecorder(_Recorder):
+    def __init__(self, out_dir, info):
+        super().__init__(out_dir)
+        self._info = info
+
+    def __call__(self, cmd, **kw):
+        if "--dump-json" in cmd:
+            self.calls.append(cmd)
+            return _Done(0, stdout=json.dumps(dict(self._info, title="T", duration=12)))
+        return super().__call__(cmd, **kw)
+
+
+def test_download_asks_yt_dlp_for_exactly_the_chosen_track(tmp_path, monkeypatch, no_rate_limit):
+    rec = _run(monkeypatch, _CaptionRecorder(str(tmp_path), _JA_OVA))
+    YouTubeCrawler().download(URL, str(tmp_path))
+    subs = [c for c in rec.calls if "--skip-download" in c][0]
+    assert subs[subs.index("--sub-langs") + 1] == "ja\\-orig"
+    assert "--write-auto-subs" in subs and "--write-subs" not in subs
+
+
+def test_download_skips_the_caption_pass_when_none_is_in_the_spoken_language(
+        tmp_path, monkeypatch, no_rate_limit):
+    info = {"language": "ja", "subtitles": {"en": [{}]}, "automatic_captions": {}}
+    rec = _run(monkeypatch, _CaptionRecorder(str(tmp_path), info))
+    YouTubeCrawler().download(URL, str(tmp_path))
+    assert not [c for c in rec.calls if "--skip-download" in c]
