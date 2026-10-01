@@ -230,6 +230,75 @@ def test_download_still_raises_when_every_format_fails(
     assert not [c for c in rec.calls if "--skip-download" in c]
 
 
+class _BothFailRecorder(_Recorder):
+    """Preferred formats fail one way, the progressive retry another.
+
+    The shape of M7Is_ogGLDg (2026-10-01): a livestream archive has no format
+    18, so the retry always dies on "Requested format is not available" --
+    which used to be the entire error, hiding why the first attempt failed.
+    """
+
+    def __init__(self, out_dir, first_raises=None, duration=12):
+        super().__init__(out_dir)
+        self._first_raises = first_raises
+        self._duration = duration
+        self.media_timeouts = []
+
+    def __call__(self, cmd, **kw):
+        if "--dump-json" in cmd:
+            self.calls.append(cmd)
+            return _Done(0, stdout=json.dumps(
+                {"title": "T", "uploader": "U", "duration": self._duration,
+                 "upload_date": "20260101"}
+            ))
+        if "--merge-output-format" in cmd:
+            self.calls.append(cmd)
+            self.media_timeouts.append(kw.get("timeout"))
+            if len(self.media_timeouts) == 1:
+                if self._first_raises:
+                    raise self._first_raises
+                return _Done(1, stderr="ERROR: unable to download video data: HTTP Error 403")
+            return _Done(1, stderr="ERROR: [youtube] x: Requested format is not available")
+        return super().__call__(cmd, **kw)
+
+
+def test_final_error_names_both_attempts(tmp_path, monkeypatch, no_rate_limit):
+    _run(monkeypatch, _BothFailRecorder(str(tmp_path)))
+    with pytest.raises(RuntimeError) as exc:
+        YouTubeCrawler().download(URL, str(tmp_path))
+
+    msg = str(exc.value)
+    assert "HTTP Error 403" in msg, "the first attempt's failure must survive the retry"
+    assert "Requested format is not available" in msg
+
+
+def test_a_timed_out_attempt_still_reaches_the_fallback(tmp_path, monkeypatch, no_rate_limit):
+    import subprocess
+    rec = _run(monkeypatch, _BothFailRecorder(
+        str(tmp_path), first_raises=subprocess.TimeoutExpired("yt-dlp", 300)))
+    with pytest.raises(RuntimeError) as exc:
+        YouTubeCrawler().download(URL, str(tmp_path))
+
+    assert len(rec.media_timeouts) == 2, "a timeout must not skip the progressive retry"
+    assert "timed out after 300s" in str(exc.value)
+
+
+@pytest.mark.parametrize("duration, expected", [
+    (12, 300),          # short-form keeps the old floor
+    (None, 300),        # metadata without a duration
+    ("bogus", 300),
+    (13312, 1331),      # the 3h41m clip that ran at 85-89% of a flat 300s
+])
+def test_download_timeout_scales_with_duration(
+    tmp_path, monkeypatch, no_rate_limit, duration, expected
+):
+    rec = _run(monkeypatch, _BothFailRecorder(str(tmp_path), duration=duration))
+    with pytest.raises(RuntimeError):
+        YouTubeCrawler().download(URL, str(tmp_path))
+
+    assert rec.media_timeouts == [expected, expected]
+
+
 def test_retry_does_not_resume_the_previous_format_partial(
     tmp_path, monkeypatch, no_rate_limit
 ):
