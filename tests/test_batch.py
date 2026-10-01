@@ -655,3 +655,18 @@ def test_cli_batch_dry_run_prints_the_skipped_links(tmp_path, capsys, monkeypatc
     assert "Found 1:" in out
     assert "Not batched (1)" in out
     assert "https://youtube.com/watch?v=UbXCpVg_VQU" in out
+
+
+@pytest.mark.parametrize("url,want", [
+    ("https://www.instagram.com/reel/DcHhpJiPM7b/?stkn=abc", "clip-DcHhpJiPM7b"),
+    ("https://www.youtube.com/shorts/Daedu4_rr9U", "clip-Daedu4_rr9U"),
+    ("https://vm.tiktok.com/ZMabc123/", "clip-ZMabc123"),
+])
+def test_unlabelled_entries_are_named_after_the_post_not_the_position(url, want):
+    # Two runs into the same --out must not share clip-01..N directories.
+    assert batch.slugify("", 1, url) == want
+    assert batch.slugify("", 1, url) == batch.slugify("", 7, url)
+
+
+def test_a_label_still_wins_over_the_url():
+    assert batch.slugify("Amy Wu", 2, "https://www.instagram.com/reel/AAA/") == "Amy-Wu"
