@@ -175,10 +175,25 @@ def skipped_links(text: str) -> List[str]:
     return out
 
 
-def slugify(label: str, index: int) -> str:
-    """Filesystem-safe directory name. CJK is kept — most labels are names."""
+def _url_key(url: str) -> str:
+    """The post/video code in a reel URL (``DcHhpJiPM7b``, ``Daedu4_rr9U``)."""
+    path = url.split("?", 1)[0].rstrip("/")
+    tail = path.rsplit("/", 1)[-1] if "/" in path else ""
+    return re.sub(r"[^\w\-]", "", tail)
+
+
+def slugify(label: str, index: int, url: str = "") -> str:
+    """Filesystem-safe directory name. CJK is kept — most labels are names.
+
+    An unlabelled entry is named after its URL's post code when there is one.
+    ``clip-<index>`` restarts at 01 every run, so a second run into the same
+    --out wrote its clips into the first run's directories: clip-07 ended up
+    holding three different creators' pages from two batches two months apart,
+    with nothing to say which belonged to which.
+    """
     if not label:
-        return "clip-%02d" % index
+        key = _url_key(url) if url else ""
+        return ("clip-%s" % key) if key else ("clip-%02d" % index)
     kept: List[str] = []
     for ch in unicodedata.normalize("NFKC", label):
         if ch.isalnum():
@@ -443,7 +458,7 @@ def run_batch(entries: List[Tuple[str, str]], out_root: str, mode: str,
     started = time.monotonic()
 
     for i, (label, url) in enumerate(entries, 1):
-        slug = slugify(label, i)
+        slug = slugify(label, i, url)
         # Checked here and nowhere else, matching the cancel contract exactly:
         # half an analysis is worse than one more finished video. Overshoot is
         # therefore bounded by one item, not by the deadline.
