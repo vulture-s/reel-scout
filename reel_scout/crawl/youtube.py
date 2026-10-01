@@ -30,6 +30,21 @@ def _landed(result, expected: str) -> bool:
     return result.returncode == 0 and os.path.exists(expected)
 
 
+_MIN_DOWNLOAD_TIMEOUT = 300
+# Seconds of download budget per second of video. 0.1 gives the 3h41m clip
+# 1331s against a measured 254-267s -- headroom for a slower link without
+# letting a stuck transfer hang a batch for hours on short clips.
+_DOWNLOAD_TIMEOUT_PER_SEC = 0.1
+
+
+def _download_timeout(duration) -> int:
+    try:
+        scaled = int(float(duration) * _DOWNLOAD_TIMEOUT_PER_SEC)
+    except (TypeError, ValueError):
+        scaled = 0
+    return max(_MIN_DOWNLOAD_TIMEOUT, scaled)
+
+
 class YouTubeCrawler(BaseCrawler):
     platform = "youtube"
 
@@ -125,21 +140,36 @@ class YouTubeCrawler(BaseCrawler):
         # transferring anything, and the checks below read that as success.
         ytdlp.clear_unusable_output(expected)
 
+        # A flat 300s was sized for short-form. A 3h41m livestream archive
+        # (M7Is_ogGLDg, 2026-10-01) took 254s and 267s at 720p on two runs --
+        # 85-89% of the budget, so a slower link or a longer clip tips it over.
+        # Scale with what the metadata says we are about to fetch.
+        timeout = _download_timeout(info.get("duration"))
+
         def _download(selector: str, *extra: str):
-            return subprocess.run(
-                ytdlp.cmd(
-                    "-f", selector,
-                    "--merge-output-format", "mp4",
-                    "-o", output_template,
-                    "--no-playlist",
-                    "--remote-components", "ejs:github",
-                    *extra,
-                    url,
-                ),
-                capture_output=True, text=True, timeout=300,
+            cmd = ytdlp.cmd(
+                "-f", selector,
+                "--merge-output-format", "mp4",
+                "-o", output_template,
+                "--no-playlist",
+                "--remote-components", "ejs:github",
+                *extra,
+                url,
             )
+            try:
+                return subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=timeout,
+                )
+            except subprocess.TimeoutExpired:
+                # A timeout is a failed attempt like any other: it should reach
+                # the progressive fallback and be named in the final error, not
+                # escape as an exception that skips both.
+                return subprocess.CompletedProcess(
+                    cmd, 1, "", f"ERROR: yt-dlp timed out after {timeout}s",
+                )
 
         result = _download(ytdlp.apple_safe_format(720))
+        first_result = result
 
         if not _landed(result, expected):
             # The `/` chain above only degrades while *choosing* a format. Once a
@@ -179,7 +209,22 @@ class YouTubeCrawler(BaseCrawler):
 
         if not _landed(result, expected):
             # No media produced -> genuine download failure (not a subtitle hiccup).
-            raise RuntimeError(f"yt-dlp download failed: {ytdlp.format_error(result.stderr)}")
+            #
+            # Report both attempts. Reporting only the last one hid the real
+            # failure on M7Is_ogGLDg (2026-10-01): the retry died on "Requested
+            # format is not available" -- a livestream archive has no format 18
+            # -- and that was the whole message, so the reason the preferred
+            # formats failed was unrecoverable.
+            if result is first_result:
+                detail = ytdlp.format_error(result.stderr)
+            else:
+                detail = (
+                    "preferred formats: %s\nprogressive retry: %s" % (
+                        ytdlp.format_error(first_result.stderr) or "(no stderr)",
+                        ytdlp.format_error(result.stderr) or "(no stderr)",
+                    )
+                )
+            raise RuntimeError(f"yt-dlp download failed: {detail}")
         file_path = expected
         file_size = os.path.getsize(file_path) if file_path else 0
 
