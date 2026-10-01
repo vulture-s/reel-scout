@@ -200,3 +200,34 @@ def test_download_measures_the_file_that_actually_landed():
         c.download(CANONICAL, output_dir="/tmp")
 
     chk.assert_called_once()
+
+
+# A photo carousel fails once per slide with "No video formats found!", which
+# the generic extractor hint reads as "update yt-dlp / need cookies?".
+
+_PHOTO_STDERR = "\n".join(
+    "ERROR: [Instagram] Dbpz6%s: No video formats found!; please report this issue" % i
+    for i in range(3)
+)
+
+
+def _metadata_failure(stderr):
+    c = InstagramCrawler()
+    fail = MagicMock(returncode=1, stdout="", stderr=stderr)
+    with _patch_basecmd(), \
+         patch("reel_scout.crawl.instagram.get_limiter"), \
+         patch("reel_scout.crawl.instagram.subprocess.run", return_value=fail):
+        with pytest.raises(RuntimeError) as exc:
+            c.download("https://www.instagram.com/p/Dbp0bVtIGoh/", output_dir="/tmp")
+    return str(exc.value)
+
+
+def test_photo_carousel_says_no_video_not_update_yt_dlp():
+    msg = _metadata_failure(_PHOTO_STDERR)
+    assert "no video" in msg and "3 item" in msg
+    assert "yt-dlp -U" not in msg and "need cookies" not in msg
+
+
+def test_a_mixed_failure_keeps_the_real_error_and_hint():
+    msg = _metadata_failure(_PHOTO_STDERR + "\nERROR: [Instagram] x: login required")
+    assert "need cookies" in msg and "login required" in msg
