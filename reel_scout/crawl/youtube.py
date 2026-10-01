@@ -49,6 +49,45 @@ def _primary(code: str) -> str:
     return code.split("-")[0].lower()
 
 
+_HANT = {"hant", "tw", "hk", "mo"}
+_HANS = {"hans", "cn", "sg", "my"}
+
+
+def _script_family(code: str) -> Optional[str]:
+    tags = {t.lower() for t in code.split("-")[1:]}
+    if tags & _HANT:
+        return "hant"
+    if tags & _HANS:
+        return "hans"
+    return None
+
+
+def _best_match(candidates: List[str], lang: str) -> Optional[str]:
+    """Same-language candidates -> one code, deterministically.
+
+    Exact code first (``-orig`` stripped), then the only candidate, then the one
+    in the same Chinese script family (zh-Hant <-> zh-TW, never zh-Hans), then
+    the alphabetically first -- never "whichever yt-dlp happened to list first".
+    """
+    if not candidates:
+        return None
+
+    def bare(code: str) -> str:
+        return code[:-5] if code.endswith("-orig") else code
+
+    exact = [c for c in candidates if bare(c).lower() == lang.lower()]
+    if exact:
+        return sorted(exact)[0]
+    if len(candidates) == 1:
+        return candidates[0]
+    fam = _script_family(lang)
+    if fam:
+        same = [c for c in candidates if _script_family(bare(c)) == fam]
+        if same:
+            return sorted(same)[0]
+    return sorted(candidates)[0]
+
+
 def choose_caption_track(info: Dict[str, Any]) -> Tuple[str, Optional[str], bool]:
     """Pick the one caption track that is in the language actually spoken.
 
@@ -76,18 +115,22 @@ def choose_caption_track(info: Dict[str, Any]) -> Tuple[str, Optional[str], bool
     origs = [k for k in auto if k.endswith("-orig")]
 
     if lang:
-        want = _primary(lang)
-        exact = [k for k in uploaded if k.lower() == lang.lower()]
-        same = exact or [k for k in uploaded if _primary(k) == want]
-        if same:
-            return "pick", same[0], False
-        same = [k for k in origs if _primary(k) == want]
-        if same:
-            return "pick", same[0], True
-        if not origs and lang in auto:
-            # No ASR marker at all: a bare track named exactly after the
-            # spoken language is the only candidate that can be the original.
-            return "pick", lang, True
+        hit = _best_match([k for k in uploaded if _primary(k) == _primary(lang)], lang)
+        if hit:
+            return "pick", hit, False
+        hit = _best_match([k for k in origs if _primary(k) == _primary(lang)], lang)
+        if hit:
+            return "pick", hit, True
+        if not origs:
+            # No ASR marker at all. A bare track in the spoken language is the
+            # only thing that can be the original; when several qualify
+            # (zh-TW / zh-Hans / zh-Hant) the others are translations of it and
+            # there is nothing in the metadata to say which -- so only a unique
+            # or exact match counts.
+            same = [k for k in auto if _primary(k) == _primary(lang)]
+            exact = [k for k in same if k.lower() == lang.lower()]
+            if exact or len(same) == 1:
+                return "pick", (exact or same)[0], True
         if uploaded or auto:
             return "none", None, False
         return "legacy", None, False

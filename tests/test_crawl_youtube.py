@@ -588,3 +588,33 @@ def test_download_skips_the_caption_pass_when_none_is_in_the_spoken_language(
     rec = _run(monkeypatch, _CaptionRecorder(str(tmp_path), info))
     YouTubeCrawler().download(URL, str(tmp_path))
     assert not [c for c in rec.calls if "--skip-download" in c]
+
+
+def test_bare_asr_locale_is_accepted_when_it_is_the_only_same_language_track():
+    info = {"language": "zh-Hant", "subtitles": {},
+            "automatic_captions": {"zh-TW": [{}], "en": [{}], "ja": [{}]}}
+    assert choose_caption_track(info) == ("pick", "zh-TW", True)
+
+
+def test_several_bare_same_language_tracks_without_a_marker_mean_whisper():
+    info = {"language": "zh", "subtitles": {},
+            "automatic_captions": {"zh-TW": [{}], "zh-Hans": [{}], "en": [{}]}}
+    assert choose_caption_track(info)[0] == "none"
+
+
+def test_multiple_origs_pick_the_exact_script():
+    info = {"language": "zh-Hant", "subtitles": {},
+            "automatic_captions": {"zh-Hans-orig": [{}], "zh-Hant-orig": [{}]}}
+    assert choose_caption_track(info) == ("pick", "zh-Hant-orig", True)
+
+
+def test_uploaded_same_language_prefers_the_matching_script_family():
+    info = {"language": "zh-Hant", "subtitles": {"zh-Hans": [{}], "zh-TW": [{}]},
+            "automatic_captions": {}}
+    assert choose_caption_track(info) == ("pick", "zh-TW", False)
+
+
+def test_uploaded_same_language_is_deterministic_not_list_order():
+    a = {"language": "en", "subtitles": {"en-US": [{}], "en-GB": [{}]}}
+    b = {"language": "en", "subtitles": {"en-GB": [{}], "en-US": [{}]}}
+    assert choose_caption_track(a) == choose_caption_track(b) == ("pick", "en-GB", False)
