@@ -43,6 +43,47 @@ to the show today
 """
 
 
+# Real YouTube auto-sub layout (structure copied from a downloaded en-orig track,
+# words replaced): a karaoke cue whose first line is a lone space, a 10 ms cue
+# holding the finished line, then "<previous line>\n<new line with tags>".
+ROLLING_SAMPLE = """WEBVTT
+Kind: captions
+Language: en
+
+00:00:00.000 --> 00:00:01.750 align:start position:0%
+
+the<00:00:00.240><c> quick</c><00:00:00.320><c> brown</c><00:00:00.600><c> fox</c>
+
+00:00:01.750 --> 00:00:01.760 align:start position:0%
+the quick brown fox
+
+
+00:00:01.760 --> 00:00:03.430 align:start position:0%
+the quick brown fox
+jumps<00:00:02.280><c> over</c><00:00:02.800><c> the</c><00:00:02.920><c> lazy</c><00:00:03.240><c> dog</c>
+
+00:00:03.430 --> 00:00:03.440 align:start position:0%
+jumps over the lazy dog
+
+
+00:00:03.440 --> 00:00:05.030 align:start position:0%
+jumps over the lazy dog
+while<00:00:03.600><c> the</c><00:00:03.720><c> cat</c><00:00:03.840><c> sleeps</c>
+
+00:00:05.030 --> 00:00:05.040 align:start position:0%
+while the cat sleeps
+
+
+00:00:05.040 --> 00:00:06.150 align:start position:0%
+while the cat sleeps
+by<00:00:05.200><c> the</c><00:00:05.520><c> warm</c><00:00:05.760><c> window</c>
+
+00:00:06.150 --> 00:00:06.160 align:start position:0%
+by the warm window
+
+"""
+
+
 class TestParseTs:
     def test_hms(self) -> None:
         assert abs(_parse_ts("00:00:02.500") - 2.5) < 1e-6
@@ -98,6 +139,21 @@ class TestParseVtt:
         assert "welcome" in r.text_full
         # inline <...> tags stripped
         assert "<" not in r.text_full
+
+    def test_two_line_rolling_cues_emit_each_line_once(self, workdir) -> None:
+        """The shape YouTube auto-subs actually ship, which SAMPLE does not cover.
+
+        Every cue is "<line already shown>\\n<new line>", with a 10 ms single-line
+        cue in between. The next cue opens with the *second* line of the previous
+        one, so whole-cue comparison never matched and each line was emitted twice.
+        """
+        p = os.path.join(workdir, "rolling.en-orig.vtt")
+        _write(p, ROLLING_SAMPLE)
+        r = parse_vtt(p)
+        assert r.text_full == (
+            "the quick brown fox jumps over the lazy dog "
+            "while the cat sleeps by the warm window"
+        )
 
     def test_html_entities_are_unescaped(self, workdir) -> None:
         """Captions arrive HTML-escaped; the parser was not undoing it.
