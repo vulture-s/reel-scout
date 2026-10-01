@@ -1217,7 +1217,7 @@ def warn_script_mix(text: str, where: str) -> None:
 def save_transcript(
     conn: sqlite3.Connection,
     video_id: str,
-    language: str,
+    language: Optional[str],
     text_full: str,
     segments_json: str,
     whisper_model: str,
@@ -1243,6 +1243,13 @@ def save_transcript(
     # not there. Scanned here rather than in the backend because this is where
     # both halves are in scope: the segments and the measured duration.
     overrun = scan_transcript_overrun(segments_json, duration_sec)
+
+    # No speech, no language. Whisper's detector still returns a code for music
+    # or silence -- in practice "nn" (Norwegian Nynorsk): all 25 "nn" rows in the
+    # library had an empty transcript, as did 15 more tagged en / ko / ru. Stored
+    # as-is it reads as "25 Norwegian videos" in any language breakdown.
+    if not (text_full or "").strip():
+        language = None
 
     notice = None
     if text_full:

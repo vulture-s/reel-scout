@@ -781,3 +781,29 @@ def test_migration_is_idempotent():
     finally:
         conn.close()
         os.unlink(path)
+
+
+@pytest.mark.parametrize("text", ["", "   "])
+def test_an_empty_transcript_stores_no_language(temp_db, text):
+    # Whisper tags music/silence "nn"; that is not a language anyone spoke.
+    conn = sqlite3.connect(temp_db)
+    try:
+        db.init_db(conn)
+        vid = db.upsert_video(conn, platform="ig", platform_id="m1", url="u", title="t")
+        db.save_transcript(conn, vid, "nn", text, "[]", "large-v3", 15.0)
+        row = conn.execute("SELECT language FROM transcripts WHERE video_id=?", (vid,)).fetchone()
+        assert row[0] is None
+    finally:
+        conn.close()
+
+
+def test_a_real_transcript_keeps_its_language(temp_db):
+    conn = sqlite3.connect(temp_db)
+    try:
+        db.init_db(conn)
+        vid = db.upsert_video(conn, platform="ig", platform_id="m2", url="u", title="t")
+        db.save_transcript(conn, vid, "en", "hello", "[]", "large-v3", 15.0)
+        row = conn.execute("SELECT language FROM transcripts WHERE video_id=?", (vid,)).fetchone()
+        assert row[0] == "en"
+    finally:
+        conn.close()
