@@ -99,21 +99,26 @@ def parse_vtt(path: str, language: Optional[str] = None) -> TranscriptResult:
             if cleaned:
                 payload_lines.append(cleaned)
             i += 1
+        # Dedupe rolling duplicates, one *line* at a time. A YouTube auto-sub cue is
+        # two lines, "<line already shown>\n<new line>", so the next cue opens with
+        # the second line of this one -- not with the whole cue. Comparing whole
+        # cues therefore never matched, and every line went into the transcript
+        # twice (9 of the 13 natively-subtitled transcripts, ~15% duplicate text,
+        # all of it fed to the scorer). Track the last line we emitted instead.
+        if payload_lines and payload_lines[0] == last_text:
+            payload_lines = payload_lines[1:]
         text = " ".join(payload_lines).strip()
         if not text:
             continue
-        # Dedupe rolling duplicates: YouTube re-emits the previous line(s) as a cue
-        # scrolls. Skip a cue whose text is identical to, or fully contained in, the
-        # text we last kept (handles the common "prev\ncurr" stacked-cue pattern).
         if text == last_text:
             continue
         if last_text and text in last_text:
             continue
-        if last_text and last_text in text:
+        if last_text and text.startswith(last_text):
             # Current cue extends the previous one — replace rather than stack.
             text = text[len(last_text):].strip() or text
         segments.append(Segment(start=start, end=end, text=text, confidence=1.0))
-        last_text = " ".join(payload_lines).strip()
+        last_text = payload_lines[-1]
 
     text_full = " ".join(s.text for s in segments).strip()
     duration = segments[-1].end if segments else 0.0
