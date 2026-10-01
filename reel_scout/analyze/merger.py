@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from .. import config, db
 from ..llm import get_llm
@@ -151,6 +151,22 @@ def backfill_measured(conn: sqlite3.Connection, video_id: str) -> None:
     )
 
 
+def _parse_merge_json(text: str) -> Dict[str, Any]:
+    """The merge reply as a dict. Raises json.JSONDecodeError when it is broken.
+
+    Prose around the object is tolerated (the outermost {...} is used); a reply
+    with no object at all is kept as a summary, as before.
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        import re
+        m = re.search(r"\{[\s\S]*\}", text)
+        if not m:
+            return {"summary": text, "topics": [], "error": "failed to parse JSON"}
+        return json.loads(m.group())
+
+
 def merge_analysis(
     conn: sqlite3.Connection,
     video_id: str,
@@ -227,20 +243,26 @@ def merge_analysis(
     )
 
     llm = get_llm()
-    result_json = llm.complete(
-        prompt, max_tokens=config.MERGE_MAX_TOKENS, temperature=0.1
-    )
-
-    try:
-        data = json.loads(result_json)
-    except json.JSONDecodeError:
-        # Try to extract JSON from response
-        import re
-        m = re.search(r"\{[\s\S]*\}", result_json)
-        if m:
-            data = json.loads(m.group())
-        else:
-            data = {"summary": result_json, "topics": [], "error": "failed to parse JSON"}
+    # One retry on malformed JSON. The model is sampled (temperature 0.1, no
+    # seed), so a stray unescaped quote is rarely repeated: XdtaUmr3j6g failed
+    # merge with "Expecting ',' delimiter" in the 2026-10-02 overnight run while
+    # the 69 clips around it parsed. Before this, one bad sample discarded the
+    # whole clip -- transcript, keyframes, vision and OCR were all already
+    # stored, and the clip sat at `transcribed` with no analysis or score.
+    attempts = 2
+    for attempt in range(1, attempts + 1):
+        result_json = llm.complete(
+            prompt, max_tokens=config.MERGE_MAX_TOKENS, temperature=0.1
+        )
+        try:
+            data = _parse_merge_json(result_json)
+            break
+        except json.JSONDecodeError as exc:
+            lo = max(0, exc.pos - 60)
+            print("    ! merge JSON unparseable (attempt %d/%d): %s -- near %r"
+                  % (attempt, attempts, exc.msg, result_json[lo:exc.pos + 20]))
+            if attempt == attempts:
+                raise
 
     # Refuse to store the schema example as if it were analysis. Silently
     # keeping it is what let a constant sit in 94 of 96 clips for seven weeks
