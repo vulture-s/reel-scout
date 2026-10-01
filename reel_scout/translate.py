@@ -152,7 +152,7 @@ def translate_video(conn, video_id: str, model: str,
                     refresh_stale: bool = True) -> Dict[str, int]:
     """Translate what is missing (and, by default, what has gone stale)."""
     tally = {"translated": 0, "refreshed": 0, "skipped_existing": 0,
-             "failed": 0, "candidates": 0}
+             "failed": 0, "candidates": 0, "pruned": 0}
     have = {(r["kind"], r["ref"]): r
             for r in db.get_translations(conn, video_id, lang=LANG)}
     units = [u for u in collect_units(conn, video_id)
@@ -178,4 +178,18 @@ def translate_video(conn, video_id: str, model: str,
                             ENGINE_OLLAMA, model)
         tally["refreshed" if stale else "translated"] += 1
         done += 1
+    if refresh_stale:
+        # A translation whose source is gone is stale in the strongest sense,
+        # and `is_stale()` never sees it: it is only asked about sources that
+        # still exist. Re-cutting a transcript into fewer segments (the rolling-
+        # cue dedupe fix took 66 segments to 64) left the tail rows addressing
+        # indexes that no longer exist -- kept forever, matching nothing.
+        # Same switch as refreshing: `--keep-stale` keeps these too.
+        current = {(k, r) for k, r, _ in units}
+        for (kind, ref) in list(have):
+            if kinds and kind not in kinds:
+                continue
+            if (kind, ref) not in current:
+                db.delete_translation(conn, video_id, kind, ref, LANG)
+                tally["pruned"] += 1
     return tally

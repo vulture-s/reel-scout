@@ -1652,6 +1652,14 @@ def save_translation(conn: sqlite3.Connection, video_id: str, kind: str, ref: st
         )
 
 
+def delete_translation(conn: sqlite3.Connection, video_id: str, kind: str,
+                       ref: str, lang: str = "zh") -> None:
+    with conn:
+        conn.execute(
+            "DELETE FROM translations WHERE video_id = ? AND kind = ? AND ref = ? "
+            "AND lang = ?", (video_id, kind, str(ref), lang))
+
+
 def get_translations(conn: sqlite3.Connection, video_id: str,
                      kind: Optional[str] = None,
                      lang: str = "zh") -> List[sqlite3.Row]:

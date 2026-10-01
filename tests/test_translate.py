@@ -189,3 +189,58 @@ def test_the_prompt_asks_for_taiwan_wording_not_just_traditional_characters():
     assert "Taiwanese vocabulary" in translate.PROMPT
     for pair in ("影片 not 視頻", "品質 not 質量", "網路 not 網絡"):
         assert pair in translate.PROMPT, pair
+
+
+def _transcript(conn, vid, texts):
+    segs = [{"start": float(i), "end": float(i + 1), "text": t} for i, t in enumerate(texts)]
+    db.save_transcript(conn, vid, language="en", text_full=" ".join(texts),
+                       segments_json=json.dumps(segs), whisper_model="native-subtitles",
+                       duration_sec=float(len(texts)))
+
+
+def test_translations_for_segments_that_no_longer_exist_are_pruned():
+    """Re-cut into fewer segments: the tail translations address nothing."""
+    conn, path = _temp_db()
+    try:
+        vid = _clip(conn)
+        _transcript(conn, vid, ["one line", "two line"])
+        for i, t in enumerate(["one line", "two line", "gone line", "gone too"]):
+            db.save_translation(conn, vid, "transcript_segment", str(i), "zh", t,
+                                "譯%d" % i, "ollama", "m")
+        with patch.object(translate, "translate_text") as tr:
+            tally = translate.translate_video(conn, vid, "m")
+        tr.assert_not_called()
+        assert tally["pruned"] == 2
+        refs = sorted(r["ref"] for r in db.get_translations(conn, vid))
+        assert refs == ["0", "1"]
+    finally:
+        conn.close(); os.unlink(path)
+
+
+def test_keep_stale_keeps_orphans_too():
+    conn, path = _temp_db()
+    try:
+        vid = _clip(conn)
+        _transcript(conn, vid, ["one line"])
+        db.save_translation(conn, vid, "transcript_segment", "5", "zh", "gone",
+                            "舊", "ollama", "m")
+        tally = translate.translate_video(conn, vid, "m", refresh_stale=False)
+        assert tally["pruned"] == 0
+        assert len(db.get_translations(conn, vid)) == 1
+    finally:
+        conn.close(); os.unlink(path)
+
+
+def test_kinds_filter_scopes_the_pruning():
+    conn, path = _temp_db()
+    try:
+        vid = _clip(conn)
+        _transcript(conn, vid, ["one line"])
+        db.save_translation(conn, vid, "transcript_segment", "5", "zh", "gone",
+                            "舊", "ollama", "m")
+        with patch.object(translate, "translate_text", return_value="譯"):
+            tally = translate.translate_video(conn, vid, "m", kinds=["summary"])
+        assert tally["pruned"] == 0
+        assert len(db.get_translations(conn, vid, kind="transcript_segment")) == 1
+    finally:
+        conn.close(); os.unlink(path)

@@ -756,6 +756,8 @@ def _cmd_translate(args) -> None:
           "(of %d translatable passage(s))"
           % (tally["translated"], tally["refreshed"], tally["skipped_existing"],
              tally["failed"], tally["candidates"]))
+    if tally.get("pruned"):
+        print("  pruned %d whose original no longer exists" % tally["pruned"])
     if tally["refreshed"]:
         # Worth naming: the source text moved under a translation that was
         # already there, and nothing else would have said so.
