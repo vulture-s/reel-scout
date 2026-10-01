@@ -14,6 +14,23 @@ from .. import ffprobe
 from ..utils.stderr import warn
 
 
+def photo_only_count(stderr: str) -> int:
+    """How many items failed as "No video formats found", if that is *every* error.
+
+    A photo carousel (instagram.com/p/<code>/?img_index=N) comes back from
+    yt-dlp as one "No video formats found!" per slide. format_error reads that
+    marker as a broken extractor and tells the user to update yt-dlp and check
+    cookies -- both wrong, and both send them off to fix something that works.
+    Returns 0 when any other error is present, so real failures keep their text.
+    """
+    errors = [ln for ln in (stderr or "").splitlines() if ln.lstrip().startswith("ERROR:")]
+    if not errors:
+        return 0
+    if all("no video formats found" in ln.lower() for ln in errors):
+        return len(errors)
+    return 0
+
+
 class InstagramCrawler(BaseCrawler):
     platform = "instagram"
 
@@ -59,6 +76,12 @@ class InstagramCrawler(BaseCrawler):
             meta_cmd, capture_output=True, text=True, timeout=60,
         )
         if result.returncode != 0:
+            photos = photo_only_count(result.stderr)
+            if photos:
+                raise RuntimeError(
+                    "Instagram post has no video: all %d item(s) are photos. "
+                    "Nothing to analyze -- not a cookies or yt-dlp problem." % photos
+                )
             raise RuntimeError(
                 f"yt-dlp IG metadata failed (need cookies?): {ytdlp.format_error(result.stderr)}"
             )
