@@ -110,8 +110,28 @@ def format_error(stderr: str) -> str:
     return msg + _extractor_hint(msg)
 
 
+#: Transport failures. "Unable to download webpage" is also in the extractor
+#: markers below, and yt-dlp prefixes DNS failures with exactly that phrase --
+#: so a Wi-Fi blip used to come back as "update yt-dlp" (and, from the
+#: Instagram crawler, "need cookies?"). Two reels in the 2026-10-02 overnight
+#: run failed that way and were both fine on retry.
+_NETWORK_MARKERS = (
+    "failed to resolve", "nodename nor servname", "name or service not known",
+    "temporary failure in name resolution", "network is unreachable",
+    "connection refused", "connection reset", "no route to host",
+)
+
+
+def is_network_error(msg: str) -> bool:
+    lowered = (msg or "").lower()
+    return any(m in lowered for m in _NETWORK_MARKERS)
+
+
 def _extractor_hint(msg: str) -> str:
     lowered = msg.lower()
+    if is_network_error(msg):
+        return ("\n[hint] the network failed (could not reach the site) -- "
+                "not a yt-dlp or cookies problem; retry when the connection is back.")
     markers = (
         "unable to extract", "unsupported url", "not available",
         "no video formats", "unable to download webpage",

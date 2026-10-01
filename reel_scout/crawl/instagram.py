@@ -82,6 +82,10 @@ class InstagramCrawler(BaseCrawler):
                     "Instagram post has no video: all %d item(s) are photos. "
                     "Nothing to analyze -- not a cookies or yt-dlp problem." % photos
                 )
+            if ytdlp.is_network_error(result.stderr):
+                raise RuntimeError(
+                    f"yt-dlp IG metadata failed (network): {ytdlp.format_error(result.stderr)}"
+                )
             raise RuntimeError(
                 f"yt-dlp IG metadata failed (need cookies?): {ytdlp.format_error(result.stderr)}"
             )
