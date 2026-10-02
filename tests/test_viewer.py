@@ -465,3 +465,18 @@ def test_annotate_accepts_a_beacon_shaped_post(temp_db):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_library_turns_into_cards_on_narrow_screens():
+    # Measured 2026-10-02: at 390px the table rendered 536px wide (sideways
+    # scroll, note column cut off, group select squeezed to an arrow).
+    from reel_scout import viewer
+    css = viewer._STYLE
+    i = css.index("@media (max-width:860px)")
+    block = css[i:css.index("\n}", i)]
+    for area in ("star", "title", "score", "group", "note"):
+        assert "grid-area:%s" % area in block
+    # iOS Safari zooms into any focused field under 16px.
+    assert "font-size:16px" in block
+    # the star filter lives in the header row and must survive the collapse
+    assert "thead th:not(.c-star){display:none}" in block

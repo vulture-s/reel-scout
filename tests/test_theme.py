@@ -60,3 +60,11 @@ def test_stylesheet_can_inline_a_cjk_subset():
     css = theme.stylesheet(cjk_woff2=b"fake-woff2-bytes")
     assert "Noto Sans TC" in css
     assert "data:font/woff2;base64," in css
+
+
+def test_tool_column_is_fluid_but_never_narrower_than_before():
+    # A fixed 1180 used 61% of a 1920 screen. The floor stays at the old value
+    # so nothing gets narrower; the ceiling keeps lines readable on 2560.
+    css = theme.stylesheet()
+    assert "--col-tool:clamp(1180px,92vw,1600px)" in css
+    assert "max-width:var(--col-tool)" in css
