@@ -388,6 +388,18 @@ def _cell(css: str, value: str) -> str:
 
 
 _SIZE_ORDER = ("ECU", "CU", "MCU", "MS", "MLS", "LS", "ELS", "UNKNOWN")
+# Four framing families, each one bold hue, close -> far. Seven separate hues
+# failed the palette check (red vs orange: dE 7 even for full colour vision),
+# and the library barely uses MLS/ELS -- so the band paints families and the
+# exact size stays in the tooltip and the detail rows.
+_SIZE_FAMILY = {"ECU": "close", "CU": "close", "MCU": "mcu",
+                "MS": "mid", "MLS": "mid", "LS": "wide", "ELS": "wide",
+                "UNKNOWN": "unknown"}
+_FAMILY_ORDER = ("close", "mcu", "mid", "wide", "unknown", "none")
+
+
+def _family(size: Optional[str]) -> str:
+    return _SIZE_FAMILY.get(size or "", "none") if size else "none"
 _MOVE_ORDER = ("static", "still_subject_moves", "camera_moves", "unsteady", "unknown")
 
 
@@ -401,7 +413,7 @@ def _has_data(r: Dict[str, Any]) -> bool:
 
 
 def _distribution(rows: List[Dict[str, Any]], key: str,
-                  order: Tuple[str, ...]) -> str:
+                  order: Tuple[str, ...], family: bool = False) -> str:
     """One stacked bar + legend, weighted by screen time, not shot count.
 
     Time, because the question this answers is "what does the viewer mostly
@@ -415,6 +427,8 @@ def _distribution(rows: List[Dict[str, Any]], key: str,
         v = r.get(key)
         if v is None:
             continue
+        if family:
+            v = _family(v)
         dur = max(0.0, float(r.get("end") or 0) - float(r.get("start") or 0))
         totals[v] = totals.get(v, 0.0) + dur
         counts[v] = counts.get(v, 0) + 1
@@ -427,9 +441,11 @@ def _distribution(rows: List[Dict[str, Any]], key: str,
         pct = 100.0 * totals[v] / whole
         segs.append('<i class="sgc-%s" style="width:%.2f%%" title="%s %d%%"></i>'
                     % (_e(v), pct, _e(v), int(round(pct))))
+        label = ('<span data-i18n="sgf.%s">%s</span>' % (_e(v), _e(v))
+                 if family else _cell("sgl", v))
         legend.append('<span class="sgleg"><b class="sgsw sgc-%s"></b>%s '
                       '<span class="q">%d%% &middot; %d</span></span>'
-                      % (_e(v), _cell("sgl", v), int(round(pct)), counts[v]))
+                      % (_e(v), label, int(round(pct)), counts[v]))
     return ('<div class="sgdist"><div class="lbl" data-i18n="sg.%s">%s</div>'
             '<div class="sgbar">%s</div><div class="sglegend">%s</div></div>'
             % (key, key, "".join(segs), "".join(legend)))
@@ -449,7 +465,7 @@ def _render_shot_grammar(view: Dict[str, Any]) -> str:
         note = ('<div class="q %s"><span data-i18n="analysable">analysable</span> '
                 '%d%% (%d/%d)</div>' % (cls, pct, scaled, labelled))
 
-    dists = (_distribution(rows, "size", _SIZE_ORDER)
+    dists = (_distribution(rows, "size", _FAMILY_ORDER, family=True)
              + _distribution(rows, "movement", _MOVE_ORDER))
 
     # The clip as one band, each shot painted by its size and clickable. It
@@ -464,11 +480,20 @@ def _render_shot_grammar(view: Dict[str, Any]) -> str:
             b = float(r.get("end") or a)
             ticks.append('<i class="sgseek sgc-%s" data-ts="%.3f" '
                          'style="left:%.3f%%;width:%.3f%%" title="%s %s / %s"></i>'
-                         % (_e(r.get("size") or "none"), a, 100.0 * a / dur,
+                         % (_e(_family(r.get("size"))), a, 100.0 * a / dur,
                             max(0.15, 100.0 * (b - a) / dur), _fmt_ts(a),
                             _e(r.get("size") or "-"), _e(r.get("movement") or "-")))
+        present = {_family(r.get("size")) for r in rows}
+        key = "".join(
+            '<span class="sgleg"><b class="sgsw sgc-%s"></b>'
+            '<span data-i18n="sgf.%s">%s</span></span>' % (f, f, f)
+            for f in _FAMILY_ORDER if f in present)
+        axis = ('<div class="sgaxis"><span>0:00 <span data-i18n="sg.start">start</span></span>'
+                '<span>%s</span><span><span data-i18n="sg.end">end</span> %s</span></div>'
+                % (_fmt_ts(dur / 2), _fmt_ts(dur)))
         band = ('<div class="lbl" data-i18n="sg.band">timeline</div>'
-                '<div class="sgband">%s</div>' % "".join(ticks))
+                '<div class="sgband">%s</div>%s'
+                '<div class="sglegend sgkey">%s</div>' % ("".join(ticks), axis, key))
 
     cells = []
     for r in rows:
@@ -1069,24 +1094,29 @@ a{color:inherit}
 .sglegend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:13px}
 .sgleg{display:inline-flex;align-items:center;gap:6px}
 .sgsw{display:inline-block;width:10px;height:10px;border:1px solid var(--rule-soft)}
-.sgband{position:relative;height:22px;margin:6px 0 10px;background:var(--surface-2);
-  border:1px solid var(--rule-soft)}
+.sgband{position:relative;height:34px;margin:6px 0 4px;background:var(--surface-2);
+  border:1px solid var(--rule)}
 .sgband i{position:absolute;top:0;bottom:0;cursor:pointer;border-right:1px solid var(--bg)}
 .sgband i:hover{outline:2px solid var(--ink);z-index:1}
+.sgaxis{display:flex;justify-content:space-between;font-family:var(--mono);
+  font-size:11px;color:var(--quiet);margin-bottom:8px}
+.sgkey{margin-bottom:6px}
 .sgdetail{margin-top:8px}
 .sgdetail summary{cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.12em;
   text-transform:uppercase;color:var(--quiet);padding:4px 0}
 .sghidden{margin-top:6px;font-size:12px}
-/* Shot size: close = dark, far = light, so the band reads as framing at a
-   glance. Mono by design -- the shell carries no colour fills. */
-.sgc-ECU{background:#231916}.sgc-CU{background:#3d302a}.sgc-MCU{background:#5e5049}
-.sgc-MS{background:#857870}.sgc-MLS{background:#a69b93}.sgc-LS{background:#c4bbb3}
-.sgc-ELS{background:#ddd6cf}
-.sgc-UNKNOWN,.sgc-none{background:repeating-linear-gradient(45deg,var(--surface-2) 0 3px,var(--rule-soft) 3px 5px)}
+/* Shot-size families: one bold hue each, close -> far (red, yellow, green,
+   blue). Validated with the dataviz palette check on --bg: normal-vision and
+   CVD separation pass; yellow is under 3:1 against the page, which is why the
+   band always ships with a labelled key. Data colour, not chrome -- the cyan
+   accent stays unused. */
+.sgc-close{background:#e34948}.sgc-mcu{background:#eda100}
+.sgc-mid{background:#008300}.sgc-wide{background:#2a78d6}
+.sgc-unknown{background:repeating-linear-gradient(45deg,var(--surface-2) 0 3px,var(--rule-soft) 3px 5px)}
+.sgc-none{background:var(--surface-2)}
 /* Movement: still -> moving, light -> dark. */
 .sgc-static{background:#c4bbb3}.sgc-still_subject_moves{background:#857870}
 .sgc-camera_moves{background:#3d302a}.sgc-unsteady{background:#5e5049}
-.sgc-unknown{background:repeating-linear-gradient(45deg,var(--surface-2) 0 3px,var(--rule-soft) 3px 5px)}
 @media (max-width:640px){
   .sgrow{grid-template-columns:3rem 4.5rem minmax(0,1fr);row-gap:0}
   .sgrow > .q:last-child:not(:first-child){grid-column:2 / -1;font-size:12px}

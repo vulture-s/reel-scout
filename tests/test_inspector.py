@@ -645,8 +645,8 @@ def test_size_share_is_weighted_by_screen_time_not_shot_count():
     try:
         html = inspector._render_shot_grammar(
             {"shot_grammar": inspector._shot_grammar(conn, "v1"), "duration": 10.0})
-        assert 'sgc-CU" style="width:10.00%"' in html
-        assert 'sgc-LS" style="width:90.00%"' in html
+        assert 'sgc-close" style="width:10.00%"' in html
+        assert 'sgc-wide" style="width:90.00%"' in html
     finally:
         conn.close(); os.unlink(path)
 
@@ -660,5 +660,24 @@ def test_every_shot_is_on_the_band_and_jumps_to_its_start():
         band = html.split('class="sgband"')[1].split("</div>")[0]
         assert band.count('class="sgseek') == 2
         assert 'data-ts="5.000"' in band
+    finally:
+        conn.close(); os.unlink(path)
+
+
+def test_the_band_ships_with_a_key_and_a_time_axis():
+    # "I can't tell what the colours mean" (Hevin 2026-10-02): the band is only
+    # readable with its legend directly under it, naming each family present.
+    conn, path = _grammar_db(
+        sizes=((0.5, "CU"), (5.0, "UNKNOWN")),
+        shots=((0, 0.0, 1.0), (1, 1.0, 10.0)))
+    try:
+        html = inspector._render_shot_grammar(
+            {"shot_grammar": inspector._shot_grammar(conn, "v1"), "duration": 10.0})
+        after = html.split('class="sgband"')[1]
+        assert 'class="sgaxis"' in after and "0:10" in after
+        key = after.split('sgkey">')[1].split("</div>")[0]
+        assert 'data-i18n="sgf.close"' in key and 'data-i18n="sgf.unknown"' in key
+        # families with no shot are not advertised
+        assert 'data-i18n="sgf.wide"' not in key
     finally:
         conn.close(); os.unlink(path)
