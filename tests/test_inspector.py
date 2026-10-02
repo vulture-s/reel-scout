@@ -617,3 +617,48 @@ def test_a_hand_supplied_size_outranks_a_gated_unknown_too():
         assert inspector._shot_grammar(conn, "v1")["rows"][0]["size"] == "CU"
     finally:
         conn.close(); os.unlink(path)
+
+
+# --- shot grammar summary (2026-10-02) ----------------------------------------
+# A 24s clip with 142 shots rendered this block 4,870px tall, mostly rows of
+# "- / too few frames". The block now leads with distributions and a band.
+
+def test_rows_with_no_usable_reading_are_counted_not_listed():
+    conn, path = _grammar_db(
+        sizes=((2.4, "MCU"), (7.9, "UNKNOWN")),
+        motions=((5.0, "unknown", None, None),))
+    try:
+        html = inspector._render_shot_grammar(
+            {"shot_grammar": inspector._shot_grammar(conn, "v1")})
+        assert html.count('class="sgrow') == 1
+        assert 'data-i18n="sg.hidden"' in html and ": 1</div>" in html
+        assert "<details" in html and "<details open" not in html
+    finally:
+        conn.close(); os.unlink(path)
+
+
+def test_size_share_is_weighted_by_screen_time_not_shot_count():
+    # one 1s close-up, one 9s wide shot: by count 50/50, by time 10/90
+    conn, path = _grammar_db(
+        sizes=((0.5, "CU"), (5.0, "LS")),
+        shots=((0, 0.0, 1.0), (1, 1.0, 10.0)))
+    try:
+        html = inspector._render_shot_grammar(
+            {"shot_grammar": inspector._shot_grammar(conn, "v1"), "duration": 10.0})
+        assert 'sgc-CU" style="width:10.00%"' in html
+        assert 'sgc-LS" style="width:90.00%"' in html
+    finally:
+        conn.close(); os.unlink(path)
+
+
+def test_every_shot_is_on_the_band_and_jumps_to_its_start():
+    conn, path = _grammar_db(
+        sizes=((2.4, "MCU"), (7.9, "UNKNOWN")))
+    try:
+        html = inspector._render_shot_grammar(
+            {"shot_grammar": inspector._shot_grammar(conn, "v1"), "duration": 10.0})
+        band = html.split('class="sgband"')[1].split("</div>")[0]
+        assert band.count('class="sgseek') == 2
+        assert 'data-ts="5.000"' in band
+    finally:
+        conn.close(); os.unlink(path)
