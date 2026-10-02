@@ -324,6 +324,40 @@ select.groupsel:focus,input.noteinput:focus,#newgroup:focus{outline:0;
   font-family:var(--mono);font-size:10px;letter-spacing:.16em;
   text-transform:uppercase;color:var(--quiet);white-space:nowrap}
 .rowhint.bad{color:var(--warn,#b45309)}
+/* Phone: the five-column table cannot fit 390px -- it rendered 536px wide
+   with a sideways scroll, the note column cut off and the group <select>
+   squeezed to a bare arrow. A 768px tablet fared little better (titles
+   wrapped to five lines beside a fixed 38% note column). Below 860px each
+   row becomes a small card:
+   star | title + score on the first line, group and note full width below.
+   Inputs go to 16px here because iOS Safari zooms the page into any focused
+   field smaller than that. The header row keeps only the star filter --
+   the other column labels have nothing to label once the columns are gone. */
+@media (max-width:860px){
+  main,header.top .inner{padding-left:16px;padding-right:16px}
+  table.library,table.library thead,table.library tbody,table.library td{display:block;width:100%}
+  table.library thead tr{display:flex;width:100%;border-bottom:1px solid var(--rule)}
+  table.library thead th:not(.c-star){display:none}
+  table.library tbody tr{display:grid;grid-template-columns:2.4rem 1fr auto;
+    grid-template-areas:"star title score" "star group group" "star note note";
+    column-gap:6px;row-gap:6px;padding:10px 0;border-bottom:1px solid var(--rule-soft)}
+  table.library td{border-bottom:0;padding:0}
+  table.library .c-star{grid-area:star;width:auto;align-self:start}
+  table.library .c-title{grid-area:title}
+  table.library .c-score{grid-area:score;width:auto;align-self:start;padding-top:2px}
+  table.library .c-group{grid-area:group;width:auto}
+  table.library .c-note{grid-area:note;width:auto}
+  select.groupsel,input.noteinput,#newgroup,.libtools #delgroup{font-size:16px;
+    padding:7px 8px;min-height:40px}
+  .starbtn{padding:8px;font-size:18px}
+  .libtools #newgroup{width:auto;flex:1 1 10rem}
+  .libtools button{padding:9px 12px}
+  .toolsep{display:none}
+  /* the save hint keeps its slot on desktop; on a phone that slot is a third
+     of the field, so it only takes room while it has something to say */
+  .rowhint{min-width:0}
+  .rowhint:empty{display:none}
+}
 """
 
 _STYLE = theme.stylesheet(_COMPONENTS)

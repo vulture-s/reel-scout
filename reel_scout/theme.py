@@ -40,8 +40,12 @@ TOKENS = """
   --sans:"Inter","Noto Sans TC",system-ui,sans-serif;
   --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
   --col:760px; --col-wide:1080px;
-  /* tool variant: wide enough for player + waveform + keyframe strip */
-  --col-tool:1180px;
+  /* tool variant: wide enough for player + waveform + keyframe strip.
+     Fluid above 1180: a fixed 1180 used 61% of a 1920 screen and squeezed
+     library titles onto two lines beside empty margins. Never narrower than
+     before (the floor is the old value), never wider than 1600 so a line of
+     text stays readable on very wide screens. */
+  --col-tool:clamp(1180px,92vw,1600px);
 }
 /* Background-aware accent: on any ink surface cyan does not appear, it steps
    to paper white. Kept even though this shell is mono, so an ink panel added
