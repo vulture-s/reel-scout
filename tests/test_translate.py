@@ -244,3 +244,22 @@ def test_kinds_filter_scopes_the_pruning():
         assert len(db.get_translations(conn, vid, kind="transcript_segment")) == 1
     finally:
         conn.close(); os.unlink(path)
+
+
+def test_the_decoded_hook_and_cta_lines_are_translatable():
+    # They are free text in the 解構分析 block and were never collected, so
+    # they stayed English in the Chinese UI on every clip.
+    conn, path = _temp_db()
+    try:
+        vid = _clip(conn)
+        db.save_analysis(conn, vid, summary="", topics_json="[]", hooks_json="{}",
+                         style_json="{}", engagement_signals_json="{}",
+                         full_json=json.dumps({"hook": {
+                             "opening_text": "A street scene with parked motorcycles",
+                             "cta_text": "Follow for more", "opening_type": "visual"}}))
+        conn.commit()
+        units = {(k, r): t for k, r, t in translate.collect_units(conn, vid)}
+        assert units[("opening_text", "")] == "A street scene with parked motorcycles"
+        assert units[("cta_text", "")] == "Follow for more"
+    finally:
+        conn.close(); os.unlink(path)

@@ -693,3 +693,60 @@ def test_a_clip_with_motion_but_no_size_says_so_instead_of_a_grey_band():
         assert 'data-i18n="sg.noSize"' in html and "reel-scout shot-size abcdef12" in html
     finally:
         conn.close(); os.unlink(path)
+
+
+# --- translations on the page (2026-10-02) ------------------------------------
+# `translate` had filled the table nightly since #102 and nothing rendered it.
+
+def _translated_clip(summary_zh_source=None):
+    import tempfile, json as _json
+    fd, path = tempfile.mkstemp(suffix=".db"); os.close(fd)
+    conn = sqlite3.connect(path); conn.row_factory = sqlite3.Row
+    db.init_db(conn)
+    vid = db.upsert_video(conn, "youtube", "tr1", "https://y/tr1", title="t")
+    conn.execute("UPDATE videos SET status='analyzed' WHERE id=?", (vid,))
+    db.save_analysis(conn, vid, summary="A clip about hands", topics_json="[]",
+                     hooks_json="{}", style_json="{}", engagement_signals_json="{}",
+                     full_json=_json.dumps({"summary": "A clip about hands",
+                                            "hook": {"opening_text": "A street scene"}}))
+    db.save_translation(conn, vid, "summary", "", "zh",
+                        summary_zh_source or "A clip about hands", "一支關於手的影片", "ollama", "m")
+    db.save_translation(conn, vid, "opening_text", "", "zh",
+                        "A street scene", "街景", "ollama", "m")
+    conn.commit()
+    return conn, path, vid
+
+
+def test_the_chinese_view_shows_translations_and_keeps_the_original():
+    conn, path, vid = _translated_clip()
+    try:
+        html = inspector.render_inspector(inspector.build_inspect_view(conn, vid))
+        assert '<span class="bi-zh" title="A clip about hands">一支關於手的影片</span>' in html
+        assert '<span class="bi-en">A clip about hands</span>' in html
+        assert ">街景</span>" in html
+        assert 'html[lang="zh-Hant"] .bi-en{display:none}' in html
+    finally:
+        conn.close(); os.unlink(path)
+
+
+def test_a_stale_translation_is_not_shown():
+    # made from a different version of the summary -> original only
+    conn, path, vid = _translated_clip(summary_zh_source="an older summary")
+    try:
+        html = inspector.render_inspector(inspector.build_inspect_view(conn, vid))
+        assert "一支關於手的影片" not in html
+        assert ">街景</span>" in html
+    finally:
+        conn.close(); os.unlink(path)
+
+
+def test_a_translation_is_never_paired_with_different_text():
+    # the column and full_json can disagree; the page shows full_json
+    conn, path, vid = _translated_clip()
+    try:
+        conn.execute("UPDATE analyses SET full_json=? WHERE video_id=?",
+                     ('{"summary": "A different summary"}', vid)); conn.commit()
+        html = inspector.render_inspector(inspector.build_inspect_view(conn, vid))
+        assert "A different summary" in html and "一支關於手的影片" not in html
+    finally:
+        conn.close(); os.unlink(path)

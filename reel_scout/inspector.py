@@ -146,6 +146,52 @@ def _shot_grammar(conn: db.sqlite3.Connection, video_id: str) -> Dict[str, Any]:
     return {"rows": rows, "scaled": scaled, "labelled": labelled}
 
 
+def _current_translations(conn: db.sqlite3.Connection, video_id: str) -> Dict[Tuple[str, str], Tuple[str, str]]:
+    """{(kind, ref): (source, zh)} for translations that still match their source.
+
+    `translate` has filled this table nightly since #102, but nothing on the
+    page ever read it -- the Chinese UI showed English model text even for
+    clips translated weeks ago. Stale rows (source changed since) are left
+    out: a translation of a different version is worse than the original.
+    """
+    from . import translate as tr
+    try:
+        rows = {(r["kind"], r["ref"]): r
+                for r in db.get_translations(conn, video_id, lang=tr.LANG)}
+    except db.sqlite3.OperationalError:
+        return {}
+    out: Dict[Tuple[str, str], Tuple[str, str]] = {}
+    for kind, ref, source in tr.collect_units(conn, video_id):
+        row = rows.get((kind, ref))
+        if row is not None and row["text"] and not tr.is_stale(row, source):
+            out[(kind, ref)] = (source, row["text"])
+    return out
+
+
+def _zh_for(view: Dict[str, Any], kind: str, ref: str, text: str) -> str:
+    hit = (view.get("tr") or {}).get((kind, ref))
+    if not hit or (hit[0] or "").strip() != (text or "").strip():
+        return ""
+    return hit[1]
+
+
+def _bi(view: Dict[str, Any], kind: str, ref: str, text: str) -> str:
+    """Model text in both languages: the original for EN, the translation for ZH.
+
+    The original is never dropped (#102: a translation sits beside, it does
+    not replace) -- in the Chinese view it is one hover away, in `title`.
+    """
+    hit = (view.get("tr") or {}).get((kind, ref))
+    # The page can read a field from a different place than `translate` did
+    # (summary: full_json here, the column there). Only pair a translation
+    # with the exact text it was made from.
+    if not hit or (hit[0] or "").strip() != (text or "").strip():
+        return _e(text)
+    zh = hit[1]
+    return ('<span class="bi-en">%s</span><span class="bi-zh" title="%s">%s</span>'
+            % (_e(text), _e(text), _e(zh)))
+
+
 def build_inspect_view(conn: db.sqlite3.Connection, video_id: str) -> Optional[Dict[str, Any]]:
     """One clip's inspector payload, or None if unknown. Extends the viewer view
     with per-segment transcript, a resolved duration, and video-file presence."""
@@ -165,7 +211,7 @@ def build_inspect_view(conn: db.sqlite3.Connection, video_id: str) -> Optional[D
                 parsed = json.loads(raw)
             except (ValueError, TypeError):
                 parsed = []
-            for s in parsed:
+            for idx, s in enumerate(parsed):
                 if not isinstance(s, dict):
                     continue
                 try:
@@ -176,7 +222,8 @@ def build_inspect_view(conn: db.sqlite3.Connection, video_id: str) -> Optional[D
                 text = (s.get("text") or "").strip()
                 if not text:
                     continue
-                segments.append({"start": start, "end": end, "text": text})
+                segments.append({"start": start, "end": end, "text": text,
+                                 "ref": str(idx)})
 
     candidates = [view.get("duration_sec") or 0.0]
     if segments:
@@ -191,6 +238,7 @@ def build_inspect_view(conn: db.sqlite3.Connection, video_id: str) -> Optional[D
     # frozen export and the live page get it from the same place -- and so the
     # one caller that must NOT ship them (the take-home bundle) has a single,
     # visible thing to withhold.
+    view["tr"] = _current_translations(conn, video_id)
     view["shot_grammar"] = _shot_grammar(conn, video_id)
     view["marks"] = marks_mod.list_for(conn, video_id)
     view["segments"] = segments
@@ -300,7 +348,7 @@ def _render_scores(view: Dict[str, Any]) -> str:
     if not meters:
         return ""
     reasoning = score.get("reasoning")
-    note = ('<p class="reasoning">%s</p>' % _e(reasoning)) if reasoning else ""
+    note = ('<p class="reasoning">%s</p>' % _bi(view, "reasoning", "", reasoning)) if reasoning else ""
     # Which model produced these (from master). The same clip scores 7.43 under
     # one VLM and 5.5 under another, so a number with no origin cannot be compared
     # with anything — and `stats` averages agent-scored and locally-scored rows
@@ -365,8 +413,13 @@ def _render_structure(view: Dict[str, Any]) -> str:
         if not v:
             continue
         vk = i18n.value_key(v)
-        mv = ('<div class="mv" data-i18n="%s">%s</div>' % (vk, _e(v))) if vk \
-            else '<div class="mv">%s</div>' % _e(v)
+        kind = {"Hook text": "opening_text", "CTA text": "cta_text"}.get(k)
+        if vk:
+            mv = '<div class="mv" data-i18n="%s">%s</div>' % (vk, _e(v))
+        elif kind:
+            mv = '<div class="mv">%s</div>' % _bi(view, kind, "", v)
+        else:
+            mv = '<div class="mv">%s</div>' % _e(v)
         cells.append('<div class="mk" data-i18n="row.%s">%s</div>%s' % (_e(k), _e(k), mv))
     if not cells:
         return ""
@@ -632,10 +685,11 @@ def render_inspector(view: Dict[str, Any], base: str = "",
         if desc:
             described += 1
         strip.append(
-            '<button class="cell" data-frame="%d" data-ts="%.3f" data-desc="%s" title="%s">'
+            '<button class="cell" data-frame="%d" data-ts="%.3f" data-desc="%s" data-desc-zh="%s" title="%s">'
             '<img src="%s" alt="" loading="lazy">'
             '<span class="ct">%s</span></button>'
             % (j, float(ts) if ts is not None else 0.0, _e(desc),
+               _e(_zh_for(view, "description", str(kf["id"]), desc)),
                _e(("%s — %s" % (_fmt_ts(ts), desc)) if desc else _fmt_ts(ts)),
                _e(keyframe_src(kf) or ""), _e(_fmt_ts(ts))))
     if strip:
@@ -657,7 +711,8 @@ def render_inspector(view: Dict[str, Any], base: str = "",
     if view.get("segments"):
         rows = ['<button class="seg" data-start="%.3f" data-end="%.3f">'
                 '<span class="tc">%s</span><span class="tx">%s</span></button>'
-                % (s["start"], s["end"], _e(_fmt_ts(s["start"])), _e(s["text"]))
+                % (s["start"], s["end"], _e(_fmt_ts(s["start"])),
+                   _bi(view, "transcript_segment", s.get("ref", ""), s["text"]))
                 for s in view["segments"]]
         transcript = ('<section class="block"><div class="eyebrow">%s '
                       '<span class="q" data-i18n="seek">click to seek</span></div>'
@@ -677,7 +732,8 @@ def render_inspector(view: Dict[str, Any], base: str = "",
                       '</section>'
                       % (_t("noTranscript"), _e(I18N["en"]["noTranscriptNote"])))
 
-    summary = ('<p class="summary">%s</p>' % _e(view["summary"])) if view.get("summary") else ""
+    summary = (('<p class="summary">%s</p>' % _bi(view, "summary", "", view["summary"]))
+               if view.get("summary") else "")
 
     # Waveform peaks + segments are handed to JS via a JSON island (escaped).
     seg_data = [[s["start"], s["end"]] for s in view.get("segments", [])]
@@ -1091,6 +1147,10 @@ a{color:inherit}
 .mval{width:2.4rem;text-align:right;font-family:var(--mono);font-size:12px;
   font-variant-numeric:tabular-nums}
 .reasoning{margin:12px 0 0;color:var(--quiet);font-size:13px;max-width:62ch}
+/* model text: original in EN, translation in ZH (original kept in title) */
+.bi-zh{display:none}
+html[lang="zh-Hant"] .bi-zh{display:inline}
+html[lang="zh-Hant"] .bi-en{display:none}
 .metagrid{display:grid;grid-template-columns:6rem 1fr;gap:3px 16px;font-size:13px}
 .sglist{display:flex;flex-direction:column;gap:2px;margin-top:8px;max-width:760px}
 .sgrow{display:grid;grid-template-columns:3.5rem 6rem minmax(0,1fr) auto;gap:12px;
@@ -1256,7 +1316,7 @@ _SCRIPT = r"""
     cells.forEach(function(c,i){var d=Math.abs((+c.dataset.ts)-t); if(d<bd){bd=d;bestIdx=i;}});
     cells.forEach(function(c,i){c.classList.toggle('active', i===bestIdx);});
     var kd=document.getElementById('kfdesc');
-    if(kd&&bestIdx>=0){ kd.textContent=cells[bestIdx].dataset.desc||''; }
+    if(kd&&bestIdx>=0){ var c=cells[bestIdx]; kd.textContent=(LANG==='zh'&&c.dataset.descZh)?c.dataset.descZh:(c.dataset.desc||''); }
     /* A mark is a point, not a span, so "current" is the last one passed --
        highlighting only an exact second would mean the row lights up for one
        frame and then nothing is current for the rest of the clip. */
