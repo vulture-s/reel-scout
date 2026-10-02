@@ -387,6 +387,54 @@ def _cell(css: str, value: str) -> str:
     return '<span class="%s" data-i18n="%s">%s</span>' % (css, key, _e(value))
 
 
+_SIZE_ORDER = ("ECU", "CU", "MCU", "MS", "MLS", "LS", "ELS", "UNKNOWN")
+_MOVE_ORDER = ("static", "still_subject_moves", "camera_moves", "unsteady", "unknown")
+
+
+def _has_data(r: Dict[str, Any]) -> bool:
+    """A shot worth a detail row: a size the vocabulary applies to, or a movement
+    that was actually measured. In the library 70% of sizes are UNKNOWN and 25%
+    of movements are `unknown` (too few frames); listing those row by row is
+    what made this block 65% of a 24-second clip's page."""
+    return (r.get("size") not in (None, "UNKNOWN")
+            or r.get("movement") not in (None, "unknown"))
+
+
+def _distribution(rows: List[Dict[str, Any]], key: str,
+                  order: Tuple[str, ...]) -> str:
+    """One stacked bar + legend, weighted by screen time, not shot count.
+
+    Time, because the question this answers is "what does the viewer mostly
+    see": forty 0.2s flash cuts should not outweigh one ten-second wide shot.
+    Shots with no value for this key are left out of the bar rather than
+    painted as a category -- absence is reported by the analysable line above.
+    """
+    totals: Dict[str, float] = {}
+    counts: Dict[str, int] = {}
+    for r in rows:
+        v = r.get(key)
+        if v is None:
+            continue
+        dur = max(0.0, float(r.get("end") or 0) - float(r.get("start") or 0))
+        totals[v] = totals.get(v, 0.0) + dur
+        counts[v] = counts.get(v, 0) + 1
+    whole = sum(totals.values())
+    if not totals or whole <= 0:
+        return ""
+    known = [v for v in order if v in totals] + sorted(v for v in totals if v not in order)
+    segs, legend = [], []
+    for v in known:
+        pct = 100.0 * totals[v] / whole
+        segs.append('<i class="sgc-%s" style="width:%.2f%%" title="%s %d%%"></i>'
+                    % (_e(v), pct, _e(v), int(round(pct))))
+        legend.append('<span class="sgleg"><b class="sgsw sgc-%s"></b>%s '
+                      '<span class="q">%d%% &middot; %d</span></span>'
+                      % (_e(v), _cell("sgl", v), int(round(pct)), counts[v]))
+    return ('<div class="sgdist"><div class="lbl" data-i18n="sg.%s">%s</div>'
+            '<div class="sgbar">%s</div><div class="sglegend">%s</div></div>'
+            % (key, key, "".join(segs), "".join(legend)))
+
+
 def _render_shot_grammar(view: Dict[str, Any]) -> str:
     grammar = view.get("shot_grammar") or {}
     rows = grammar.get("rows") or []
@@ -400,8 +448,32 @@ def _render_shot_grammar(view: Dict[str, Any]) -> str:
         cls = "warn" if scaled * 2 < labelled else ""
         note = ('<div class="q %s"><span data-i18n="analysable">analysable</span> '
                 '%d%% (%d/%d)</div>' % (cls, pct, scaled, labelled))
+
+    dists = (_distribution(rows, "size", _SIZE_ORDER)
+             + _distribution(rows, "movement", _MOVE_ORDER))
+
+    # The clip as one band, each shot painted by its size and clickable. It
+    # stays one line tall whether the clip has 4 shots or the library's 2,568.
+    dur = float(view.get("duration") or 0.0) or max(
+        float(r.get("end") or 0) for r in rows)
+    band = ""
+    if dur > 0:
+        ticks = []
+        for r in rows:
+            a = float(r.get("start") or 0)
+            b = float(r.get("end") or a)
+            ticks.append('<i class="sgseek sgc-%s" data-ts="%.3f" '
+                         'style="left:%.3f%%;width:%.3f%%" title="%s %s / %s"></i>'
+                         % (_e(r.get("size") or "none"), a, 100.0 * a / dur,
+                            max(0.15, 100.0 * (b - a) / dur), _fmt_ts(a),
+                            _e(r.get("size") or "-"), _e(r.get("movement") or "-")))
+        band = ('<div class="lbl" data-i18n="sg.band">timeline</div>'
+                '<div class="sgband">%s</div>' % "".join(ticks))
+
     cells = []
     for r in rows:
+        if not _has_data(r):
+            continue
         size = r["size"] or "-"
         move = r["movement"] or "-"
         # Both vocabularies are closed, so both translate. The numbers travel
@@ -412,11 +484,20 @@ def _render_shot_grammar(view: Dict[str, Any]) -> str:
             ev = ('<span class="q">%.1f px &middot; %d%%</span>'
                   % (r["speed"], int(round(100 * (r["agreement"] or 0)))))
         cells.append(
-            '<div class="sgrow"><span class="q">%s</span>%s%s%s</div>'
-            % (_fmt_ts(r["start"]), _cell("sgz", size), _cell("sgm", move), ev))
+            '<div class="sgrow sgseek" data-ts="%.3f"><span class="q">%s</span>%s%s%s</div>'
+            % (float(r["start"] or 0), _fmt_ts(r["start"]),
+               _cell("sgz", size), _cell("sgm", move), ev))
+    hidden = len(rows) - len(cells)
+    detail = ('<details class="sgdetail"><summary><span data-i18n="sg.detail">'
+              'per-shot detail</span> <span class="q">%d</span></summary>'
+              '<div class="sglist">%s</div>%s</details>'
+              % (len(cells), "".join(cells),
+                 ('<div class="q sghidden"><span data-i18n="sg.hidden">'
+                  'shots with no usable reading, not listed</span>: %d</div>' % hidden)
+                 if hidden else ""))
     return ('<section class="block"><div class="eyebrow" data-i18n="shotGrammar">'
-            'Shot grammar</div>%s<div class="sglist">%s</div></section>'
-            % (note, "".join(cells)))
+            'Shot grammar</div>%s%s%s%s</section>'
+            % (note, dists, band, detail))
 
 
 def render_inspector(view: Dict[str, Any], base: str = "",
@@ -977,9 +1058,39 @@ a{color:inherit}
   font-variant-numeric:tabular-nums}
 .reasoning{margin:12px 0 0;color:var(--quiet);font-size:13px;max-width:62ch}
 .metagrid{display:grid;grid-template-columns:6rem 1fr;gap:3px 16px;font-size:13px}
-.sglist{display:flex;flex-direction:column;gap:2px;margin-top:8px}
-.sgrow{display:grid;grid-template-columns:64px 72px 1fr auto;gap:8px;align-items:baseline;padding:3px 0;border-bottom:1px solid var(--line)}
+.sglist{display:flex;flex-direction:column;gap:2px;margin-top:8px;max-width:760px}
+.sgrow{display:grid;grid-template-columns:3.5rem 6rem minmax(0,1fr) auto;gap:12px;
+  align-items:baseline;padding:4px 6px;border-bottom:1px solid var(--rule-soft);cursor:pointer}
+.sgrow:hover{background:var(--surface)}
 .sgz{font-weight:600}
+.sgdist{margin:14px 0 6px;max-width:760px}
+.sgbar{display:flex;height:14px;border:1px solid var(--rule-soft);margin:6px 0}
+.sgbar i{display:block;height:100%}
+.sglegend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:13px}
+.sgleg{display:inline-flex;align-items:center;gap:6px}
+.sgsw{display:inline-block;width:10px;height:10px;border:1px solid var(--rule-soft)}
+.sgband{position:relative;height:22px;margin:6px 0 10px;background:var(--surface-2);
+  border:1px solid var(--rule-soft)}
+.sgband i{position:absolute;top:0;bottom:0;cursor:pointer;border-right:1px solid var(--bg)}
+.sgband i:hover{outline:2px solid var(--ink);z-index:1}
+.sgdetail{margin-top:8px}
+.sgdetail summary{cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--quiet);padding:4px 0}
+.sghidden{margin-top:6px;font-size:12px}
+/* Shot size: close = dark, far = light, so the band reads as framing at a
+   glance. Mono by design -- the shell carries no colour fills. */
+.sgc-ECU{background:#231916}.sgc-CU{background:#3d302a}.sgc-MCU{background:#5e5049}
+.sgc-MS{background:#857870}.sgc-MLS{background:#a69b93}.sgc-LS{background:#c4bbb3}
+.sgc-ELS{background:#ddd6cf}
+.sgc-UNKNOWN,.sgc-none{background:repeating-linear-gradient(45deg,var(--surface-2) 0 3px,var(--rule-soft) 3px 5px)}
+/* Movement: still -> moving, light -> dark. */
+.sgc-static{background:#c4bbb3}.sgc-still_subject_moves{background:#857870}
+.sgc-camera_moves{background:#3d302a}.sgc-unsteady{background:#5e5049}
+.sgc-unknown{background:repeating-linear-gradient(45deg,var(--surface-2) 0 3px,var(--rule-soft) 3px 5px)}
+@media (max-width:640px){
+  .sgrow{grid-template-columns:3rem 4.5rem minmax(0,1fr);row-gap:0}
+  .sgrow > .q:last-child:not(:first-child){grid-column:2 / -1;font-size:12px}
+}
 .q.warn{color:var(--warn,#c2410c)}
 .mk{color:var(--quiet);font-family:var(--mono);font-size:10px;letter-spacing:.12em;
   text-transform:uppercase;padding-top:3px}
@@ -1115,6 +1226,7 @@ _SCRIPT = r"""
   segEls.forEach(function(s){ s.addEventListener('click',function(){ seek(+s.dataset.start); }); });
   cells.forEach(function(c){ c.addEventListener('click',function(){ seek(+c.dataset.ts); }); });
   mkRows.forEach(function(r){ r.addEventListener('click',function(){ seek(+r.dataset.ts); }); });
+  [].forEach.call(document.querySelectorAll('.sgseek'),function(e){ e.addEventListener('click',function(){ seek(+e.dataset.ts); }); });
 
   // --- IN / OUT ---
   function setIn(){ inSec=cur(); if(outSec!=null&&inSec>outSec) outSec=null; paintWindow(); }
