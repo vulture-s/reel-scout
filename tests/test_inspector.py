@@ -681,3 +681,15 @@ def test_the_band_ships_with_a_key_and_a_time_axis():
         assert 'data-i18n="sgf.wide"' not in key
     finally:
         conn.close(); os.unlink(path)
+
+
+def test_a_clip_with_motion_but_no_size_says_so_instead_of_a_grey_band():
+    conn, path = _grammar_db(motions=((0.0, "static", 0.0, 0.9),))
+    try:
+        html = inspector._render_shot_grammar(
+            {"shot_grammar": inspector._shot_grammar(conn, "v1"),
+             "duration": 10.0, "video_id": "abcdef1234567890"})
+        assert 'class="sgband"' not in html
+        assert 'data-i18n="sg.noSize"' in html and "reel-scout shot-size abcdef12" in html
+    finally:
+        conn.close(); os.unlink(path)

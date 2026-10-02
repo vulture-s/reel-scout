@@ -473,7 +473,16 @@ def _render_shot_grammar(view: Dict[str, Any]) -> str:
     dur = float(view.get("duration") or 0.0) or max(
         float(r.get("end") or 0) for r in rows)
     band = ""
-    if dur > 0:
+    if not any(r.get("size") for r in rows):
+        # A band of nothing but "no size label" read as a broken colour scheme
+        # (Hevin 2026-10-02: "I don't see any colour") -- 150 of 205 clips had
+        # never been through shot-size, because batch does not run it. Say that,
+        # and how to fix it, instead of painting a grey bar.
+        vid = view.get("video_id") or ""
+        band = ('<div class="q sgnosize"><span data-i18n="sg.noSize">'
+                'shot size not labelled for this clip yet</span>'
+                '<code>reel-scout shot-size %s</code></div>' % _e(vid[:8]))
+    elif dur > 0:
         ticks = []
         for r in rows:
             a = float(r.get("start") or 0)
@@ -1101,6 +1110,9 @@ a{color:inherit}
 .sgaxis{display:flex;justify-content:space-between;font-family:var(--mono);
   font-size:11px;color:var(--quiet);margin-bottom:8px}
 .sgkey{margin-bottom:6px}
+.sgnosize{margin:10px 0;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+.sgnosize code{font-family:var(--mono);font-size:12px;background:var(--surface-2);
+  padding:2px 6px;border-radius:3px;color:var(--ink)}
 .sgdetail{margin-top:8px}
 .sgdetail summary{cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.12em;
   text-transform:uppercase;color:var(--quiet);padding:4px 0}
