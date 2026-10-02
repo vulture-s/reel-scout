@@ -168,7 +168,7 @@ def main(argv: List[str] = None) -> None:
     p_tr.add_argument("--base-url", default=None, help="ollama base URL")
     p_tr.add_argument("--kinds", default=None,
                       help="Comma-separated subset: description,transcript_segment,"
-                           "summary,timeline,reasoning")
+                           "summary,timeline,reasoning,opening_text,cta_text")
     p_tr.add_argument("--limit", type=int, default=0, help="Stop after N passages")
     p_tr.add_argument("--keep-stale", action="store_true",
                       help="Leave translations whose source text has changed. "

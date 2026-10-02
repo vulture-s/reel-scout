@@ -46,6 +46,8 @@ KIND_SEGMENT = "transcript_segment"       # ref = segment index
 KIND_SUMMARY = "summary"                  # ref = ''
 KIND_TIMELINE = "timeline"                # ref = timeline index
 KIND_REASONING = "reasoning"              # ref = ''
+KIND_OPENING = "opening_text"             # ref = ''  (hook.opening_text)
+KIND_CTA = "cta_text"                     # ref = ''  (hook.cta_text)
 
 #: Above this share of CJK the text is already Chinese and translating it would
 #: only degrade it. Deliberately a ratio rather than a language classifier:
@@ -138,6 +140,13 @@ def collect_units(conn, video_id: str) -> List[Tuple[str, str, str]]:
             text = (ev or {}).get("event") or ""
             if needs_translation(text):
                 units.append((KIND_TIMELINE, str(i), text))
+        # The decoded block's two free-text fields were never collected, so
+        # they stayed English in the Chinese UI even on fully translated clips.
+        hook = full.get("hook") or {}
+        for kind, field in ((KIND_OPENING, "opening_text"), (KIND_CTA, "cta_text")):
+            text = (hook.get(field) or "") if isinstance(hook, dict) else ""
+            if needs_translation(text):
+                units.append((kind, "", text))
 
     sc = db.get_score(conn, video_id)
     if sc and needs_translation(sc["reasoning"]):
