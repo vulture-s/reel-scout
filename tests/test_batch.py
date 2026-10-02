@@ -670,3 +670,30 @@ def test_unlabelled_entries_are_named_after_the_post_not_the_position(url, want)
 
 def test_a_label_still_wins_over_the_url():
     assert batch.slugify("Amy Wu", 2, "https://www.instagram.com/reel/AAA/") == "Amy-Wu"
+
+
+def test_a_second_run_into_the_same_out_keeps_the_first_runs_manifest(temp_db, tmp_path, monkeypatch):
+    # Seven chunks into one --out used to leave a manifest describing only the last.
+    import json
+    monkeypatch.setattr(batch, "_run", lambda cmd, verbose, timeout=None: 0)
+    monkeypatch.setattr(batch, "_video_ids", lambda conn: set())
+    monkeypatch.setattr(batch, "needs_completion", lambda conn, vid: False)
+
+    monkeypatch.setattr(batch, "resolve_video_id", lambda conn, before, url: "vid-1")
+    batch.run_batch([("a", "https://x/1")], str(tmp_path), "agent")
+    monkeypatch.setattr(batch, "resolve_video_id", lambda conn, before, url: "vid-2")
+    batch.run_batch([("b", "https://x/2")], str(tmp_path), "agent")
+
+    runs = sorted((tmp_path / "manifests").glob("*.json"))
+    assert len(runs) == 2
+    ids = [json.loads(p.read_text(encoding="utf-8"))["done"][0]["video_id"] for p in runs]
+    assert sorted(ids) == ["vid-1", "vid-2"]
+    latest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    assert latest["done"][0]["video_id"] == "vid-2"
+
+
+def test_two_runs_in_the_same_second_do_not_share_an_archive_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(batch.time, "strftime", lambda fmt: "2026-10-02-113600")
+    a = batch._archive_manifest(str(tmp_path), {"done": []})
+    b = batch._archive_manifest(str(tmp_path), {"done": []})
+    assert a != b and os.path.exists(a) and os.path.exists(b)

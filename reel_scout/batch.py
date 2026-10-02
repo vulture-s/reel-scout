@@ -411,6 +411,28 @@ def _step_failure(step: str, rc: int, timeout: float) -> str:
     return "%s exited non-zero" % step
 
 
+def _archive_manifest(out_root: str, result: Dict[str, Any]) -> str:
+    """Keep this run's manifest under manifests/<stamp>.json; returns its path.
+
+    manifest.json is "the latest run" and stays that way (MCP batch_status reads
+    it). But the CLI writes every run into the same --out by default, so each run
+    replaced the last one's record: seven chunks into one root on 2026-10-02 left
+    a manifest describing only the seventh. The bundles accumulate; the record of
+    which run produced which bundle did not.
+    """
+    folder = os.path.join(out_root, "manifests")
+    os.makedirs(folder, exist_ok=True)
+    stamp = time.strftime("%Y-%m-%d-%H%M%S")
+    path = os.path.join(folder, stamp + ".json")
+    n = 2
+    while os.path.exists(path):
+        path = os.path.join(folder, "%s-%d.json" % (stamp, n))
+        n += 1
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+    return path
+
+
 def run_batch(entries: List[Tuple[str, str]], out_root: str, mode: str,
               max_mb: str = "25", verbose: bool = False,
               on_progress: Optional[Callable[[Dict[str, Any]], Any]] = None,
@@ -581,5 +603,6 @@ def run_batch(entries: List[Tuple[str, str]], out_root: str, mode: str,
         result["not_attempted"] = not_attempted
     with open(os.path.join(out_root, "manifest.json"), "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
+    _archive_manifest(out_root, result)
     emit("batch_done", result=result, cancelled=cancelled)
     return result
