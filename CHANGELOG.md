@@ -1,5 +1,64 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **An official site: <https://vulture-s.github.io/reel-scout/>.** Before this
+  the repository had no description, no homepage and no Pages — a tool that is
+  on PyPI, documents nineteen MCP tools and ships a skill, with nowhere on
+  GitHub that answers "how is this different from pasting the URL into an AI".
+
+  Seven pages, thirteen routes, built with Astro and deployed by Actions. The
+  doc pages render `docs/*.md` and `CHANGELOG.md` directly — those files stay
+  the single source of truth and the site is just another place that reads
+  them — through an **allowlist, not a glob**: "anything later dropped into
+  `docs/` goes live" is the wrong default, because the next thing dropped in
+  may be a private note.
+
+  One page is worth naming: **誠實清單** (the honest list). It carries only
+  limits that have actually been hit, each with what to do about it. "Problems
+  you might have" are left out on purpose — those turn an honest list into a
+  disclaimer, and nobody reads a disclaimer.
+
+- **Paper.** The shell grows two fixed layers — an SVG `feTurbulence` fibre and
+  ruled lines — shared by the viewer, the inspector, the take-home export and
+  the site, so all four stay one surface. Only `--paper-col` differs (the tool
+  is wide, the site is editorial).
+
+  🔴 Two decisions here were reversed **by rendering them**, not by reading the
+  code. The ruled lines first shipped scoped to a class that only the doc pages
+  carried: present, invisible, effectively not done. And tables were first
+  masked on the theory that row dividers and ruled lines would fight — but the
+  library view *is* one full-width table, so masking it left the whole screen
+  bare. Measured on paper: a ruled line at 8% sits 17/255 from the sheet while
+  `--rule-soft` sits 36/255 away, so the dividers stay unambiguously louder.
+
+### Fixed
+
+- **The craft re-weighting sliders were painted in the browser's accent
+  colour** — on a stock macOS install, a bright blue, on a shell whose own
+  canon says it spends no colour at all. The tokens were right; nothing had
+  told the control about them (`accent-color: var(--ink)`).
+
+  It had been there long enough to be **in the screenshot used by both READMEs
+  and the site's home page** — so the main piece of evidence for "this shell is
+  monochrome" was a counter-example to it. The screenshot has been retaken, and
+  its alt text now describes what the image actually contains rather than a
+  bilingual pairing that is no longer visible in it.
+
+- **Doc pages shipped two `<h1>` elements and a 404.** The page supplies a
+  short title for the nav and each `.md` opens with its own long one; and the
+  link rewriter only understood same-directory `.md`, leaving everything else
+  "as written" — which for `../prompts/signal-reliability-cheatsheet.md` meant
+  a guaranteed 404 rather than neutrality. Links now resolve in three classes
+  (published → `.html`, other in-repo `.md` → GitHub, external → untouched),
+  and the leading `h1` is demoted in the rehype pass.
+
+  Both were found by opening the live page. Both are now executable checks:
+  `site/test/links.test.mjs` plus two build-time assertions (one `h1` per page,
+  no unresolved `.md` links).
+
 ## 1.4.2 — 2026-09-05
 
 ### Fixed
