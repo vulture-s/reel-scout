@@ -73,18 +73,17 @@ reel-scout analyze &lt;id&gt;</pre>
 
     <div class="shead"><h2>這個分數該怎麼用</h2><span class="en">HOW TO READ IT</span></div>
     <p style="max-width:68ch; color:var(--ink-2)">
-      <strong>它是排序器，不是成績單</strong>——用來在一批片裡排出先後，
-      不是給單支片一個絕對值。換了模型、換了批次，分數就會整體位移。
+      它是<strong>排序器</strong>，不是成績單。而且它會<strong>隨批次與模型大小整體位移</strong>——
+      實測同一支片，只換了「看畫面」那顆模型，單一維度就差了 1 分、總分差 0.2。
     </p>
     <p style="max-width:68ch; color:var(--ink-2)">
-      實際分佈（作者語料 190 支）：<strong>一半的片擠在 6.8–7.8 之間</strong>，
-      光是中位數上下 0.1 分裡就有 29 支。所以<strong>把 ±0.5 分以內當成同一級</strong>，
-      小數點的差不要當成高下。
+      所以它的用途是給你一個<strong>基準參照</strong>：在同一批、同一套模型底下，
+      看誰比較強。公差大致是 <strong>±0.5 分</strong>——這個範圍內當成同一級，
+      小數點的差不要當高下。
     </p>
     <p style="max-width:68ch; color:var(--ink-2)">
       <span class="lbl">建議</span>
-      固定一套模型，要換就整批重跑。<code>reel-scout stats</code> 會按
-      <code>model_used</code> 分組，就是為了不讓兩把尺被平均成一個數。
+      固定一套模型，要換就整批重跑。
     </p>
 
     <div class="shead"><h2>同一套引擎，三種玩法</h2><span class="en">NOT JUST REELS</span></div>

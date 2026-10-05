@@ -53,7 +53,8 @@ const boot = JSON.stringify({
 
   <div class="sc-weights">
     <p class="sc-invite"><span class="sc-grip" aria-hidden="true">↔</span>
-      <strong>這四條可以拖</strong>——試試把「節奏」拉到底，看總分怎麼變。</p>
+      <strong>這四條可以拖</strong>——試試把「節奏」拉到底，看總分怎麼變。
+      <button type="button" id="sc-replay" class="wbtn wbtn-ghost">▶ 示範一次</button></p>
     <p class="sc-wnote">
       四個維度來自模型，<strong>拖了也不會變</strong>；變的只是它們怎麼組合。
       權重會自動縮放成總和 100%，所以結果仍在同一把 0–10 的尺上。
@@ -161,10 +162,15 @@ const boot = JSON.stringify({
     s.addEventListener('input', function (e) { if (e.isTrusted) stopDemo(); });
   });
 
-  function tween(slider, from, to, ms, done) {
+  // 🔴 重入防護。沒有它就會有兩個示範同時跑 —— 捲到視窗觸發一次、按鈕再觸發一次，
+  //    兩者 tween 同一條滑桿，結果停在中間某個值（實測停在 49%、85%）。
+  //    每次開跑拿一個新 token，舊的那一輪在下一幀自己認出來就退場。
+  var demoToken = 0;
+
+  function tween(slider, from, to, ms, token, done) {
     var t0 = null;
     function step(ts) {
-      if (userTouched) { return; }
+      if (userTouched || token !== demoToken) return;   // 被打斷，或已經有新的一輪
       if (t0 === null) t0 = ts;
       var k = Math.min(1, (ts - t0) / ms);
       // easeInOutCubic —— 等速移動看起來像程式在跑，不像有人在拖
@@ -179,11 +185,17 @@ const boot = JSON.stringify({
   function demo() {
     var s = card.querySelector('input[data-dim="pacing"]');
     if (!s || userTouched) return;
-    var home = +s.value;
+    var token = ++demoToken;          // 舊的那輪從這一刻起失效
+    var home = boot.defaults.pacing;  // 固定從預設出發，不用當下值 ——
+                                      // 否則被打斷過一次之後，「回家」會回到一個歪掉的位置
+    s.value = String(home); apply();
     card.classList.add('is-demo');
-    tween(s, home, 85, 900, function () {
+    tween(s, home, 85, 900, token, function () {
       setTimeout(function () {
-        tween(s, 85, home, 700, function () { card.classList.remove('is-demo'); });
+        if (token !== demoToken) return;
+        tween(s, 85, home, 700, token, function () {
+          if (token === demoToken) card.classList.remove('is-demo');
+        });
       }, 850);
     });
   }
@@ -191,6 +203,14 @@ const boot = JSON.stringify({
   // 進場動畫：進入視窗才跑、只跑一次。
   // 🔴 prefers-reduced-motion 時直接到最終值 —— 那不是偏好設定，
   //    對前庭失調的人是症狀開關。關掉時不是「比較快的動畫」。
+  // 「再看一次」—— 示範**不能只靠時機**。按鈕一律可用，包含 reduced-motion：
+  // 那條規則擋的是「沒要求就動」，使用者自己按就是要求。
+  var replay = document.getElementById('sc-replay');
+  replay.addEventListener('click', function () {
+    userTouched = false;   // 按這顆是明確的要求，不是打斷
+    demo();                // 歸位與 token 由 demo() 自己處理
+  });
+
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   function arrive(withDemo) {
     card.classList.add('is-in');
@@ -199,9 +219,27 @@ const boot = JSON.stringify({
     if (withDemo) setTimeout(demo, 1350);
   }
   if (reduce || !('IntersectionObserver' in window)) { arrive(false); return; }
+
+  // 🔴 門檻 0.9 而不是 0.3，而且還要等使用者真的捲過。
+  //    實測：桌面每一個尺寸（1440×900 / 1512×982 / 1920×1080）在**載入當下**
+  //    這張卡就已經 43–80% 可見 ⇒ 0.3 的門檻會立刻觸發，示範在使用者還在看上面
+  //    那句大標時就跑完了。Hevin 回報「沒看到」就是這個。
+  //    手機反而正常（載入時只有 14% 可見），所以這是個只在桌面發生的時機問題。
+  var scrolled = window.scrollY > 0;
+  window.addEventListener('scroll', function () { scrolled = true; }, { once: true, passive: true });
+
   var io = new IntersectionObserver(function (es) {
-    es.forEach(function (e) { if (e.isIntersecting) { arrive(true); io.unobserve(e.target); } });
-  }, { threshold: 0.3 });
+    es.forEach(function (e) {
+      if (!e.isIntersecting) return;
+      // 卡片幾乎整個進來了，但使用者還沒捲過 ⇒ 他根本還沒走到這裡，先不要演。
+      if (!scrolled) return;
+      arrive(true);
+      io.unobserve(e.target);
+    });
+  }, { threshold: 0.9 });
   io.observe(card);
+
+  // 一直沒捲到也要把長條畫出來（只是不示範）—— 否則卡片會一直空著。
+  setTimeout(function () { if (!card.classList.contains('is-in')) arrive(false); }, 2500);
 })();
 </script>
