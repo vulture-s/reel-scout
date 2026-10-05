@@ -19,12 +19,18 @@
   --col:760px; --col-wide:1080px;
 
   /* 紙質 token 與 theme.py 同一份（2026-10-05 下沉到 theme.py，三個介面共用）。
-   * 只有 --paper-col 刻意不同：工具是寬版（--col-tool），官網是 editorial（--col-wide）。
+   * 只有 --paper-col 刻意不同：工具是寬版（--col-tool），官網是 editorial（--col-site）。
    * 它是 token 而不是兩份規則，這樣規則本身維持一模一樣。 */
   --paper-fiber-opacity:.05;
   --paper-rule-step:26px;
   --paper-rule-ink:rgba(35,25,22,.08);
-  --paper-col:var(--col-wide);
+  /* 🔴 官網的紙張比 theme.py 的 --col-wide(1080) 寬。那個 token 是三個介面
+   * 共用的，動它會連帶動到工具，所以官網的寬度自己拿一個 site-only token。
+   * 1240 的理由：1440 的視窗左右各留 100px，還讀得出「桌上的一張紙」；
+   * 本文行長不受影響——段落各自有 max-width(39–54 字/行)，加寬吃到的是
+   * 表格與加權面板，那兩個本來就被 964px 擠著。 */
+  --col-site:1240px;
+  --paper-col:var(--col-site);
 
   /* 本站獨有，theme.py 沒有也不該有（見 tests/test_site_tokens.py）。
    * 工具是一個寬版的資料表面，給它一張「紙的邊界」只會跟片庫表格打架。 */

@@ -106,7 +106,7 @@ def test_the_comparison_can_actually_fail() -> None:
     assert c["--ink"] == a["--ink"]
 
 
-SITE_ONLY = ["--desk", "--margin-rule", "--margin-x"]
+SITE_ONLY = ["--desk", "--margin-rule", "--margin-x", "--col-site"]
 
 
 @pytest.mark.parametrize("token", SITE_ONLY)
@@ -142,6 +142,6 @@ def test_paper_col_is_the_one_token_that_differs() -> None:
     """
     site = _decls(_site_css())
     theme_tokens = _theme_tokens()
-    assert site["--paper-col"] == "var(--col-wide)"
+    assert site["--paper-col"] == "var(--col-site)"
     assert theme_tokens["--paper-col"] == "var(--col-tool)"
     assert site["--paper-col"] != theme_tokens["--paper-col"]

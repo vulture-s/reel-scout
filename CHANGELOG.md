@@ -4,6 +4,16 @@
 
 ### Added
 
+- **The page is wider: the sheet goes 1080 → 1240, the content column 964 →
+  1124.** It gets its own site-only token (`--col-site`) rather than moving
+  `--col-wide`, which `theme.py` shares with the inspector — widening the site
+  through that token would have dragged the tool's layout with it. Body prose is
+  unaffected because paragraphs carry their own measure (39–54 characters a
+  line); the extra room goes to the tables and the reweight panel, which were
+  the two things 964px was squeezing. Measured at 1440/1512/1920/1280/1024/768
+  /390: no horizontal scroll anywhere, and the only line over 70 characters is
+  the footer's licence credit.
+
 - **The site now says it eats Threads links.** The crawler shipped in #153 and
   the front page still read "YouTube Shorts, Instagram Reels or TikTok", so
   someone holding a Threads URL had no way to know. Stated with its shape
