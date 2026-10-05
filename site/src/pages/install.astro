@@ -29,7 +29,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       <thead><tr><th>Extra</th><th>給什麼</th></tr></thead>
       <tbody>
         <tr><td class="mono">whisper</td><td>faster-whisper 語音轉錄（無原生字幕軌時才需要）</td></tr>
-        <tr><td class="mono">audio</td><td>音訊事件偵測 ＋ BPM／能量</td></tr>
+        <tr><td class="mono">audio</td><td>音訊事件偵測 ＋ BPM／能量。<strong>⚠️ 裝了也預設不跑</strong>，見下</td></tr>
         <tr><td class="mono">ocr</td><td>燒錄字幕的 OCR</td></tr>
         <tr><td class="mono">diarize</td><td>講者分離</td></tr>
         <tr><td class="mono">instagram</td><td>IG 的備援抓取路徑</td></tr>
@@ -37,12 +37,30 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     </table></div>
     <pre>pip install "reel-scout[whisper]"</pre>
 
+    <p class="warn">
+      <strong>⚠️ 音訊事件偵測預設是關的</strong>——它要另外下載一顆約 <strong>312 MB</strong>
+      的模型檔，不是每個人都需要。所以你照著跑，看到的會是<strong>三步而不是四步</strong>。
+      要開就在指令後面加：
+    </p>
+    <pre>reel-scout analyze &lt;url&gt; --no-skip-audio</pre>
+    <p style="max-width:66ch; color:var(--ink-2)">
+      開了之後它會給你一條聲音的時間軸（說話／音樂／音效），每一格附一個信心值。
+      <strong>信心值就是它的誠實度</strong>——高的可以用，低的是它在猜。
+      實測過：低信心那批幾乎全是誤判（把淋醬的聲音認成漱口）。
+    </p>
+
     <div class="shead"><h2>從 AI agent 裡用</h2><span class="en">MCP · SKILL</span></div>
     <p style="max-width:66ch; color:var(--ink-2)">
       <code>pip install</code> 給你 CLI。要讓 Claude Code、Codex 或 Claude Desktop
       直接驅動它，裝 MCP server——不必手改任何設定檔：
     </p>
     <pre>reel-scout mcp install</pre>
+    <p class="warn">
+      <strong>⚠️ 網頁版與手機 App 連不到。</strong>
+      MCP server 是跑在<strong>你自己這台電腦上</strong>的一個程式，
+      所以只有桌面端的 agent 走得到它——<code>claude.ai</code> 的網頁介面與手機 App
+      都不行。那兩個要用就走下面的「沒有 GPU 怎麼辦」或直接螢幕錄影配提示詞。
+    </p>
     <p style="max-width:66ch; color:var(--ink-2)">
       接上之後有 19 個工具可以在對話裡直接用。另外還有 <strong>skill</strong>，
       那是給 agent 讀的那一半：流程、能力對照表、以及六份反解 prompt。

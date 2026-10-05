@@ -6,8 +6,8 @@ const steps = [
   { n: '01', cmd: 'crawl', h: '下載', p: '走 yt-dlp。YouTube / Instagram / TikTok 的網址都直接吃；帳號或頻道頁可以用 browse 先列出全部影片。IG 的登入牆要帶 cookies（做法在誠實清單）。下載時擋掉 AV1——分析得很好然後播不出來，是最沒意義的失敗。' },
   { n: '02', cmd: 'transcribe', h: '轉錄', p: '字幕優先：有原生字幕軌就用它，比重跑一次語音辨識準且快。沒有才走 Whisper。中英夾雜的長檔會每段重新偵測語言，解掉「前三分鐘認成英文、後面全錯」那種語言鎖定漂移。' },
   { n: '03', cmd: 'vision', h: '抽楨 ＋ 看畫面', p: '按場景變化、間隔、動態或混合策略抽關鍵楨，楨數依片長編列預算，首尾各保一張。然後讓 VLM 逐楨描述。沒有本機 GPU 就改用 agent 模式：把關鍵楨交給你的 AI agent，描述再寫回資料庫。' },
-  { n: '04', cmd: 'shots', h: '找剪點', p: '全片剪點偵測，算出每分鐘幾刀、平均一顆鏡頭幾秒。再加上音訊的能量與 BPM。這一步的意義是讓「節奏很快」變成一個數字，而不是模型的形容詞。' },
-  { n: '05', cmd: 'analyze', h: '合成', p: '把前面四層交給 LLM 合成一份結構化分析：時間軸、敘事弧、開場類型、CTA 類型。實測值（剪點、BPM）會折進 prompt，所以評分有東西可以舉證。' },
+  { n: '04', cmd: 'shots', h: '找剪點', p: '全片剪點偵測，算出每分鐘幾刀、平均一顆鏡頭幾秒。再加上音訊的能量與 BPM。這一步的意義是讓「節奏很快」變成一個數字，而不是模型的形容詞。⚠️ 音訊事件偵測（說話／音樂／音效的時間軸）**預設是關的**，要加 --no-skip-audio。' },
+  { n: '05', cmd: 'analyze', h: '合成', p: '把前面四層交給 LLM 合成一份結構化分析：時間軸、敘事弧、開場類型、CTA 類型。實測值（剪點、BPM）會折進 prompt，所以評分有東西可以舉證。⚠️ 前四步是量出來的，第五步是讀完之後的判斷——分數的警語只針對第五步，不是整條線。' },
   { n: '06', cmd: 'view / export', h: '看與帶走', p: 'reel-scout view 開本機伺服器瀏覽整個片庫；inspect 釘住單片對照逐字稿與關鍵楨。export 可以輸出自包含的單檔 HTML（零安裝、整頁只一個網路請求）、JSON、CSV，或給後期用的節奏骨架。' },
 ];
 ---
@@ -30,12 +30,30 @@ const steps = [
       </section>
     ))}
 
+    <div class="shead"><h2>為什麼要附提示詞</h2><span class="en">WHY PROMPTS</span></div>
+    <p style="max-width:68ch; color:var(--ink-2)">
+      套件裡附了六份反解 prompt。它們在幹嘛，用一個實測講最快——
+      <strong>同一個模型、同一支片、同一個問題</strong>：「這支片裡用的是哪個模型版本？」
+    </p>
+    <div class="tw"><table>
+      <thead><tr><th>給不給提示詞</th><th>它回答</th><th>實際是</th></tr></thead>
+      <tbody>
+        <tr><td>不給</td><td class="mono">Sonnet 3.8</td><td rowspan="2" class="mono">Opus 4.8</td></tr>
+        <tr><td>給（裡面有一句「只講你真的看到的」）</td><td class="mono">Opus 4.8</td></tr>
+      </tbody>
+    </table></div>
+    <p style="max-width:68ch; color:var(--ink-2)">
+      沒給的時候它根本沒去讀，只是<strong>猜一個最像的預設值</strong>。
+      所以提示詞不是讓模型變聰明——是把它從「猜一個最像的答案」
+      <strong>逼成「報一個螢幕上真有的答案」</strong>。猜跟讀，差一句話。
+    </p>
+
     <div class="shead"><h2>三種用法，三個門檻</h2><span class="en">THREE SURFACES</span></div>
     <div class="tw"><table>
       <thead><tr><th>層</th><th>你需要什麼</th><th>拿到什麼</th></tr></thead>
       <tbody>
         <tr><td class="mono">L0</td><td>什麼都不用裝</td><td>別人匯出的單檔 HTML，打開就能看完整拆解</td></tr>
-        <tr><td class="mono">L1</td><td>一個 AI agent（Claude Code / Codex / Desktop）</td><td><code>reel-scout mcp install</code> 一鍵接上，19 個工具在對話裡直接用；模型當視覺後端，零金鑰</td></tr>
+        <tr><td class="mono">L1</td><td>一個<strong>桌面端</strong>的 AI agent（Claude Code / Codex / Claude Desktop）<br><span class="warn-inline">⚠️ 網頁版 claude.ai 與手機 App 連不到 MCP</span></td><td><code>reel-scout mcp install</code> 一鍵接上，19 個工具在對話裡直接用；模型當視覺後端，零金鑰</td></tr>
         <tr><td class="mono">L2</td><td>本機模型（Ollama / oMLX）</td><td>全自動批次，不經過任何雲端</td></tr>
       </tbody>
     </table></div>

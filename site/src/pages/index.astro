@@ -4,7 +4,7 @@ import ScorePanel from '../components/ScorePanel.astro';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 // 四條差異化。每一條都對應一個**可驗證**的事實，不是行銷詞：
-// ① yt-dlp 鏈路直吃三個平台的 URL；② 四層信號在 code 裡是四個真的資料來源；
+// ① yt-dlp 鏈路直吃三個平台的 URL；② 五層信號在 code 裡是五個真的資料來源；
 // ③ MIT；④ 介面與逐字稿的中文化在 schema 裡有 translations 表。
 // ⚠️ 刻意不寫測試數與語料筆數：前者每個 PR 都變（docs/roadmap.md 已為此把它移除），
 //    後者是作者私人語料庫的內容，不該出現在公開頁面上。
@@ -15,9 +15,9 @@ const diffs = [
     p: '短影音拆解的主戰場不在 YouTube。Gemini 這類服務不能直接吃 IG 與 TikTok 的連結——你得先自己下載、上傳、管理檔案生命週期。reel-scout 內建 yt-dlp 鏈路，一條指令從網址到結構化資料。',
   },
   {
-    en: 'FOUR SIGNAL LAYERS',
-    h: '四層信號分開記，可靠度不混在一起',
-    p: '上傳者說的、字幕寫的、逐字稿聽到的、模型看到的——這四種來源的可信度完全不同，所以它們在資料庫裡是四個欄位而不是一段摘要。實測過的例子：一支咖啡教學片的 caption 完全沒提咖啡，只有看畫面那一層抓到真相。',
+    en: 'FIVE SIGNAL LAYERS',
+    h: '五層信號分開記，可靠度不混在一起',
+    p: '上傳者說的、說明欄寫的、逐字稿聽到的、畫面上燒死的字、模型看到的——這五種來源的可信度完全不同，所以它們在資料庫裡是五個欄位而不是一段摘要。實測過的例子：一支咖啡教學片的 caption 完全沒提咖啡，只有看畫面那一層抓到真相。',
   },
   {
     en: 'MIT, RUNS LOCAL',
@@ -31,26 +31,30 @@ const diffs = [
   },
 ];
 
-// 四層信號可靠度：由上而下愈可靠。這張表是本工具的核心主張，所以放在首頁。
+// 五層信號可靠度：由上而下愈可靠。這張表是本工具的核心主張，所以放在首頁。
+// 🔴 是「五層」不是四層。2026-10-05 審計抓到：散文寫四、表格做五（L3.5 在散文裡
+// 被漏掉），而課程教材檔名就叫 `04_5層信號可靠度_cheat_sheet.md`。
+// L3.5 的編號也是刻意的 —— 它是後來插進去的一層，位置由可靠度決定：
+// 燒錄字幕比 caption 可信（它出現在影片裡、給觀眾看的），但終究是文字不是畫面。
 const layers = [
   ['L1', 'uploader / metadata', '最不可靠', '標題與帳號是給演算法看的，常與內容無關'],
   ['L2', 'caption / 說明欄', '不可靠',   '寫的是賣點，不是畫面裡發生的事'],
   ['L3', 'transcript 逐字稿', '可靠',     '真的被說出來的話；無字幕軌時走 Whisper'],
-  ['L3.5', '燒錄字幕 OCR',   '可靠',     '畫面上的字，補上沒有被說出來的資訊'],
+  ['L3.5', '燒錄字幕 OCR',   '可靠，但要分辨', '畫面上的字有兩種：入鏡的字，跟作者疊上去的字。讀反會得出相反的結論'],
   ['L4', 'VLM 看畫面',        '最可靠',   '模型直接看關鍵楨——唯一能否證前三層的那一層'],
 ];
 ---
-<Base title="Reel Scout — 短影音拆解，本機優先" current="home"
-      description="把 YouTube Shorts、Instagram Reels、TikTok 的網址變成可查詢的結構化資料。開源、MIT、跑在你自己的機器上。">
+<Base title="Reel Scout — 影片拆解成可查詢的資料，本機優先" current="home"
+      description="把 YouTube Shorts、IG Reels、TikTok、以及長片與訪談，變成可查詢的結構化資料。五層信號分開記、分數可重新加權。開源、MIT、跑在你自己的機器上。">
   <header class="wrap" style="padding-top:56px">
     <p class="eyebrow">OPEN SOURCE · RUNS ON YOUR MACHINE</p>
     <h1 style="font-size:clamp(34px,6.4vw,62px); margin:10px 0 0">
       把一支爆款片<br>拆成你能查詢的資料
     </h1>
     <p style="max-width:62ch; font-size:17.5px; color:var(--ink-2); margin:18px 0 0">
-      貼一個 YouTube Shorts、Instagram Reels 或 TikTok 的網址。
+      貼一個 YouTube Shorts、Instagram Reels 或 TikTok 的網址——長片、訪談、教學 playlist 也吃。
       reel-scout 下載、轉錄、抽關鍵楨、讓模型看畫面，
-      然後把這四層資訊分開存進一個你自己的資料庫——
+      然後把每一種信號<strong>分開</strong>存進一個你自己的資料庫——
       下次要找「那支用三刀開場的片」，是一次查詢，不是重看一遍。
     </p>
     <pre style="margin-top:26px; max-width:52ch">pip install reel-scout
@@ -67,6 +71,24 @@ reel-scout analyze &lt;id&gt;</pre>
       <a href={`${base}/demo.html`}>看完整的 inspector 畫面 →</a>
     </p>
 
+    <div class="shead"><h2>這個分數該怎麼用</h2><span class="en">HOW TO READ IT</span></div>
+    <p style="max-width:68ch; color:var(--ink-2)">
+      <strong>它是排序器，不是成績單。</strong>
+      它回答的是「這一批片裡誰比較強」，不是「這支片值幾分」。
+    </p>
+    <p style="max-width:68ch; color:var(--ink-2)">
+      所以<strong>換了模型就不能拿舊分數來比</strong>。實測踩過一次：同一支片、同一天，
+      只換了「看畫面」那顆模型，節奏那一維就差了整整 1 分。總分 7.6 變 7.8——
+      看起來沒差多少，但它在一百多支的庫裡<strong>從第 38 名跳到第 15 名</strong>。
+      原因是分數擠在一起，大多落在 6.5 到 7.8 之間，小數點的差會放大成排名上的大差。
+    </p>
+    <p style="max-width:68ch; color:var(--ink-2)">
+      <span class="lbl">實務建議</span>
+      固定一套模型。真的要換，就<strong>整批重跑</strong>——否則你的庫裡會混著兩把尺量出來的數字，
+      而且你事後分不出來哪個是哪把。<code>reel-scout stats</code> 會按 <code>model_used</code> 分組，
+      就是為了不讓兩把尺被平均成一個數。
+    </p>
+
     <div class="shead"><h2>它跟丟連結給 AI 有什麼不同</h2><span class="en">WHY THIS EXISTS</span></div>
     {diffs.map((d) => (
       <section class="row" style="padding:18px 0">
@@ -76,7 +98,7 @@ reel-scout analyze &lt;id&gt;</pre>
       </section>
     ))}
 
-    <div class="shead"><h2>四層信號，分開記</h2><span class="en">SIGNAL RELIABILITY</span></div>
+    <div class="shead"><h2>五層信號，分開記</h2><span class="en">SIGNAL RELIABILITY</span></div>
     <p style="max-width:68ch; color:var(--ink-2)">
       一支影片有好幾種「它在說什麼」的來源，而它們的可信度差很多。
       把它們平均成一段摘要，就是把最可靠的那層稀釋掉。
@@ -90,7 +112,50 @@ reel-scout analyze &lt;id&gt;</pre>
       </tbody>
     </table></div>
     <p class="mono" style="font-size:11.5px; color:var(--quiet); letter-spacing:.1em">
-      <a href={`${base}/how-it-works.html`}>這四層怎麼跑出來的 →</a>
+      <a href={`${base}/how-it-works.html`}>這五層怎麼跑出來的 →</a>
+    </p>
+
+    <div class="shead"><h2>同一套引擎，三種玩法</h2><span class="en">NOT JUST REELS</span></div>
+    <p style="max-width:68ch; color:var(--ink-2)">
+      名字叫 Reel Scout，是因為它從「拆短影音」長出來的。
+      但下載→轉錄→看畫面→找剪點→合成這條線，跟片長無關——
+      <strong>它早就不只是抽爆款了</strong>。
+    </p>
+    <div class="tw"><table>
+      <thead><tr><th>玩法</th><th>長什麼樣</th></tr></thead>
+      <tbody>
+        <tr><td>拆競品爆款</td><td>把別人成功的片拆開，看它怎麼搭的。這是它原本的用途</td></tr>
+        <tr><td>把長內容壓成可檢索的索引</td><td>一場兩個多小時的聽證會，壓成四百多個關鍵字命中＋時間軸——之後要找某一句話，是查詢不是重聽</td></tr>
+        <tr><td>用影片學技能</td><td>一個八集的教學 playlist，一個下午變成八張速查卡</td></tr>
+      </tbody>
+    </table></div>
+    <p style="max-width:68ch; color:var(--ink-2)">
+      三種的共同點都一樣：<strong>工具做苦力，判斷留給人。</strong>
+    </p>
+
+    <div class="shead"><h2>它不會幫你做到的事</h2><span class="en">WHAT IT DOESN'T FIX</span></div>
+    <p style="max-width:68ch; color:var(--ink-2)">
+      作者自己的兩支片，隔十個月、同一把尺（兩次都是 <code>ollama</code>）量出來的：
+    </p>
+    <div class="tw"><table>
+      <thead><tr><th>維度</th><th>十個月前</th><th>之後</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>視覺敘事</td><td class="mono">7.0</td><td class="mono">7.0</td><td>一格沒動</td></tr>
+        <tr><td>結構</td><td class="mono">8.0</td><td class="mono">8.0</td><td>一格沒動</td></tr>
+        <tr><td>開場鉤子</td><td class="mono">6.5</td><td class="mono">8.5</td><td>拆了一百多支別人的片，每支都在看鉤子</td></tr>
+        <tr><td>節奏</td><td class="mono">6.0</td><td class="mono">7.5</td><td></td></tr>
+        <tr><td>行動呼籲</td><td class="mono">none</td><td class="mono">link</td><td>那個 none 是工具從前一支挑出來的缺口</td></tr>
+        <tr><td><strong>總分</strong></td><td class="mono">6.9</td><td class="mono">7.8</td><td></td></tr>
+      </tbody>
+    </table></div>
+    <p style="max-width:68ch; color:var(--ink-2)">
+      <strong>構圖與結構一格沒動。</strong>工具沒有讓他更會構圖，也沒有讓他更會寫結構——
+      那些是眼睛跟經驗的事，它碰不到。
+      動的是那些「可以被指出來、然後補上」的：鉤子、節奏、少掉的 CTA。
+    </p>
+    <p style="max-width:68ch; color:var(--ink-2)">
+      所以工具改的不是「你變厲害了」，是<strong>能不能重複、能不能被檢查</strong>。
+      如果有人跟你說「用了 AI 什麼都變好」，那你應該要懷疑他。
     </p>
 
     <div class="shead"><h2>它不做什麼</h2><span class="en">NON-GOALS</span></div>
