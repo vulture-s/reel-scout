@@ -27,6 +27,11 @@ const title = doc === 'changelog' ? '更新紀錄' : (meta?.title ?? doc);
   <div class="wrap docbody" style="padding-top:48px; max-width:var(--col)">
     <p class="eyebrow">DOCS</p>
     <h1 style="font-size:clamp(26px,4.2vw,38px); margin:10px 0 24px">{title}</h1>
+    {/*
+      md 自帶的第一個 h1 由 rewrite-doc-links.mjs 的 demoteLeadingH1 降成 h2
+      （真的換 tagName，不是用 CSS 裝成 h2 —— 螢幕閱讀器讀的是標籤）。
+      樣式見 site.css 的 [data-demoted]。
+    */}
     <Content />
   </div>
 </Base>

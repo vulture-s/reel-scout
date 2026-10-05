@@ -41,6 +41,7 @@ jobs:
           cache: npm
           cache-dependency-path: site/package-lock.json
       - run: npm ci
+      - run: npm test
       - run: npx astro build
 
       # 每一頁都要真的產出來。Astro 的 getStaticPaths 失敗時會少產幾頁而不是整個失敗，
@@ -67,6 +68,25 @@ jobs:
           for f in dist/*.html; do
             grep -q "GT-WB2F3LB8" "$f" || { echo "no GA4 tag in $f"; exit 1; }
           done
+
+      # 🔴 這兩道是官網上線第一天的實測缺陷補的，兩個都在「建構成功、CI 全綠」下存在。
+      #
+      # ① 文件頁有兩個 h1（版面一個、md 自帶一個）。只有開頁面才看得見。
+      # ② `../prompts/…md` 原樣輸出 ⇒ 線上 404。改寫器只認同層的 .md，
+      #    其餘「原樣留著」—— 而原樣留著不是中立，是保證 404。
+      - name: 每頁只有一個 h1，且沒有 .md 連結殘留
+        run: |
+          fail=0
+          for f in dist/*.html; do
+            n=$(grep -o "<h1" "$f" | wc -l | tr -d ' ')
+            [ "$n" = "1" ] || { echo "$f has $n <h1>"; fail=1; }
+          done
+          # 站內相對的 .md 連結一定是壞的（這個站只出 .html）。
+          # 指向 github.com 的 .md 是刻意的落點，所以只抓非 http 的那些。
+          if grep -roE 'href="(\.{0,2}/)?[^":]*\.md[^"]*"' dist/ | grep -v 'github\.com' | head -5 | grep .; then
+            echo "unresolved .md links above"; fail=1
+          fi
+          exit $fail
 
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'
