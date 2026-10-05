@@ -27,9 +27,9 @@ const known = [
     fix: '從 Chrome 或 Brave 匯出 cookies，設 IG_COOKIES_FILE 或用 --cookies 指定。Safari 的 binarycookies 格式讀不了。',
   },
   {
-    h: 'Threads 抓不了，而且「改用 IG 網址」那招已經封死',
-    p: '實測過，不是沒試。Threads 的影片沒有可用的下載路徑，拿同一則貼文的 IG 連結代替也不行。',
-    fix: '沒有解法。需要那支片就自己錄下來走本機檔案。',
+    h: 'Threads 能抓，但它能動的唯一理由是一個會被改掉的假設',
+    p: 'Threads 對瀏覽器回登入牆，對搜尋引擎爬蟲回完整的伺服器渲染頁——工具讀的就是後者頁內那段 JSON，裡面帶免 cookie 的影片直連。2026-10-05 實測 5/5 解析並下載成功，涵蓋單支影片、輪播、文字貼文內嵌影片三種版型。換句話說整條路靠的是 User-Agent：Threads 哪天改了給爬蟲看的東西，它就斷。順帶，「改用 IG 網址」那招仍然不通——同一個 ID 餵給 instagram.com/p/ 會被拒，而同一次呼叫裡的 IG reel 對照組是成功的，所以那不是 cookies 問題，是兩個不同的物件庫。',
+    fix: 'UA 放在 config.THREADS_USER_AGENT，壞掉可以自己換。頁面裡找不到貼文時工具直接報錯，不會安靜地回一筆空的。',
   },
   {
     h: '重跑轉錄要用原本的網址，不要用本機檔案路徑',

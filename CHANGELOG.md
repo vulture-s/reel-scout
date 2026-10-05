@@ -87,6 +87,15 @@
 
 ### Fixed
 
+- **The site said Threads could not be crawled, which stopped being true the
+  moment the Threads crawler merged.** Rewritten to what is now the real
+  limitation: it works by reading the server-rendered page Threads serves to
+  search crawlers, so the User-Agent is the whole load-bearing assumption. The
+  "use the Instagram URL instead" substitute is still dead, and that part stays.
+  A test now pins the seam — a registered crawler plus a sentence on the limits
+  page denying it is a build failure, because nothing else was watching for
+  claims that should come *out* of that page.
+
 - **The craft re-weighting sliders were painted in the browser's accent
   colour** — on a stock macOS install, a bright blue, on a shell whose own
   canon says it spends no colour at all. The tokens were right; nothing had
