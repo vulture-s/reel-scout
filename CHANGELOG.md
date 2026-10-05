@@ -4,6 +4,16 @@
 
 ### Added
 
+- **The site's reweight panel now shows the weight total and the running
+  score.** The four sliders are each 0–100 and do not have to add up, so the
+  panel was quietly rescaling to 100% and only saying so in prose above the
+  controls. Now the footer line states it per drag: `權重總和 100% · 總分 6.8`
+  when the sliders already add up, `權重總和 165% → 縮放 100% · 總分 6.5` when
+  they do not. Showing only `100%` would read as "the sliders are locked";
+  showing only `165%` would contradict the explanation — so both appear.
+  Dragging everything to zero reads `權重總和 0% · 算不出總分`, because no
+  dimension being valued is not a score of zero.
+
 - **An official site: <https://vulture-s.github.io/reel-scout/>.** Before this
   the repository had no description, no homepage and no Pages — a tool that is
   on PyPI, documents nineteen MCP tools and ships a skill, with nowhere on
