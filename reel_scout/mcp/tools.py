@@ -582,6 +582,7 @@ def _tool_crawl(args: Dict[str, Any]) -> Dict[str, Any]:
                     file_path=meta.file_path,
                     file_size_bytes=meta.file_size_bytes,
                 )
+                db.save_crawl_extras(conn, video_id, meta)
                 results.append(
                     {
                         "url": url,

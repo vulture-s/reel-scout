@@ -11,8 +11,9 @@ craft scores, and transcript as HTML. Two surfaces share this one renderer:
 The ANALYSIS is read-only on both: neither surface offers to edit, re-analyze or
 re-run anything, and scores stay labelled a reference rather than an authority.
 The served library list is the one exception, and only for the operator's OWN
-layer — star, group and note (see `annotate`). Those write to their own tables
-and change nothing the model produced. The export has no server to write to and
+layer — star, group and note (see `annotate`), plus a request to analyze one
+more video of a post (see docs/threads.md). Those write to their own tables,
+change nothing the model produced, and never run the pipeline. The export has no server to write to and
 stays entirely read-only, annotations included.
 """
 from __future__ import annotations

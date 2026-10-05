@@ -106,6 +106,17 @@ def main(argv: List[str] = None) -> None:
     star.add_argument("--unstar", dest="star", action="store_false")
     p_note.add_argument("--json", action="store_true", help="Print the annotation as JSON")
 
+    # --- pending ---
+    p_pending = sub.add_parser(
+        "pending",
+        help="Analysis requests queued from the viewer (e.g. a carousel's 2nd video)")
+    p_pending.add_argument("--run", action="store_true",
+                           help="Analyze every pending request now")
+    p_pending.add_argument("--all", action="store_true",
+                           help="List done/failed requests too, not only pending")
+    p_pending.add_argument("--no-score", action="store_true",
+                           help="With --run: skip scoring")
+
     p_group = sub.add_parser("group", help="Manage the annotation groups")
     p_group_sub = p_group.add_subparsers(dest="group_cmd")
     p_group_sub.add_parser("list", help="List groups and how many videos each holds")
@@ -439,6 +450,7 @@ def main(argv: List[str] = None) -> None:
         "inspire": _cmd_inspire,
         "track": _cmd_track,
         "note": _cmd_note,
+        "pending": _cmd_pending,
         "group": _cmd_group,
         "mark": _cmd_mark,
         "shot-size": _cmd_shot_size,
@@ -605,6 +617,7 @@ def _cmd_crawl(args) -> None:
                 file_path=meta.file_path,
                 file_size_bytes=meta.file_size_bytes,
             )
+            db.save_crawl_extras(conn, vid, meta)
             print(f"  OK: {meta.title[:60]} ({meta.duration_sec:.0f}s) -> {vid}")
         except Exception as e:
             print(f"  Error: {e}")
@@ -1664,6 +1677,47 @@ def _cmd_note(args) -> None:
             print("%s  %s" % (video_id, _fmt_annotation(ann)))
     except ann_mod.AnnotateError as exc:
         raise SystemExit("error: %s" % exc)
+    finally:
+        conn.close()
+
+
+def _cmd_pending(args) -> Optional[int]:
+    """List -- or with --run, execute -- the analysis requests the viewer queued.
+
+    The viewer only ever writes a request (the same "operator layer" exception
+    annotations use); the pipeline runs here, on the machine that has it. Each
+    request becomes `analyze <post url>?media=N`, so the new clip gets its own
+    row and URL. The DB decides the outcome, not the run's own summary: a
+    request is `done` only if that row exists and reached `analyzed`.
+    """
+    from . import db
+    from .analyze.pipeline import PipelineOptions, run as run_pipeline
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        reqs = db.list_analysis_requests(conn, status=None if args.all else "pending")
+        if not reqs:
+            print("No %srequests." % ("" if args.all else "pending "))
+            return None
+        failed = 0
+        for r in reqs:
+            url = "https://www.threads.com/@%s/post/%s?media=%d" % (
+                r["uploader"], r["code"], r["media_idx"])
+            print("[%s] %s  (requested %s)" % (r["status"], url, r["requested_at"]))
+            if not args.run or r["status"] != "pending":
+                continue
+            run_pipeline([url], PipelineOptions(score=not args.no_score))
+            row = db.get_video_by_url(conn, url)
+            if row is not None and row["status"] == "analyzed":
+                db.set_analysis_request(conn, r["id"], "done")
+                print("  done -> %s" % row["id"])
+            else:
+                err = (row["error_message"] if row is not None else None) or "no analyzed row"
+                db.set_analysis_request(conn, r["id"], "failed", err)
+                print("  failed: %s" % err)
+                failed += 1
+        return 1 if failed else None
     finally:
         conn.close()
 

@@ -271,6 +271,7 @@ def _process_single(
             file_path=meta.file_path,
             file_size_bytes=meta.file_size_bytes,
         )
+        db.save_crawl_extras(conn, video_id, meta)
 
     video = db.get_video(conn, video_id)
     file_path = media_paths.resolve_media_path(video["file_path"])

@@ -14,9 +14,10 @@ see [`../prompts/signal-reliability-cheatsheet.md`](../prompts/signal-reliabilit
 | `transcribe <path>` / `vision <path>` | Individual stages against a local file. |
 | `list` / `show <id>` | List analyzed videos / show one analysis. |
 | `export --format json\|csv\|html\|bundle\|skeleton\|storyboard` | Export analyses. `html` = one self-contained file; **`bundle`** = one self-contained file *per reel* + an index (the course take-home). |
-| `view` | Local web server for the library: a table with star / group / note per row. The analysis stays read-only; only your own annotations write back. |
+| `view` | Local web server for the library: a table with star / group / note per row. The analysis stays read-only; only your own annotations and analysis *requests* write back. |
 | `note <ref>` | Annotate a clip. `--text`, `--group <name>` (`--new-group`), `--no-group`, `--star` / `--unstar`, `--json`. |
 | `group {list,add,rename,rm}` | Manage the annotation groups (also doable from the list page toolbar). `rm` clears the filing and keeps every note and star. |
+| `pending [--run] [--all] [--no-score]` | Analysis requests queued from the viewer ("queue analysis" on a Threads carousel's other videos). Lists them; `--run` analyzes each as `<post url>?media=N` and marks it done only if the DB shows that row `analyzed`. See [threads.md](threads.md). |
 | `inspect <id>` | Interactive single-clip viewer (transcript↔keyframe time-sync). |
 | `score <id>` | Craft score (hook / visual / **pacing (evidence-based, §4E)** / structure). |
 | `ingest {vision,analysis,score} <id> --from-json <path\|->` | Write **agent-produced** frame descriptions / structured analysis / craft scores back into the DB, for machines with no local model. `--model` required; stored as `agent:<model>`. Analysis enums are validated. |

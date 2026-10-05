@@ -35,6 +35,7 @@ from ..utils.stderr import warn
 
 _POST_RE = re.compile(r"threads\.(?:com|net)/@[^/]+/post/([A-Za-z0-9_-]+)")
 _SHARE_RE = re.compile(r"threads\.(?:com|net)/share/([A-Za-z0-9_-]+)")
+_MEDIA_RE = re.compile(r"[?&]media=(\d+)")
 _JSON_SCRIPT_RE = re.compile(
     r'<script type="application/json"[^>]*>(.*?)</script>', re.S)
 
@@ -106,26 +107,64 @@ def parse_post(html: str) -> Dict[str, Any]:
         % config.THREADS_USER_AGENT)
 
 
-def pick_videos(post: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Every video in the post, in display order.
+def _image_url(item: Dict[str, Any]) -> Tuple[str, int, int]:
+    cands = ((item.get("image_versions2") or {}).get("candidates") or [])
+    if not cands:
+        return "", 0, 0
+    best = cands[0]  # Threads lists the largest rendition first
+    return best.get("url", ""), int(best.get("width") or 0), int(best.get("height") or 0)
+
+
+def media_items(post: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Every media item in the post, in display order, numbered from 1.
 
     Three places a Threads video can live, all observed on real posts:
       * ``video_versions`` on the post itself      (media_type 2, single video)
-      * ``carousel_media[*].video_versions``       (media_type 8, carousel)
+      * ``carousel_media[*]``                      (media_type 8, carousel of
+        videos and/or photos)
       * ``text_post_app_info.linked_inline_media`` (media_type 19, text post
         with an inline video)
-    Each entry is the ``video_versions`` list of one video.
+
+    The number is the position a person sees when swiping the post, and it is
+    what ``?media=N`` on a post URL refers to.
     """
-    found: List[Dict[str, Any]] = []
-    if post.get("video_versions"):
-        found.append(post)
-    for item in post.get("carousel_media") or []:
-        if isinstance(item, dict) and item.get("video_versions"):
-            found.append(item)
-    inline = (post.get("text_post_app_info") or {}).get("linked_inline_media")
-    if isinstance(inline, dict) and inline.get("video_versions"):
-        found.append(inline)
-    return found
+    raw: List[Dict[str, Any]] = []
+    carousel = [c for c in (post.get("carousel_media") or []) if isinstance(c, dict)]
+    if carousel:
+        raw = carousel
+    elif post.get("video_versions"):
+        raw = [post]
+    else:
+        inline = (post.get("text_post_app_info") or {}).get("linked_inline_media")
+        if isinstance(inline, dict) and inline.get("video_versions"):
+            raw = [inline]
+        elif post.get("image_versions2"):
+            raw = [post]
+
+    items: List[Dict[str, Any]] = []
+    for n, item in enumerate(raw, 1):
+        if item.get("video_versions"):
+            items.append({
+                "idx": n, "kind": "video",
+                "url": item["video_versions"][0].get("url", ""),
+                "width": int(item.get("original_width") or 0),
+                "height": int(item.get("original_height") or 0),
+            })
+        else:
+            url, w, h = _image_url(item)
+            if url:
+                items.append({"idx": n, "kind": "image", "url": url,
+                              "width": w, "height": h})
+    return items
+
+
+def media_param(url: str) -> Optional[int]:
+    """``?media=N`` on a post URL: analyze the N-th item instead of the first
+    video. Encoded in the URL rather than passed as an option so the row it
+    produces has a URL of its own -- dedupe, ``batch`` and the queue all key on
+    the URL and keep working unchanged."""
+    m = _MEDIA_RE.search(url)
+    return int(m.group(1)) if m else None
 
 
 def post_texts(post: Dict[str, Any]) -> Tuple[str, List[str]]:
@@ -153,15 +192,17 @@ class ThreadsCrawler(BaseCrawler):
     platform = "threads"
 
     def extract_id(self, url: str) -> str:
+        n = media_param(url)
+        suffix = "#%d" % n if n else ""
         m = _POST_RE.search(url)
         if m:
-            return m.group(1)
+            return m.group(1) + suffix
         # Share links (threads.com/share/<X>) 302 to /@user/post/<code>, and
         # the share token is not the post code. Like TikTok's vm.tiktok.com,
         # it stays the ID only until download() resolves the real one.
         m = _SHARE_RE.search(url)
         if m:
-            return m.group(1)
+            return m.group(1) + suffix
         raise ValueError("Not a Threads post URL: %s" % url)
 
     def download(self, url: str, output_dir: Optional[str] = None) -> VideoMeta:
@@ -175,26 +216,50 @@ class ThreadsCrawler(BaseCrawler):
         post = parse_post(body.decode("utf-8", errors="replace"))
         code = post["code"]
 
-        videos = pick_videos(post)
-        if not videos:
-            raise RuntimeError(
-                "Threads post %s has no video (media_type=%s) -- text/image "
-                "posts have nothing for reel-scout to analyze"
-                % (code, post.get("media_type")))
-        if len(videos) > 1:
-            # One post -> one row: the videos table is keyed on the post.
-            warn("  Threads post %s has %d videos; analyzing the first only"
-                 % (code, len(videos)))
+        items = media_items(post)
+        wanted = media_param(url)
+        if wanted is not None:
+            target = next((i for i in items if i["idx"] == wanted), None)
+            if target is None or target["kind"] != "video":
+                raise RuntimeError(
+                    "Threads post %s has no video at media=%d (items: %s)"
+                    % (code, wanted, ", ".join("%d=%s" % (i["idx"], i["kind"])
+                                               for i in items) or "none"))
+        else:
+            target = next((i for i in items if i["kind"] == "video"), None)
+            if target is None:
+                raise RuntimeError(
+                    "Threads post %s has no video (media_type=%s) -- text/image "
+                    "posts have nothing for reel-scout to analyze"
+                    % (code, post.get("media_type")))
 
-        video_url = videos[0]["video_versions"][0]["url"]
         os.makedirs(output_dir, exist_ok=True)
-        file_path = os.path.join(output_dir, "th_%s.mp4" % code)
+        file_path = os.path.join(output_dir, "th_%s_m%d.mp4" % (code, target["idx"]))
         # The CDN URL is signed; it needs no cookie and no special UA.
-        _, data = _fetch(video_url, "Mozilla/5.0", timeout=300)
+        _, data = _fetch(target["url"], "Mozilla/5.0", timeout=300)
         if not data:
             raise RuntimeError("Threads video for %s downloaded 0 bytes" % code)
         with open(file_path, "wb") as fh:
             fh.write(data)
+        target["file_path"] = file_path
+
+        if wanted is None:
+            # The first video is the one analyzed; photos are stored now (they
+            # are small, and the signed URLs expire). Other videos are only
+            # recorded -- their URLs expire too, so an on-demand analysis
+            # re-fetches the post page for a fresh one rather than trusting
+            # what is stored here.
+            for item in items:
+                if item["kind"] != "image":
+                    continue
+                img = os.path.join(output_dir, "th_%s_m%d.jpg" % (code, item["idx"]))
+                try:
+                    _, blob = _fetch(item["url"], "Mozilla/5.0", timeout=60)
+                    with open(img, "wb") as fh:
+                        fh.write(blob)
+                    item["file_path"] = img
+                except Exception as exc:  # noqa: BLE001 - a photo never costs the video
+                    warn("  Threads photo %d of %s not saved: %r" % (item["idx"], code, exc))
 
         try:
             ffprobe.warn_if_not_apple_playable(file_path, os.path.basename(file_path))
@@ -210,9 +275,10 @@ class ThreadsCrawler(BaseCrawler):
             if taken_at else "")
 
         extra = {
+            "post_code": code,
             "caption": caption,
             "self_thread": json.dumps(follow_ups, ensure_ascii=False),
-            "video_count": str(len(videos)),
+            "video_count": str(sum(1 for i in items if i["kind"] == "video")),
             "media_type": str(post.get("media_type", "")),
             "like_count": str(post.get("like_count", "")),
             "reply_count": str(tpi.get("direct_reply_count", "")),
@@ -220,10 +286,15 @@ class ThreadsCrawler(BaseCrawler):
             "quote_count": str(tpi.get("quote_count", "")),
             "resolved_url": final_url,
         }
+        if wanted is None:
+            extra["analyzed_idx"] = str(target["idx"])
+            extra["post_media_json"] = json.dumps(items, ensure_ascii=False)
+        else:
+            extra["media_index"] = str(wanted)
 
         return VideoMeta(
             platform=self.platform,
-            platform_id=code,
+            platform_id=code + ("#%d" % wanted if wanted is not None else ""),
             url=url,
             title=caption[:100],
             uploader=user.get("username", ""),

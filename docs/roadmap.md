@@ -57,7 +57,7 @@ Phase 8  ████████████████████  ✅ 外�
 Phase 9  ████████████████████  ✅ 對外曝光面（2026-10-05）— 官網（Astro / GitHub Pages / GA4）＋ 紙質外殼下沉到三個介面；repo 補上 description 與 homepage
 ```
 
-**目前版本**：**v1.4.2** ｜ **DB schema**：**v19**
+**目前版本**：**v1.4.2** ｜ **DB schema**：**v20**
 
 > schema 階梯：v14 `shots`／v15 `shot_labels`／v16 `translations`／v17 `shot_labels.prompt_hash`／v18 `shot_motion`／v19 `shot_motion.zoom`+`rotation`。
 >
