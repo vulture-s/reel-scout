@@ -1,0 +1,26 @@
+---
+import { ENDPOINT, FALLBACK_MAILTO, hasEndpoint } from '../lib/newsletter.mjs';
+
+// ENDPOINT 沒設時退成 mailto，而不是渲染一個送不出去的表單：
+// 按下去有反應、頁面跳走，在使用者端跟成功一模一樣，而名單是空的。
+// 為什麼現在是空的 → src/lib/newsletter.mjs 的檔頭。
+---
+<section class="sub" aria-labelledby="sub-h">
+  <h2 id="sub-h">AI 工具電子報</h2>
+  <p>
+    reel-scout 與 <a href="https://vulture-s.github.io/arkiv/">arkiv</a> 的開發紀錄、
+    踩到的坑、以及拆解方法上的新發現。不定期，只寄實際跑過的東西。
+  </p>
+  {hasEndpoint() ? (
+    <form action={ENDPOINT} method="post" target="_blank" rel="noopener">
+      <input type="email" name="email" required placeholder="you@example.com" aria-label="電子郵件" />
+      <button type="submit">訂閱</button>
+    </form>
+  ) : (
+    <p class="mono" style="font-size:12px">
+      <a href={`mailto:${FALLBACK_MAILTO}?subject=${encodeURIComponent('訂閱 AI 工具電子報')}`}>
+        寄一封空信到 {FALLBACK_MAILTO} 即可訂閱 →
+      </a>
+    </p>
+  )}
+</section>

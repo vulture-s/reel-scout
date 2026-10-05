@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import struct
 import tempfile
 import zlib
+
+import pytest
 
 from reel_scout import config, db, i18n, viewer
 from reel_scout.export.json_export import export_html
@@ -104,7 +107,18 @@ def test_export_html_is_self_contained_and_readonly(temp_db):
         content = open(path, encoding="utf-8").read()
         # self-contained: keyframe embedded, no external asset refs
         assert "data:image/jpeg;base64," in content
-        assert "http://" not in content.replace("https://youtube.com", "")  # no external asset hosts
+        # 🔴 這條原本是 `"http://" not in content`（外加一個 youtube 的字串豁免）。
+        # 2026-10-05 紙質層加進來之後它就錯了：inline SVG 的
+        # `xmlns='http://www.w3.org/2000/svg'` 是**命名空間識別碼，不是網址**，
+        # 瀏覽器從來不會去抓它 —— 而整份檔仍然零網路請求。
+        #
+        # 改法刻意不是放寬，而是改量對維度：真正要擋的是「會被抓取的外部資產」，
+        # 也就是 `src=`、CSS 的 `url(...)` 與 `<link href=>`。
+        # `<a href>` 不在其中 —— 那是使用者可以點的連結，不是載入時的請求，
+        # 原本那個 youtube 豁免其實就是在繞這件事，只是繞得比較鬆
+        # （它用 replace 把字串整份挖掉，所以同一個網域出現在 `src=` 裡也會被放行）。
+        fetched = EXTERNAL_ASSET_RE.findall(content)
+        assert not fetched, "external asset refs in a self-contained export: %r" % fetched
         assert "<script src=" not in content and 'link rel="stylesheet"' not in content
         # decoded structure + scores present
         assert "hook-body-cta" in content
@@ -115,6 +129,38 @@ def test_export_html_is_self_contained_and_readonly(temp_db):
         assert "reference, not authority" in content
     finally:
         conn.close()
+
+
+EXTERNAL_ASSET_RE = re.compile(
+    r'(?:\bsrc\s*=\s*["\']|url\(\s*["\']?|<link\b[^>]*?\bhref\s*=\s*["\'])https?://', re.I)
+
+
+@pytest.mark.parametrize("snippet,fires,why", [
+    ('<script src="https://cdn.example/x.js">', True, "script src"),
+    ('<img src="http://host/a.png">', True, "img src"),
+    ('<link rel="stylesheet" href="https://fonts.g/x">', True, "link href"),
+    ("body{background:url(https://host/t.png)}", True, "css url()"),
+    ("body{background:url('http://host/t.png')}", True, "css url(), quoted"),
+    ('<a href="https://youtube.com/watch?v=1">source</a>', False,
+     "a href is a link the reader may click, not a load-time request"),
+    ("<svg xmlns='http://www.w3.org/2000/svg'>", False,
+     "an XML namespace is an identifier; nothing ever fetches it"),
+    ('<img src="data:image/jpeg;base64,/9j/">', False, "embedded data URI"),
+])
+def test_external_asset_detection(snippet, fires, why):
+    """The detector used by the self-contained export test, pinned case by case.
+
+    🔴 This exists because that assertion was rewritten on 2026-10-05 and a
+    rewrite of a guard is where a guard quietly loses its teeth. The old form
+    (`"http://" not in content`, minus a string exemption for youtube) was
+    blunt in both directions: it fired on an SVG namespace that is never
+    fetched, and its exemption deleted every occurrence of that host, so the
+    same domain appearing in an actual `src=` would have been let through.
+
+    The replacement has to be *stricter* about real assets while dropping the
+    false positive, so both halves are asserted rather than argued.
+    """
+    assert bool(EXTERNAL_ASSET_RE.findall(snippet)) is fires, why
 
 
 def test_export_html_missing_keyframe_degrades_gracefully(temp_db):

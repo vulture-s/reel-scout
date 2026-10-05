@@ -4,6 +4,8 @@
 
 短影音拆解 CLI 工具。
 
+**官網：[vulture-s.github.io/reel-scout](https://vulture-s.github.io/reel-scout/)** —— 它做什麼、已知限制的誠實清單、以及怎麼裝。
+
 把 YouTube Shorts、Instagram Reels、TikTok 影片（以及一般長影片）**下載 → 轉錄 → 視覺分析 → 合併 → 評分**，輸出成結構化資料。
 
 ---

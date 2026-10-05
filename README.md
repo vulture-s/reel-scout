@@ -4,6 +4,8 @@
 
 Short-form video analysis CLI tool.
 
+**Site: [vulture-s.github.io/reel-scout](https://vulture-s.github.io/reel-scout/)** — what it does, the honest list of known limits, and how to install it.
+
 Crawl, transcribe, and visually analyze YouTube Shorts, Instagram Reels, and TikTok videos into structured data.
 
 ![The reel-scout inspector — craft scores, a live re-weight panel, and a bilingual interface. Chinese labels sit beside the model's own English output, which is left exactly as produced.](docs/assets/inspector.jpg)

@@ -1,0 +1,117 @@
+---
+import Base from '../layouts/Base.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+// 這一頁的規矩：只寫**實際遇到過**的事。
+// 「可能會有的問題」不寫 —— 那會讓這一頁從誠實清單退化成免責聲明，
+// 而免責聲明沒有人讀。每一條都附「怎麼辦」，否則它只是抱怨。
+const open = [
+  {
+    h: 'Mac 上的轉錄是純 CPU，長片會很慢',
+    p: 'faster-whisper 用的 CTranslate2 在 macOS 上沒有 Metal 路徑，所以它跑在 CPU 上——實測處理時間約為影片長度的 1.2 倍，比即時播放還慢。一支 3 小時 39 分的片跑了 4 小時 28 分。',
+    fix: '短片沒感覺。長片先在別處用 mlx-whisper（走 Metal，同一支片約 9–53 分鐘）轉好，再 ingest 進來。工具內建 mlx 後端是 issue #113。',
+    issue: 113,
+  },
+  {
+    h: '繁簡混雜的偵測結果拿不到',
+    p: '逐字稿裡出現簡繁混雜時工具會偵測到，但那個結果只印在那一次執行的 stderr 上，沒有寫進資料庫——所以事後查不到哪幾支有問題。',
+    fix: '目前只能在跑的當下看輸出。要讓它可查是 issue #114。',
+    issue: 114,
+  },
+];
+
+const known = [
+  {
+    h: 'Instagram 有登入牆',
+    p: 'IG 的部分影片不帶 cookies 就抓不到。',
+    fix: '從 Chrome 或 Brave 匯出 cookies，設 IG_COOKIES_FILE 或用 --cookies 指定。Safari 的 binarycookies 格式讀不了。',
+  },
+  {
+    h: 'Threads 抓不了，而且「改用 IG 網址」那招已經封死',
+    p: '實測過，不是沒試。Threads 的影片沒有可用的下載路徑，拿同一則貼文的 IG 連結代替也不行。',
+    fix: '沒有解法。需要那支片就自己錄下來走本機檔案。',
+  },
+  {
+    h: '重跑轉錄要用原本的網址，不要用本機檔案路徑',
+    p: '用本機路徑會被當成一支新的影片建一列新資料，於是同一支片在庫裡有兩份、分析散在兩邊。',
+    fix: '重跑一律帶原本的 URL。',
+  },
+  {
+    h: 'MCP server 的工作目錄會決定它開哪個資料庫',
+    p: '在錯的目錄啟動時它會安靜地開一個空資料庫——看起來一切正常，只是什麼都查不到。',
+    fix: '設 REEL_SCOUT_DATA 指到你的資料目錄，不要靠工作目錄。',
+  },
+  {
+    h: '平台趨勢爬取刻意不做',
+    p: '「抓現在流行什麼」是最容易被平台擋掉的功能，而一個三個月後就壞掉的功能比沒有功能糟。',
+    fix: '自己決定要拆哪些片，貼網址進來。',
+  },
+  {
+    h: '沒有頻道這個單位',
+    p: '資料庫裡沒有 channel 表，唯一的把手是上傳者名稱——而那是一段自由文字，同一個人可能寫成兩種樣子。',
+    fix: '跨頻道的統計目前要自己對。',
+  },
+];
+
+// 已經修掉的那些也列出來，因為它們是本工具「會把靜默錯誤當 bug 處理」的證據。
+// 一份只列現存問題的清單讀起來像在道歉；把修掉的放旁邊，它才讀得出方向。
+const fixed = [
+  ['抓回 AV1 編碼導致自家檢視器播不出來', '下載時加編碼守門'],
+  ['關鍵楨取樣全塌在片頭，長片只看得到開場', '排序後才截斷'],
+  ['繁體講者的逐字稿被轉成簡體', '從源頭給種子，不在事後轉換'],
+  ['挑到 YouTube 的機器翻譯字幕軌，國語片的逐字稿變成英文譯文且無警告', '翻譯軌一定帶第二個語言代碼，據此排除'],
+  ['analyze / batch 整批失敗仍然回傳成功', '退出碼反映實際結果'],
+  ['跑不成的片以 0.0 分進入語料，拉低所有統計', '無效片另記，統計排除並報排除數'],
+  ['同一個輸出目錄跑第二批就蓋掉第一批的紀錄', '每批獨立'],
+];
+---
+<Base title="誠實清單 — Reel Scout" current="limits"
+      description="實際遇到過的限制與踩過的坑，每一條都附怎麼辦。不是免責聲明。">
+  <div class="wrap" style="padding-top:48px">
+    <p class="eyebrow">HONEST LIST</p>
+    <h1 style="font-size:clamp(28px,4.6vw,44px); margin:10px 0 18px">誠實清單</h1>
+    <p style="max-width:66ch; color:var(--ink-2)">
+      這一頁只寫<strong>實際遇到過</strong>的事。「可能會有的問題」不寫——
+      那會讓它從誠實清單退化成免責聲明，而免責聲明沒有人讀。
+      每一條都附怎麼辦，否則它只是抱怨。
+    </p>
+
+    <div class="shead"><h2>還開著的</h2><span class="en">OPEN</span></div>
+    {open.map((x) => (
+      <section class="row" style="padding:18px 0">
+        <h3 style="margin:0 0 6px">{x.h}</h3>
+        <p style="max-width:68ch; margin:0 0 8px; color:var(--ink-2)">{x.p}</p>
+        <p style="max-width:68ch; margin:0; font-size:14.5px">
+          <span class="lbl">怎麼辦</span> {x.fix}
+          {' '}<a class="mono" style="font-size:11.5px"
+                 href={`https://github.com/vulture-s/reel-scout/issues/${x.issue}`}>#{x.issue}</a>
+        </p>
+      </section>
+    ))}
+
+    <div class="shead"><h2>已知且不會改的設計邊界</h2><span class="en">BY DESIGN</span></div>
+    {known.map((x) => (
+      <section class="row" style="padding:18px 0">
+        <h3 style="margin:0 0 6px">{x.h}</h3>
+        <p style="max-width:68ch; margin:0 0 8px; color:var(--ink-2)">{x.p}</p>
+        <p style="max-width:68ch; margin:0; font-size:14.5px"><span class="lbl">怎麼辦</span> {x.fix}</p>
+      </section>
+    ))}
+
+    <div class="shead"><h2>修掉的那些</h2><span class="en">FIXED</span></div>
+    <p style="max-width:68ch; color:var(--ink-2)">
+      這些列出來不是炫耀，是為了讓上面兩節讀得出方向：
+      它們全都是「跑得動，然後結果悄悄不對」那一類——
+      最難發現、也最值得當 bug 處理的那一類。
+    </p>
+    <div class="tw"><table>
+      <thead><tr><th>原本會發生什麼</th><th>怎麼修的</th></tr></thead>
+      <tbody>{fixed.map(([a, b]) => <tr><td>{a}</td><td>{b}</td></tr>)}</tbody>
+    </table></div>
+
+    <p class="mono" style="font-size:11.5px; color:var(--quiet); letter-spacing:.1em; margin-top:28px">
+      <a href="https://github.com/vulture-s/reel-scout/issues">全部 issue →</a>
+      　<a href={`${base}/changelog.html`}>更新紀錄 →</a>
+    </p>
+  </div>
+</Base>

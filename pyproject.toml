@@ -32,7 +32,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/vulture-s/reel-scout"
+# Homepage 指官網不指 repo：PyPI 頁面上那個連結是多數人第一次看到這個專案的地方，
+# 而一份 README 回答不了「它跟丟連結給 AI 有什麼不同」。
+Homepage = "https://vulture-s.github.io/reel-scout/"
 Repository = "https://github.com/vulture-s/reel-scout"
 Issues = "https://github.com/vulture-s/reel-scout/issues"
 Changelog = "https://github.com/vulture-s/reel-scout/blob/master/CHANGELOG.md"

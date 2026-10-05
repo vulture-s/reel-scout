@@ -1,0 +1,78 @@
+---
+import Base from '../layouts/Base.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<Base title="安裝 — Reel Scout" current="install"
+      description="pip install reel-scout。ffmpeg 要在 PATH 上。沒有 GPU 也能用——把 AI agent 當視覺後端，零金鑰。">
+  <div class="wrap" style="padding-top:48px">
+    <p class="eyebrow">INSTALL</p>
+    <h1 style="font-size:clamp(28px,4.6vw,44px); margin:10px 0 18px">安裝</h1>
+
+    <div class="shead"><h2>最小安裝</h2><span class="en">MINIMUM</span></div>
+    <pre>pip install reel-scout</pre>
+    <p style="max-width:66ch; color:var(--ink-2)">
+      <code>ffmpeg</code> 必須在 PATH 上（macOS：<code>brew install ffmpeg</code>）。
+      <code>yt-dlp</code> 隨套件一起裝。
+    </p>
+    <p style="max-width:66ch; color:var(--ink-2)">
+      裝完先跑這個，它會把每一項依賴與設定的現況列出來——
+      缺什麼、哪個環境變數沒設，一次看完：
+    </p>
+    <pre>reel-scout config check</pre>
+
+    <div class="shead"><h2>選用的部分</h2><span class="en">EXTRAS</span></div>
+    <p style="max-width:66ch; color:var(--ink-2)">
+      每一項都是獨立的 extra，用到才裝。不裝不會壞，只是那一層會是空的
+      （<code>reel-scout db health</code> 會告訴你哪一層空著）。
+    </p>
+    <div class="tw"><table>
+      <thead><tr><th>Extra</th><th>給什麼</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">whisper</td><td>faster-whisper 語音轉錄（無原生字幕軌時才需要）</td></tr>
+        <tr><td class="mono">audio</td><td>音訊事件偵測 ＋ BPM／能量</td></tr>
+        <tr><td class="mono">ocr</td><td>燒錄字幕的 OCR</td></tr>
+        <tr><td class="mono">diarize</td><td>講者分離</td></tr>
+        <tr><td class="mono">instagram</td><td>IG 的備援抓取路徑</td></tr>
+      </tbody>
+    </table></div>
+    <pre>pip install "reel-scout[whisper]"</pre>
+
+    <div class="shead"><h2>從 AI agent 裡用</h2><span class="en">MCP · SKILL</span></div>
+    <p style="max-width:66ch; color:var(--ink-2)">
+      <code>pip install</code> 給你 CLI。要讓 Claude Code、Codex 或 Claude Desktop
+      直接驅動它，裝 MCP server——不必手改任何設定檔：
+    </p>
+    <pre>reel-scout mcp install</pre>
+    <p style="max-width:66ch; color:var(--ink-2)">
+      接上之後有 19 個工具可以在對話裡直接用。另外還有 <strong>skill</strong>，
+      那是給 agent 讀的那一半：流程、能力對照表、以及六份反解 prompt。
+    </p>
+    <pre>reel-scout skill install
+# 重開 agent，然後：
+/scout https://www.instagram.com/reel/XXXXXXXX/</pre>
+
+    <div class="shead"><h2>沒有 GPU 怎麼辦</h2><span class="en">NO LOCAL MODEL</span></div>
+    <p style="max-width:66ch; color:var(--ink-2)">
+      不需要。抽關鍵楨是 ffmpeg 做的，所以在任何模型跑之前楨就已經存在了——
+      讓你的 agent 自己看那些楨、自己套評分標準，再寫回資料庫：
+    </p>
+    <pre>reel-scout ingest vision &lt;id&gt;
+reel-scout ingest analysis &lt;id&gt;
+reel-scout ingest score &lt;id&gt;</pre>
+    <p style="max-width:66ch; color:var(--ink-2)">
+      沒有 API 金鑰、沒有雲端、沒有 GPU。
+    </p>
+
+    <div class="shead"><h2>裝之前先知道的事</h2><span class="en">BEFORE YOU START</span></div>
+    <p style="max-width:66ch; color:var(--ink-2)">
+      兩件會實際影響你的：Instagram 有登入牆（要匯出 cookies），
+      以及 macOS 上的語音轉錄是純 CPU、長片會比即時還慢。
+      兩者的做法與繞法都在 <a href={`${base}/limits.html`}>誠實清單</a>。
+    </p>
+
+    <p class="mono" style="font-size:11.5px; color:var(--quiet); letter-spacing:.1em; margin-top:28px">
+      <a href={`${base}/docs.html`}>指令全表 →</a>
+      　<a href="https://pypi.org/project/reel-scout/">PyPI →</a>
+    </p>
+  </div>
+</Base>

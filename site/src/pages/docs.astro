@@ -1,0 +1,25 @@
+---
+import Base from '../layouts/Base.astro';
+import { DOCS } from '../lib/published-docs.mjs';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<Base title="文件 — Reel Scout" current="docs" description="指令全表、開發路線、以及幾份選型與對標研究。">
+  <div class="wrap" style="padding-top:48px">
+    <p class="eyebrow">DOCS</p>
+    <h1 style="font-size:clamp(28px,4.6vw,44px); margin:10px 0 18px">文件</h1>
+    <p style="max-width:66ch; color:var(--ink-2)">
+      這幾頁是直接讀 repo 裡的 markdown 渲染的——唯一真相還是那些檔，
+      官網只是另一個讀它們的地方。所以這裡不會跟 repo 漂開。
+    </p>
+    {DOCS.map((d) => (
+      <section class="row" style="padding:16px 0">
+        <h3 style="margin:0 0 4px"><a href={`${base}/${d.slug}.html`}>{d.title}</a></h3>
+        <p style="max-width:68ch; margin:0; color:var(--ink-2); font-size:15px">{d.blurb}</p>
+      </section>
+    ))}
+    <section class="row" style="padding:16px 0">
+      <h3 style="margin:0 0 4px"><a href={`${base}/changelog.html`}>更新紀錄</a></h3>
+      <p style="max-width:68ch; margin:0; color:var(--ink-2); font-size:15px">每一版改了什麼。</p>
+    </section>
+  </div>
+</Base>

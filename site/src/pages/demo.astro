@@ -1,0 +1,56 @@
+---
+import Base from '../layouts/Base.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<Base title="實際畫面 — Reel Scout" current="demo"
+      description="inspector、片庫、以及可以寄給別人的自包含單檔 HTML。">
+  <div class="wrap" style="padding-top:48px">
+    <p class="eyebrow">WHAT IT LOOKS LIKE</p>
+    <h1 style="font-size:clamp(28px,4.6vw,44px); margin:10px 0 18px">實際畫面</h1>
+
+    <figure style="margin:28px 0 0">
+      <img src={`${base}/img/inspector.jpg`} alt="reel-scout 的 inspector：左側是播放器與波形，右側是工藝四維評分與即時重新加權面板，下方是中英對照的逐字稿。" />
+      <figcaption class="mono" style="font-size:11px; color:var(--quiet); margin-top:8px">
+        INSPECTOR —— 單片。逐字稿與關鍵楨時間同步，點時間軸就跳播。
+        中文標籤放在模型自己的英文輸出旁邊，英文原樣保留不改寫。
+      </figcaption>
+    </figure>
+
+    <div class="shead"><h2>三個介面，一個殼</h2><span class="en">THREE VIEWS</span></div>
+    <div class="tw"><table>
+      <thead><tr><th>指令</th><th>是什麼</th><th>什麼時候用</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="mono">view</td>
+          <td>本機伺服器，整個片庫＋點進去就是 inspector</td>
+          <td>自己翻素材的時候</td>
+        </tr>
+        <tr>
+          <td class="mono">inspect &lt;id&gt;</td>
+          <td>釘住單片的互動檢視</td>
+          <td>要仔細看一支片</td>
+        </tr>
+        <tr>
+          <td class="mono">export --format bundle</td>
+          <td>一支片一個自包含的 HTML：影片、關鍵楨、波形、字型全內嵌</td>
+          <td>寄給別人／當課程教材。對方零安裝，整頁只發一個網路請求</td>
+        </tr>
+      </tbody>
+    </table></div>
+
+    <div class="shead"><h2>它長這樣是刻意的</h2><span class="en">THE SHELL</span></div>
+    <p style="max-width:68ch; color:var(--ink-2)">
+      紙與墨、全程無彩色強調。理由是這些畫面裡會說話的東西是關鍵楨、波形和影片本身——
+      外殼要安靜，內容才大聲。工藝評分的長條也刻意是墨色而不是紅綠：
+      那是一個資料層，不是一個判決。
+    </p>
+    <p style="max-width:68ch; color:var(--ink-2)">
+      品牌字型隨套件一起出貨（拉丁字重很小；中文按實際用到的字動態 subset），
+      所以匯出的單檔 HTML 在任何機器上打開都是同一個樣子，不靠對方裝了什麼字體。
+    </p>
+
+    <p class="mono" style="font-size:11.5px; color:var(--quiet); letter-spacing:.1em; margin-top:28px">
+      <a href={`${base}/install.html`}>裝起來自己看 →</a>
+    </p>
+  </div>
+</Base>

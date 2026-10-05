@@ -1,0 +1,108 @@
+/* 殼：reset、字體、三階規線、chrome voice。
+ * 形狀沿用 reel_scout/theme.py 的 BASE，但這裡是官網（editorial 欄寬），
+ * 不是檢視工具（那邊用 --col-tool 的寬版，理由寫在 theme.py 檔頭的偏離 ①）。 */
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font:16px/1.6 var(--sans);
+  font-synthesis-weight:none;
+}
+/* 紙質層是 z-index:0 的 fixed，所以內容要抬到它上面。
+ * position:relative 不可省 —— 少了它 z-index 無效、整頁被紙蓋住。 */
+body > *{position:relative; z-index:1}
+a{color:inherit}
+img{max-width:100%; height:auto}
+.wrap{max-width:var(--col-wide); margin:0 auto; padding:0 24px}
+
+/* chrome voice —— 等寬、大寫、只用於功能性文字 */
+.mono,.eyebrow,.lbl,.kicker{font-family:var(--mono)}
+.eyebrow,.lbl,.kicker{
+  font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--quiet);
+}
+
+/* 三階規線：2px 主／1px 區段細線／1px --rule-soft 列分隔 */
+hr{border:0; border-top:2px solid var(--rule); margin:32px 0}
+.row{border-bottom:1px solid var(--rule-soft)}
+
+/* 頂部導覽 */
+.topnav{border-bottom:2px solid var(--rule); background:var(--bg)}
+.topnav-in{display:flex; align-items:baseline; gap:20px; flex-wrap:wrap; padding:14px 24px}
+.topnav-mark{
+  font-family:var(--display); font-size:19px; letter-spacing:-.02em;
+  text-decoration:none; white-space:nowrap;
+}
+.topnav ul{display:flex; gap:16px; flex-wrap:wrap; list-style:none; margin:0; padding:0}
+.topnav a{
+  font-family:var(--mono); font-size:11px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--quiet); text-decoration:none;
+}
+.topnav a:hover{color:var(--ink)}
+.topnav a[aria-current="page"]{color:var(--ink); border-bottom:1px solid var(--ink)}
+
+/* 區段標頭公式：等寬 eyebrow ＋ display 標題 ＋ 右側等寬英文標 */
+.shead{
+  display:flex; align-items:baseline; justify-content:space-between; gap:16px;
+  border-bottom:1px solid var(--rule); padding-bottom:6px; margin:48px 0 18px;
+}
+.shead h2{margin:0; font-family:var(--display); font-weight:400; font-size:21px; letter-spacing:-.01em}
+.shead .en{font-family:var(--mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--quiet)}
+
+h1{font-family:var(--display); font-weight:400; letter-spacing:-.025em; line-height:1.03}
+h3{font-family:var(--sans); font-weight:600; font-size:17px; margin:28px 0 8px}
+
+/* 程式碼：紙上的墨塊。不用圓角也不用陰影（canon REJECT 那幾項）。 */
+pre{
+  background:var(--surface-2); border:1px solid var(--rule-soft);
+  padding:14px 16px; overflow-x:auto;
+  font:13px/1.55 var(--mono);
+}
+code{font:13px/1.5 var(--mono); background:var(--surface-2); padding:1px 4px}
+pre code{background:none; padding:0}
+
+/* 表格：markdown 表是本站的主要比較工具，所以它要好看。 */
+table{border-collapse:collapse; width:100%; margin:18px 0; font-size:14.5px}
+th,td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--rule-soft); vertical-align:top}
+th{font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--quiet); border-bottom:1px solid var(--rule)}
+
+footer{border-top:2px solid var(--rule); margin-top:72px; padding:28px 0 56px}
+footer .foot-links{display:flex; flex-wrap:wrap; gap:14px; margin-bottom:14px}
+footer a{font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--quiet); text-decoration:none}
+footer a:hover{color:var(--ink)}
+footer p{font-size:12.5px; color:var(--quiet); margin:0}
+
+/* 訂閱框。放在頁尾、每一頁都有 —— 它是本站唯一的自有名單入口。 */
+.sub{border:1px solid var(--rule); padding:18px 20px; margin:0 0 26px; background:var(--surface)}
+.sub h2{margin:0 0 6px; font-family:var(--display); font-weight:400; font-size:17px}
+.sub p{margin:0 0 12px; font-size:13.5px; color:var(--ink-2)}
+.sub form{display:flex; gap:10px; flex-wrap:wrap}
+.sub input[type=email]{
+  flex:1 1 240px; min-width:0; padding:9px 11px;
+  border:1px solid var(--rule); background:var(--bg); color:var(--ink);
+  font:14px/1.4 var(--sans);
+}
+.sub button{
+  padding:9px 18px; border:1px solid var(--rule); background:var(--ink); color:var(--bg);
+  font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+  cursor:pointer;
+}
+.sub button:hover{background:var(--ink-2)}
+
+/* 手機：導覽換行、欄距收到 16px（user-global §7 的 16px 側邊間距） */
+/* 表格在窄寬自己橫捲。
+ * 🔴 捲的是表格，不是頁面 —— 讓頁面橫捲會毀掉整個閱讀。
+ * 不選「縮字」也不選「藏欄」：這些表每一欄都在比較，藏掉任何一欄就不是那張表了。 */
+.tw{overflow-x:auto; -webkit-overflow-scrolling:touch}
+.tw > table{min-width:520px; margin:18px 0}
+/* markdown 渲染的表格沒有 .tw 包裝（改 md 去遷就網站是本末倒置），
+ * 所以在文件頁給容器一個同等的規則。 */
+.docbody{overflow-x:auto}
+.docbody table{min-width:min(520px,100%)}
+
+@media (max-width:640px){
+  .wrap{padding:0 16px}
+  .topnav-in{padding:12px 16px; gap:12px}
+  .shead{flex-direction:column; gap:4px; align-items:flex-start}
+  /* 紙的節距在手機上收一點，否則一屏只看得到幾條線、讀起來像條紋而不是紙 */
+  :root{--paper-rule-step:22px}
+}
