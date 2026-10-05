@@ -95,11 +95,8 @@
   fragment from the caption. Reading only the fragment with the post code
   returned zero follow-ups for a post that had one, with nothing failing.
 
-  Limits: a carousel with several videos analyzes the first (one post, one
-  row). Caption, follow-ups and counts are returned in `VideoMeta.extra`, but
-  the `videos` table only keeps `title` (caption, first 100 chars) and
-  `uploader` — persisting the rest needs a schema change and is left out here.
-  `batch` still does not pick up Threads links.
+  How the rest of the post (photos, other videos, caption, counts) is stored
+  is the entry above. `batch` still does not pick up Threads links.
 
 - **An official site: <https://vulture-s.github.io/reel-scout/>.** Before this
   the repository had no description, no homepage and no Pages — a tool that is
