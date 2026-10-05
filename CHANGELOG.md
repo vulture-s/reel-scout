@@ -4,6 +4,13 @@
 
 ### Added
 
+- **The site now says it eats Threads links.** The crawler shipped in #153 and
+  the front page still read "YouTube Shorts, Instagram Reels or TikTok", so
+  someone holding a Threads URL had no way to know. Stated with its shape
+  intact: Threads does not go through yt-dlp — there is no extractor — it reads
+  the post page itself, which means single posts only and no `browse`. A test
+  pins it: a registered crawler the front page never names is a build failure.
+
 - **The inspector's reweight panel now shows the weight total and the overall,
   matching the site.** Same reason as the site's panel, plus one the site did
   not have: the inspector *blanked* that line whenever the weights sat at
