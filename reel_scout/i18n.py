@@ -74,6 +74,13 @@ STRINGS = {
         "wDefault": "default",
         "wYours": "yours",
         "zeroWeights": "all weights at zero — no verdict",
+        # The four sliders are each 0-100 and do not have to add up, so the
+        # panel rescales. `reweightNote` says so once, above the controls; these
+        # put it on the line that changes as you drag, where it is actually read.
+        "wSum": "weights total",
+        "wSumScaled": "→ rescaled to 100%",
+        "wTotal": "overall",
+        "wNoTotal": "no overall",
         "decoded": "Decoded structure",
         "shotGrammar": "Shot grammar",
         "analysable": "analysable",
@@ -167,6 +174,10 @@ STRINGS = {
         "wDefault": "預設",
         "wYours": "你的",
         "zeroWeights": "所有權重為零 — 無評分",
+        "wSum": "權重總和",
+        "wSumScaled": "→ 縮放 100%",
+        "wTotal": "總分",
+        "wNoTotal": "算不出總分",
         "decoded": "解構分析",
         "shotGrammar": "鏡頭語法",
         "analysable": "可分析",

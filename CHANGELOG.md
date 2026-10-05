@@ -4,6 +4,17 @@
 
 ### Added
 
+- **The inspector's reweight panel now shows the weight total and the overall,
+  matching the site.** Same reason as the site's panel, plus one the site did
+  not have: the inspector *blanked* that line whenever the weights sat at
+  default — the exact state that should read "weights total 100%". Now the sum
+  and the overall show unconditionally and only the comparison against the
+  stored score stays conditional: `weights total 100% · overall 6.8` at rest,
+  `weights total 165% → rescaled to 100% · default 6.8 · yours 6.5 (-0.3)`
+  after a drag, `weights total 0% · no overall` with everything at zero.
+  Translated, so it reads the same in both locales. A difference that rounds to
+  zero no longer prints as `(-0.0)`.
+
 - **The site's reweight panel now shows the weight total and the running
   score.** The four sliders are each 0–100 and do not have to add up, so the
   panel was quietly rescaling to 100% and only saying so in prose above the
