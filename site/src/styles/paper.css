@@ -1,0 +1,75 @@
+/* reel-scout 官網的紙與墨 —— 值與 reel_scout/theme.py 的 TOKENS 同一份。
+ *
+ * 為什麼是複製而不是生成：GitHub Actions 上的 Astro build 不跑 Python，所以沒辦法
+ * 在建構時從 theme.py 讀出來。複製會漂，於是由 tests/test_site_tokens.py 把這裡的
+ * 每個值斷言回 theme.TOKENS —— 跟 test_docs_are_current.py 同一個手法：
+ * 散文（或這裡的 CSS）只要主張了可列舉的東西，就讓它變成可執行的斷言。
+ *
+ * 跟 arkiv 官網刻意分野：arkiv 是深色場記本（#0a0a0c ＋一個青），
+ * reel-scout 是紙與墨、全程無 cyan。兩支工具會從同一篇文章、同一份課程教材被連出去，
+ * 讀者應該一眼分得出來打開的是哪一個。
+ */
+:root{
+  --bg:#f1efe9; --surface:#f7f5ef; --surface-2:#ebe8df;
+  --ink:#231916; --ink-2:#4a3d35;
+  --rule:#231916; --rule-soft:#cdc9bd; --quiet:#6a6861; --frame:#010102;
+  --display:"Archivo Black",system-ui,sans-serif;
+  --sans:"Inter","Noto Sans TC",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --col:760px; --col-wide:1080px;
+
+  /* 紙質（本站獨有，theme.py 沒有這一組）。
+   * 兩層：feTurbulence 的纖維顆粒 ＋ 裝訂格線。
+   * 強度刻意壓得很低 —— theme.py 的 canon 是「外殼安靜，內容大聲」，
+   * 而這一頁的內容是 keyframe 縮圖與程式碼區塊，它們不該跟背景搶視線。 */
+  --paper-fiber-opacity:.05;
+  --paper-rule-step:26px;
+  --paper-rule-ink:rgba(35,25,22,.05);
+}
+
+/* ── 紙質層 ───────────────────────────────────────────────────────────────
+ * 用 body::before 的 fixed 滿版層，而不是 body 的 background：
+ * 這樣捲動時紙不會跟著內容跑（一張紙躺在桌上，不是一條跑馬燈），
+ * 而且不會跟任何元件自己的 background 打架。
+ *
+ * ⚠️ pointer-events:none 不是可選的 —— 少了它整頁點不到任何東西。 */
+body::before{
+  content:"";
+  position:fixed; inset:0; z-index:0; pointer-events:none;
+  /* 纖維：inline SVG 的 fractalNoise。baseFrequency 高 ＝ 顆粒細（像紙纖維），
+   * 低 ＝ 大片雲霧（像水漬）。0.9 是「近看有織理、遠看是素面」的那一帶。 */
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23f)'/%3E%3C/svg%3E");
+  opacity:var(--paper-fiber-opacity);
+  /* 顆粒疊在紙色上要用 multiply，不然它會把紙洗白。 */
+  mix-blend-mode:multiply;
+}
+
+/* ── 裝訂格線 ─────────────────────────────────────────────────────────────
+ * 跟纖維一樣走 fixed 層，但**只鋪在內容欄的寬度內**，不滿版 ——
+ * 滿版會讓左右兩側的空白也長出橫線，而那兩塊在這個版面裡本來就是留白。
+ *
+ * 文字刻意不對齊到線上。對齊需要把行高鎖成節距的整數倍，而那會綁死整站的排版；
+ * 在 4.5% 濃度下這些線讀起來是紙的織理，不是書寫輔助線 —— 對不對齊看不出來。
+ * （一開始寫成「鎖行高 + 只在 .ruled 內」，結果是整站只有文件頁看得到格線，
+ *   等於沒做。這版把它放回所有頁面。）
+ */
+body::after{
+  content:"";
+  position:fixed; z-index:0; pointer-events:none;
+  top:0; bottom:0; left:50%; transform:translateX(-50%);
+  width:min(var(--col-wide), 100%);
+  background-image:repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(var(--paper-rule-step) - 1px),
+    var(--paper-rule-ink) calc(var(--paper-rule-step) - 1px),
+    var(--paper-rule-ink) var(--paper-rule-step)
+  );
+}
+
+/* 會跟格線打架的元件自己遮住它。
+ * 表格的列分隔線跟格線是同一種視覺語言，疊在一起會變成兩套深淺不一的橫線
+ * —— 這是選紙質強度時就標出來的風險，這裡是它的解。 */
+table{background:var(--bg)}
+pre{background:var(--surface-2)}
+figure img{background:var(--bg)}

@@ -1,0 +1,32 @@
+---
+import Base from '../layouts/Base.astro';
+import { DOCS } from '../lib/published-docs.mjs';
+
+// docs/*.md 讀的是 repo 的那一份（site/ 的上一層）。
+// `import.meta.glob` 的 pattern 必須是字面值，所以兩個來源分開寫。
+const docFiles = import.meta.glob('../../../docs/*.md', { eager: true });
+const changelogFiles = import.meta.glob('../../../CHANGELOG.md', { eager: true });
+
+export function getStaticPaths() {
+  return [...DOCS.map((d) => ({ params: { doc: d.slug } })), { params: { doc: 'changelog' } }];
+}
+
+const { doc } = Astro.params;
+const meta = DOCS.find((d) => d.slug === doc);
+const entry = doc === 'changelog'
+  ? Object.values(changelogFiles)[0]
+  : Object.entries(docFiles).find(([p]) => p.endsWith(`/${doc}.md`))?.[1];
+
+// 🔴 找不到就讓建構失敗，不要渲染一個空頁。
+// 空頁在 CI 上跟成功一模一樣，然後線上多一個白畫面。
+if (!entry) throw new Error(`published doc has no source file: ${doc}`);
+const { Content } = entry;
+const title = doc === 'changelog' ? '更新紀錄' : (meta?.title ?? doc);
+---
+<Base title={`${title} — Reel Scout`} current={doc === 'changelog' ? 'changelog' : 'docs'}>
+  <div class="wrap docbody" style="padding-top:48px; max-width:var(--col)">
+    <p class="eyebrow">DOCS</p>
+    <h1 style="font-size:clamp(26px,4.2vw,38px); margin:10px 0 24px">{title}</h1>
+    <Content />
+  </div>
+</Base>

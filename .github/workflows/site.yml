@@ -1,0 +1,88 @@
+# 建構並部署 site/ 的官網到 GitHub Pages。
+#
+# 文件頁是直接讀 `docs/*.md` 與 `CHANGELOG.md` 渲染的，所以那些檔一改，網站就要重建
+# —— paths 把它們也列進來的理由在此，不是為了保險。
+#
+# 跟 arkiv 的同名 workflow 有一處刻意不同：**那支的 deploy 還卡在手動 dispatch**，
+# 因為它有一個舊的 Jekyll 站還在 main:/docs 服務中，自動部署會在 cutover 前就搶走。
+# reel-scout 沒有舊站 ⇒ 一開始就自動部署。
+#
+# 🔴 第一次使用前要手動做一次：Settings → Pages → Source 切成 "GitHub Actions"。
+#    沒切的話 deploy job 會失敗（而不是靜默不生效）—— 那是對的方向，
+#    但要知道第一次紅是這個原因，不是 workflow 寫錯。
+name: site
+
+on:
+  pull_request:
+    paths: ["site/**", "docs/**", "CHANGELOG.md", ".github/workflows/site.yml"]
+  push:
+    branches: [master]
+    paths: ["site/**", "docs/**", "CHANGELOG.md", ".github/workflows/site.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - run: npm ci
+      - run: npx astro build
+
+      # 每一頁都要真的產出來。Astro 的 getStaticPaths 失敗時會少產幾頁而不是整個失敗，
+      # 而少掉的那幾頁在部署後就是 404 —— 沒有人會在建構日誌裡數頁數。
+      - name: 每一個路由都存在
+        run: |
+          for f in index.html how-it-works.html demo.html limits.html \
+                   install.html docs.html changelog.html \
+                   commands.html roadmap.html img/inspector.jpg; do
+            test -f "dist/$f" || { echo "missing dist/$f"; exit 1; }
+          done
+
+      # 紙質是這一版官網的主要視覺決定，而它整個活在一個 CSS 檔裡。
+      # 那個檔被 tree-shake 掉或改名，頁面仍然會建得出來、只是變成一張白紙 ——
+      # 建構成功與視覺消失在日誌上完全同形。
+      - name: 紙質層有進到產出
+        run: |
+          grep -rq "feTurbulence" dist/ || { echo "paper fibre missing from build"; exit 1; }
+          grep -rq "repeating-linear-gradient" dist/ || { echo "ruled lines missing from build"; exit 1; }
+
+      # GA4 不在，網站照樣好好的 —— 只是量不到任何東西，而且要好幾週後才會有人發現。
+      - name: GA4 標籤有進到每一頁
+        run: |
+          for f in dist/*.html; do
+            grep -q "GT-WB2F3LB8" "$f" || { echo "no GA4 tag in $f"; exit 1; }
+          done
+
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: site/dist
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

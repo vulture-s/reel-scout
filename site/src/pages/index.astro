@@ -1,0 +1,107 @@
+---
+import Base from '../layouts/Base.astro';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+// 四條差異化。每一條都對應一個**可驗證**的事實，不是行銷詞：
+// ① yt-dlp 鏈路直吃三個平台的 URL；② 四層信號在 code 裡是四個真的資料來源；
+// ③ MIT；④ 介面與逐字稿的中文化在 schema 裡有 translations 表。
+// ⚠️ 刻意不寫測試數與語料筆數：前者每個 PR 都變（docs/roadmap.md 已為此把它移除），
+//    後者是作者私人語料庫的內容，不該出現在公開頁面上。
+const diffs = [
+  {
+    en: 'URL IN, DATA OUT',
+    h: 'IG Reel 與 TikTok 的網址直接吃',
+    p: '短影音拆解的主戰場不在 YouTube。Gemini 這類服務不能直接吃 IG 與 TikTok 的連結——你得先自己下載、上傳、管理檔案生命週期。reel-scout 內建 yt-dlp 鏈路，一條指令從網址到結構化資料。',
+  },
+  {
+    en: 'FOUR SIGNAL LAYERS',
+    h: '四層信號分開記，可靠度不混在一起',
+    p: '上傳者說的、字幕寫的、逐字稿聽到的、模型看到的——這四種來源的可信度完全不同，所以它們在資料庫裡是四個欄位而不是一段摘要。實測過的例子：一支咖啡教學片的 caption 完全沒提咖啡，只有看畫面那一層抓到真相。',
+  },
+  {
+    en: 'MIT, RUNS LOCAL',
+    h: '開源、跑在你自己的機器上',
+    p: 'MIT 授權，沒有月費也沒有額度。轉錄走 Whisper、視覺走本機 VLM，素材與逐字稿不離開你的機器。沒有 GPU 也能用——把你的 AI agent 當後端，零金鑰。',
+  },
+  {
+    en: 'BUILT FOR 中文',
+    h: '中文不是附加語言',
+    p: '繁體講者不會被轉成簡體；YouTube 的機器翻譯軌不會被誤當原生字幕（那會讓國語片的逐字稿變成英文譯文，而且沒有任何警告）。模型的英文輸出原樣保留，中文對照另存一欄。',
+  },
+];
+
+// 四層信號可靠度：由上而下愈可靠。這張表是本工具的核心主張，所以放在首頁。
+const layers = [
+  ['L1', 'uploader / metadata', '最不可靠', '標題與帳號是給演算法看的，常與內容無關'],
+  ['L2', 'caption / 說明欄', '不可靠',   '寫的是賣點，不是畫面裡發生的事'],
+  ['L3', 'transcript 逐字稿', '可靠',     '真的被說出來的話；無字幕軌時走 Whisper'],
+  ['L3.5', '燒錄字幕 OCR',   '可靠',     '畫面上的字，補上沒有被說出來的資訊'],
+  ['L4', 'VLM 看畫面',        '最可靠',   '模型直接看關鍵楨——唯一能否證前三層的那一層'],
+];
+---
+<Base title="Reel Scout — 短影音拆解，本機優先" current="home"
+      description="把 YouTube Shorts、Instagram Reels、TikTok 的網址變成可查詢的結構化資料。開源、MIT、跑在你自己的機器上。">
+  <header class="wrap" style="padding-top:56px">
+    <p class="eyebrow">OPEN SOURCE · RUNS ON YOUR MACHINE</p>
+    <h1 style="font-size:clamp(34px,6.4vw,62px); margin:10px 0 0">
+      把一支爆款片<br>拆成你能查詢的資料
+    </h1>
+    <p style="max-width:62ch; font-size:17.5px; color:var(--ink-2); margin:18px 0 0">
+      貼一個 YouTube Shorts、Instagram Reels 或 TikTok 的網址。
+      reel-scout 下載、轉錄、抽關鍵楨、讓模型看畫面，
+      然後把這四層資訊分開存進一個你自己的資料庫——
+      下次要找「那支用三刀開場的片」，是一次查詢，不是重看一遍。
+    </p>
+    <pre style="margin-top:26px; max-width:52ch">pip install reel-scout
+reel-scout crawl &lt;url&gt;
+reel-scout analyze &lt;id&gt;</pre>
+    <p class="mono" style="font-size:11.5px; color:var(--quiet); letter-spacing:.1em">
+      <a href={`${base}/install.html`}>完整安裝說明 →</a>
+    </p>
+  </header>
+
+  <div class="wrap">
+    <figure style="margin:56px 0 0">
+      <img src={`${base}/img/inspector.jpg`} alt="reel-scout 的 inspector 畫面：工藝評分、即時重新加權面板、以及中英對照的介面。中文標籤放在模型自己的英文輸出旁邊，英文原樣保留。" />
+      <figcaption class="mono" style="font-size:11px; color:var(--quiet); margin-top:8px">
+        inspector —— 逐字稿與關鍵楨時間同步、可點時間軸跳播。
+        <a href={`${base}/demo.html`}>更多畫面 →</a>
+      </figcaption>
+    </figure>
+
+    <div class="shead"><h2>它跟丟連結給 AI 有什麼不同</h2><span class="en">WHY THIS EXISTS</span></div>
+    {diffs.map((d) => (
+      <section class="row" style="padding:18px 0">
+        <p class="eyebrow">{d.en}</p>
+        <h3 style="margin:4px 0 6px">{d.h}</h3>
+        <p style="max-width:68ch; margin:0; color:var(--ink-2)">{d.p}</p>
+      </section>
+    ))}
+
+    <div class="shead"><h2>四層信號，分開記</h2><span class="en">SIGNAL RELIABILITY</span></div>
+    <p style="max-width:68ch; color:var(--ink-2)">
+      一支影片有好幾種「它在說什麼」的來源，而它們的可信度差很多。
+      把它們平均成一段摘要，就是把最可靠的那層稀釋掉。
+    </p>
+    <div class="tw"><table>
+      <thead><tr><th>層</th><th>來源</th><th>可靠度</th><th>為什麼</th></tr></thead>
+      <tbody>
+        {layers.map(([l, src, rel, why]) => (
+          <tr><td class="mono">{l}</td><td>{src}</td><td class="mono">{rel}</td><td>{why}</td></tr>
+        ))}
+      </tbody>
+    </table></div>
+    <p class="mono" style="font-size:11.5px; color:var(--quiet); letter-spacing:.1em">
+      <a href={`${base}/how-it-works.html`}>這四層怎麼跑出來的 →</a>
+    </p>
+
+    <div class="shead"><h2>它不做什麼</h2><span class="en">NON-GOALS</span></div>
+    <p style="max-width:68ch; color:var(--ink-2)">
+      不自動剪輯、不生成影片、不幫你發文。它做的是開拍前那一段：
+      理思緒、找範例、把別人怎麼做的變成你查得到的東西。
+      已知的限制、以及踩過的坑，都寫在
+      <a href={`${base}/limits.html`}>誠實清單</a>——
+      那一頁不是免責聲明，是實際跑出來的東西。
+    </p>
+  </div>
+</Base>
