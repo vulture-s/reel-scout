@@ -40,25 +40,30 @@ def test_limits_page_does_not_deny_a_crawler_that_exists():
                 "%r" % (platform, phrase))
 
 
-@pytest.mark.skipif(not INDEX.exists(), reason="site not checked out")
-def test_front_page_names_every_platform_it_can_crawl():
-    """A platform that ships but is never named reads as a platform that does not.
+WORKFLOW = ROOT / ".github" / "workflows" / "site.yml"
 
-    🔴 Threads shipped in #153 and the front page still listed "YouTube Shorts,
-    Instagram Reels or TikTok" -- a visitor with a Threads link had no way to
-    know it would work. The same hole as the stale denial above, pointing the
-    other way: that one watches for claims that should come out, this one for
-    capabilities that never went in.
 
-    Gated on the front page specifically, not on the site as a whole, because
-    the front page is where the "what URLs it eats" promise is made. Mentioning
-    a platform only in the limits list would satisfy a site-wide check while
-    leaving the promise wrong.
+@pytest.mark.skipif(not WORKFLOW.exists(), reason="site not checked out")
+def test_front_page_platform_gate_lists_every_crawler():
+    """The CI gate's platform list must match the crawler registry.
+
+    🔴 Why the check is split in two: whether the front page *names* a platform
+    has to be measured on the rendered page, because `index.astro` carries two
+    consts (`diffs`, `layers`) that are defined and never mapped -- dead copy
+    that a source-level grep happily counts. Measured: the source says "Threads"
+    twice, the built page once. So the naming check lives in `site.yml`, which
+    runs after `astro build` and greps `dist/`.
+
+    That workflow has no reel-scout installed, so its platform list is written
+    out by hand. This test is what stops that list from drifting: add a crawler
+    without adding it there and the suite goes red.
     """
     from reel_scout import crawl
 
-    page = INDEX.read_text(encoding="utf-8").lower()
-    for platform in crawl._CRAWLERS:
-        assert platform.lower() in page, (
-            "%s has a registered crawler but the front page never names it"
-            % platform)
+    text = WORKFLOW.read_text(encoding="utf-8")
+    marker = "for p in "
+    line = next(l for l in text.splitlines() if marker in l and "dist/index.html" not in l)
+    listed = set(line.split(marker, 1)[1].split(";")[0].split())
+    assert listed == set(crawl._CRAWLERS), (
+        "site.yml front-page gate lists %s but the registry has %s"
+        % (sorted(listed), sorted(crawl._CRAWLERS)))

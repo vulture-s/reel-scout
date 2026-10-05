@@ -78,6 +78,22 @@ jobs:
           done
 
       # GA4 不在，網站照樣好好的 —— 只是量不到任何東西，而且要好幾週後才會有人發現。
+      - name: 首頁有提到每一個抓得到的平台
+        run: |
+          # 🔴 量的是**渲染後**的 dist/index.html，不是 index.astro。
+          #    那支 .astro 裡有兩個定義了但從沒被 .map() 出來的 const
+          #    （diffs / layers），讀原始碼的檢查會被那些死文案餵飽 ——
+          #    實測：原始碼有 2 次 Threads，渲染後只有 1 次。
+          # ⚠️ 這份清單由 tests/test_site_claims.py 比對 crawl._CRAWLERS，
+          #    平台加了而這裡沒加會在 pytest 那邊紅，所以不會默默漂掉。
+          # 剝掉標籤再比 —— 不然 meta description 跟 href 裡的字也算數，
+          #    而那兩個地方寫了平台名，來訪者在頁面上還是看不到。
+          sed 's/<[^>]*>/ /g' dist/index.html > /tmp/front.txt
+          for p in youtube instagram tiktok threads; do
+            grep -qi "$p" /tmp/front.txt || {
+              echo "front page body never names a supported platform: $p"; exit 1; }
+          done
+
       - name: 加權面板有把「總和 100%」印在畫面上
         run: |
           # 🔴 守的是 Hevin 指名的那件事：面板底下要看到權重總和、而且看到它
