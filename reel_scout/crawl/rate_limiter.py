@@ -22,6 +22,7 @@ PLATFORM_RATES = {
     "youtube": 10,
     "instagram": 5,
     "tiktok": 8,
+    "threads": 5,
 }
 
 _limiters = {}  # type: dict
