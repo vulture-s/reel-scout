@@ -73,46 +73,18 @@ reel-scout analyze &lt;id&gt;</pre>
 
     <div class="shead"><h2>這個分數該怎麼用</h2><span class="en">HOW TO READ IT</span></div>
     <p style="max-width:68ch; color:var(--ink-2)">
-      <strong>它是排序器，不是成績單。</strong>
-      它回答的是「這一批片裡誰比較強」，不是「這支片值幾分」。
+      <strong>它是排序器，不是成績單</strong>——用來在一批片裡排出先後，
+      不是給單支片一個絕對值。換了模型、換了批次，分數就會整體位移。
     </p>
     <p style="max-width:68ch; color:var(--ink-2)">
-      所以<strong>換了模型就不能拿舊分數來比</strong>。實測踩過一次：同一支片、同一天，
-      只換了「看畫面」那顆模型，節奏那一維就差了整整 1 分。總分 7.6 變 7.8——
-      看起來沒差多少，但它在一百多支的庫裡<strong>從第 38 名跳到第 15 名</strong>。
-      原因是分數擠在一起，大多落在 6.5 到 7.8 之間，小數點的差會放大成排名上的大差。
+      實際分佈（作者語料 190 支）：<strong>一半的片擠在 6.8–7.8 之間</strong>，
+      光是中位數上下 0.1 分裡就有 29 支。所以<strong>把 ±0.5 分以內當成同一級</strong>，
+      小數點的差不要當成高下。
     </p>
     <p style="max-width:68ch; color:var(--ink-2)">
-      <span class="lbl">實務建議</span>
-      固定一套模型。真的要換，就<strong>整批重跑</strong>——否則你的庫裡會混著兩把尺量出來的數字，
-      而且你事後分不出來哪個是哪把。<code>reel-scout stats</code> 會按 <code>model_used</code> 分組，
-      就是為了不讓兩把尺被平均成一個數。
-    </p>
-
-    <div class="shead"><h2>它跟丟連結給 AI 有什麼不同</h2><span class="en">WHY THIS EXISTS</span></div>
-    {diffs.map((d) => (
-      <section class="row" style="padding:18px 0">
-        <p class="eyebrow">{d.en}</p>
-        <h3 style="margin:4px 0 6px">{d.h}</h3>
-        <p style="max-width:68ch; margin:0; color:var(--ink-2)">{d.p}</p>
-      </section>
-    ))}
-
-    <div class="shead"><h2>五層信號，分開記</h2><span class="en">SIGNAL RELIABILITY</span></div>
-    <p style="max-width:68ch; color:var(--ink-2)">
-      一支影片有好幾種「它在說什麼」的來源，而它們的可信度差很多。
-      把它們平均成一段摘要，就是把最可靠的那層稀釋掉。
-    </p>
-    <div class="tw"><table>
-      <thead><tr><th>層</th><th>來源</th><th>可靠度</th><th>為什麼</th></tr></thead>
-      <tbody>
-        {layers.map(([l, src, rel, why]) => (
-          <tr><td class="mono">{l}</td><td>{src}</td><td class="mono">{rel}</td><td>{why}</td></tr>
-        ))}
-      </tbody>
-    </table></div>
-    <p class="mono" style="font-size:11.5px; color:var(--quiet); letter-spacing:.1em">
-      <a href={`${base}/how-it-works.html`}>這五層怎麼跑出來的 →</a>
+      <span class="lbl">建議</span>
+      固定一套模型，要換就整批重跑。<code>reel-scout stats</code> 會按
+      <code>model_used</code> 分組，就是為了不讓兩把尺被平均成一個數。
     </p>
 
     <div class="shead"><h2>同一套引擎，三種玩法</h2><span class="en">NOT JUST REELS</span></div>

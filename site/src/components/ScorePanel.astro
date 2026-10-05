@@ -52,7 +52,8 @@ const boot = JSON.stringify({
   ))}
 
   <div class="sc-weights">
-    <p class="lbl" style="margin:0 0 2px">重新加權 —— 拖拖看</p>
+    <p class="sc-invite"><span class="sc-grip" aria-hidden="true">↔</span>
+      <strong>這四條可以拖</strong>——試試把「節奏」拉到底，看總分怎麼變。</p>
     <p class="sc-wnote">
       四個維度來自模型，<strong>拖了也不會變</strong>；變的只是它們怎麼組合。
       權重會自動縮放成總和 100%，所以結果仍在同一把 0–10 的尺上。
@@ -132,14 +133,67 @@ const boot = JSON.stringify({
     apply();
   });
 
+  // ── 自動示範 ───────────────────────────────────────────────────────────
+  // 🔴 為什麼需要：這個面板**看起來就是一張靜態圖**。滑桿的軌道跟上面的評分長條
+  //    長得太像，讀者會把它讀成「又一排數據」而不是控制項 —— 實際回饋。
+  //    所以進場時自己動一次：把「節奏」拉上去再放回來，總分跟著走一趟。
+  //    示範比任何一句「可以拖」都快。
+  //
+  // 三條規矩：
+  //   ① 只跑一次（跑完就不再自己動，否則會變成跑馬燈）
+  //   ② 使用者一碰就立刻停 —— 不跟使用者搶控制權
+  //   ③ prefers-reduced-motion 時不跑，改成靜態提示
+  var userTouched = false;
+  function stopDemo() {
+    userTouched = true;
+    // 🔴 高亮也要收掉。tween 在 userTouched 時提前 return，收尾的 callback
+    //    就永遠不會跑 —— 不在這裡清，那一列會一直粗體卡著（實測撞到）。
+    card.classList.remove('is-demo');
+  }
+  ['pointerdown', 'keydown', 'wheel'].forEach(function (ev) {
+    card.addEventListener(ev, stopDemo, { once: true, passive: true });
+  });
+
+  function tween(slider, from, to, ms, done) {
+    var t0 = null;
+    function step(ts) {
+      if (userTouched) { return; }
+      if (t0 === null) t0 = ts;
+      var k = Math.min(1, (ts - t0) / ms);
+      // easeInOutCubic —— 等速移動看起來像程式在跑，不像有人在拖
+      var e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+      slider.value = String(Math.round(from + (to - from) * e));
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+      if (k < 1) requestAnimationFrame(step); else if (done) setTimeout(done, 0);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function demo() {
+    var s = card.querySelector('input[data-dim="pacing"]');
+    if (!s || userTouched) return;
+    var home = +s.value;
+    card.classList.add('is-demo');
+    tween(s, home, 85, 900, function () {
+      setTimeout(function () {
+        tween(s, 85, home, 700, function () { card.classList.remove('is-demo'); });
+      }, 850);
+    });
+  }
+
   // 進場動畫：進入視窗才跑、只跑一次。
   // 🔴 prefers-reduced-motion 時直接到最終值 —— 那不是偏好設定，
   //    對前庭失調的人是症狀開關。關掉時不是「比較快的動畫」。
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  function arrive() { card.classList.add('is-in'); apply(); }
-  if (reduce || !('IntersectionObserver' in window)) { arrive(); return; }
+  function arrive(withDemo) {
+    card.classList.add('is-in');
+    apply();
+    // 等長條跑完（900ms + 最後一條的 delay）再示範，不然兩段動畫疊在一起看不懂
+    if (withDemo) setTimeout(demo, 1350);
+  }
+  if (reduce || !('IntersectionObserver' in window)) { arrive(false); return; }
   var io = new IntersectionObserver(function (es) {
-    es.forEach(function (e) { if (e.isIntersecting) { arrive(); io.unobserve(e.target); } });
+    es.forEach(function (e) { if (e.isIntersecting) { arrive(true); io.unobserve(e.target); } });
   }, { threshold: 0.3 });
   io.observe(card);
 })();
