@@ -78,6 +78,19 @@ jobs:
           done
 
       # GA4 不在，網站照樣好好的 —— 只是量不到任何東西，而且要好幾週後才會有人發現。
+      - name: 加權面板有把「總和 100%」印在畫面上
+        run: |
+          # 🔴 守的是 Hevin 指名的那件事：使用者要在面板底下看到權重總和、
+          #    而且看到它會被縮放成 100%。兩個分支都要在產出裡 ——
+          #    只留一個等於其中一種拖法沒有讀數。
+          # ⚠️ 不要只 grep「權重總和 100%」這種字串 —— 它同時出現在註解與
+          #    sumText 變數裡，把**顯示**整段拔掉也照樣 grep 得到（實測：這樣寫
+          #    的四項裡有兩項是空的）。要釘的是「組起來並寫進那一行」那條接縫。
+          grep -rq "sumText + ' · 總分 '" dist/ || { echo "sum+score not assembled into the footer line"; exit 1; }
+          grep -rq "權重總和 0% · 算不出總分" dist/ || { echo "missing all-zero readout"; exit 1; }
+          # 原始總和要從滑桿夾負值後累加，不是拿歸一化後的值（那樣永遠印 100%）
+          grep -rqF "raw += Math.max(0, w[k])" dist/ || { echo "raw slider sum not computed"; exit 1; }
+
       - name: GA4 標籤有進到每一頁
         run: |
           for f in dist/*.html; do

@@ -112,21 +112,30 @@ const boot = JSON.stringify({
       var l = document.getElementById('wv-' + s.dataset.dim);
       if (l) l.textContent = s.value + '%';
     });
+    // 滑桿的原始總和。它不一定是 100 —— 四條各自 0–100，拖完可能是 165。
+    var raw = 0;
+    for (var k in w) if (w.hasOwnProperty(k)) raw += Math.max(0, w[k]);
+
     var v = computeOverall(w);
     if (v == null) {
       // 全部拖到 0 ＝ 沒有任何維度被重視，那不是 0 分，是「算不出來」。
       oval.textContent = '—';
       obar.style.width = '0%';
-      delta.textContent = '權重全為 0，算不出總分';
+      delta.textContent = '權重總和 0% · 算不出總分';
       return;
     }
     oval.textContent = v.toFixed(1);
     obar.style.width = Math.max(0, Math.min(100, v * 10)) + '%';
+
+    // 🔴 把「總和一定是 100%」這件事寫在畫面上，而不是只寫在上面那句說明裡。
+    //    原始總和不是 100 時要兩個都顯示 —— 只顯示「100%」會讓人以為滑桿被鎖住，
+    //    只顯示「165%」又跟「縮放成 100%」的說明打架。
+    var sumText = (raw === 100) ? '權重總和 100%'
+                                : '權重總和 ' + raw + '% → 縮放 100%';
     var diff = Math.round((v - boot.stored) * 100) / 100;
-    delta.textContent = isDefault()
-      ? '預設權重 · 與儲存的分數相同'
-      : (diff === 0 ? '與儲存的分數相同'
-                    : '比儲存的分數 ' + (diff > 0 ? '+' : '') + diff.toFixed(2));
+    var diffText = (diff === 0) ? '與儲存的分數相同'
+                                : '比儲存 ' + (diff > 0 ? '+' : '−') + Math.abs(diff).toFixed(2);
+    delta.textContent = sumText + ' · 總分 ' + v.toFixed(1) + '（' + diffText + '）';
   }
   sliders.forEach(function (s) { s.addEventListener('input', apply); });
   document.getElementById('sc-reset').addEventListener('click', function () {
