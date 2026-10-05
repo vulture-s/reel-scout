@@ -3,7 +3,7 @@ import Base from '../layouts/Base.astro';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 const steps = [
-  { n: '01', cmd: 'crawl', h: '下載', p: '走 yt-dlp。YouTube / Instagram / TikTok 的網址都直接吃；帳號或頻道頁可以用 browse 先列出全部影片。IG 的登入牆要帶 cookies（做法在誠實清單）。下載時擋掉 AV1——分析得很好然後播不出來，是最沒意義的失敗。' },
+  { n: '01', cmd: 'crawl', h: '下載', p: '走 yt-dlp。YouTube / Instagram / TikTok 的網址都直接吃；帳號或頻道頁可以用 browse 先列出全部影片。IG 的登入牆要帶 cookies（做法在誠實清單）。Threads 不走 yt-dlp——它沒有 extractor——改讀貼文頁本身，所以目前只吃單則貼文，沒有 browse。下載時擋掉 AV1——分析得很好然後播不出來，是最沒意義的失敗。' },
   { n: '02', cmd: 'transcribe', h: '轉錄', p: '字幕優先：有原生字幕軌就用它，比重跑一次語音辨識準且快。沒有才走 Whisper。中英夾雜的長檔會每段重新偵測語言，解掉「前三分鐘認成英文、後面全錯」那種語言鎖定漂移。' },
   { n: '03', cmd: 'vision', h: '抽楨 ＋ 看畫面', p: '按場景變化、間隔、動態或混合策略抽關鍵楨，楨數依片長編列預算，首尾各保一張。然後讓 VLM 逐楨描述。沒有本機 GPU 就改用 agent 模式：把關鍵楨交給你的 AI agent，描述再寫回資料庫。' },
   { n: '04', cmd: 'shots', h: '找剪點', p: '全片剪點偵測，算出每分鐘幾刀、平均一顆鏡頭幾秒。再加上音訊的能量與 BPM。這一步的意義是讓「節奏很快」變成一個數字，而不是模型的形容詞。⚠️ 音訊事件偵測（說話／音樂／音效的時間軸）**預設是關的**，要加 --no-skip-audio。' },

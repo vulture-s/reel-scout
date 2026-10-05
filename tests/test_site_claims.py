@@ -17,6 +17,7 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LIMITS = ROOT / "site" / "src" / "pages" / "limits.astro"
+INDEX = ROOT / "site" / "src" / "pages" / "index.astro"
 
 
 @pytest.mark.skipif(not LIMITS.exists(), reason="site not checked out")
@@ -37,3 +38,27 @@ def test_limits_page_does_not_deny_a_crawler_that_exists():
             assert phrase not in page, (
                 "%s has a registered crawler but the limits page still says "
                 "%r" % (platform, phrase))
+
+
+@pytest.mark.skipif(not INDEX.exists(), reason="site not checked out")
+def test_front_page_names_every_platform_it_can_crawl():
+    """A platform that ships but is never named reads as a platform that does not.
+
+    🔴 Threads shipped in #153 and the front page still listed "YouTube Shorts,
+    Instagram Reels or TikTok" -- a visitor with a Threads link had no way to
+    know it would work. The same hole as the stale denial above, pointing the
+    other way: that one watches for claims that should come out, this one for
+    capabilities that never went in.
+
+    Gated on the front page specifically, not on the site as a whole, because
+    the front page is where the "what URLs it eats" promise is made. Mentioning
+    a platform only in the limits list would satisfy a site-wide check while
+    leaving the promise wrong.
+    """
+    from reel_scout import crawl
+
+    page = INDEX.read_text(encoding="utf-8").lower()
+    for platform in crawl._CRAWLERS:
+        assert platform.lower() in page, (
+            "%s has a registered crawler but the front page never names it"
+            % platform)
