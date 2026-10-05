@@ -8,7 +8,7 @@ Short-form video analysis CLI tool.
 
 Crawl, transcribe, and visually analyze YouTube Shorts, Instagram Reels, and TikTok videos into structured data.
 
-![The reel-scout inspector — craft scores, a live re-weight panel, and a bilingual interface. Chinese labels sit beside the model's own English output, which is left exactly as produced.](docs/assets/inspector.jpg)
+![The reel-scout inspector — craft scores over a paper shell, the re-weight panel that shows how much a score depends on what you value, and the decoded structure underneath. The controls are ink, not the browser's accent colour.](docs/assets/inspector.jpg)
 
 ## How it works
 

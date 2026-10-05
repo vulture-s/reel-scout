@@ -14,7 +14,7 @@
 
 一條把影片變成可分析資料的 pipeline，全部在本機跑（也可接雲端模型）：
 
-![reel-scout 檢視器 —— 工藝評分、即時重新加權面板、中英介面。中文標籤與模型自己吐的英文原始輸出並存，模型產出原樣保留。](docs/assets/inspector.jpg)
+![reel-scout 檢視器 —— 紙上的工藝評分、「重新加權」面板（看評分有多取決於你重視什麼），以及底下的解構分析。控制項是墨色，不是瀏覽器自己的強調色。](docs/assets/inspector.jpg)
 
 ```mermaid
 flowchart LR
