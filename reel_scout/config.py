@@ -325,6 +325,12 @@ FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg")
 # (`python -m yt_dlp`) over whatever `yt-dlp` is first on PATH — a stale PATH
 # build silently produces baffling extractor errors. See crawl/ytdlp.py.
 YTDLP_BIN = os.getenv("YTDLP_BIN", "")
+# User-Agent for Threads post pages. Threads serves browsers a login wall and
+# search crawlers the server-rendered post (with video URLs) -- this string is
+# the one assumption crawl/threads.py rests on, so it is overridable here
+# instead of baked into the crawler. Measured working 2026-10-05.
+THREADS_USER_AGENT = os.getenv(
+    "THREADS_USER_AGENT", "Googlebot/2.1 (+http://www.google.com/bot.html)")
 
 # --- Diarization ---
 DIARIZE_ENABLED = os.getenv("DIARIZE_ENABLED", "false").lower() in ("true", "1", "yes")
@@ -384,6 +390,7 @@ def show() -> str:
         f"OCR_ENGINE:           {OCR_ENGINE}",
         f"FFMPEG_BIN:           {FFMPEG_BIN}",
         f"YTDLP_BIN:            {YTDLP_BIN or '(auto)'}",
+        f"THREADS_USER_AGENT:   {THREADS_USER_AGENT}",
         f"DIARIZE_ENABLED:      {DIARIZE_ENABLED}",
         f"PYANNOTE_AUTH_TOKEN:  {'***' if PYANNOTE_AUTH_TOKEN else '(not set)'}",
         f"WEBHOOK_URL:          {WEBHOOK_URL or '(not set)'}",

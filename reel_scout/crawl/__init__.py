@@ -6,6 +6,7 @@ from typing import Optional
 from .youtube import YouTubeCrawler
 from .instagram import InstagramCrawler
 from .tiktok import TikTokCrawler
+from .threads import ThreadsCrawler
 from .base import BaseCrawler
 
 
@@ -13,6 +14,7 @@ _PLATFORM_PATTERNS = [
     (re.compile(r"(youtube\.com|youtu\.be)"), "youtube"),
     (re.compile(r"instagram\.com"), "instagram"),
     (re.compile(r"tiktok\.com"), "tiktok"),
+    (re.compile(r"threads\.(com|net)"), "threads"),
     (re.compile(r"twitter\.com|x\.com"), "twitter"),
 ]
 
@@ -20,6 +22,7 @@ _CRAWLERS = {
     "youtube": YouTubeCrawler,
     "instagram": InstagramCrawler,
     "tiktok": TikTokCrawler,
+    "threads": ThreadsCrawler,
 }
 
 

@@ -14,6 +14,36 @@
   Dragging everything to zero reads `權重總和 0% · 算不出總分`, because no
   dimension being valued is not a score of zero.
 
+- **Threads posts: `analyze https://www.threads.com/...` now works** (post
+  URLs and `/share/` links, `threads.com` and `threads.net`). yt-dlp has no
+  Threads extractor, and the post code is not an Instagram shortcode in
+  disguise — the same ID on `instagram.com/p/` is refused even with valid
+  cookies while a known reel in the same call succeeds.
+
+  What works is the post page itself: Threads serves browsers a login wall
+  but serves search crawlers a server-rendered page whose JSON carries the
+  whole post — direct mp4 URLs that download without cookies, plus caption,
+  author, timestamp, engagement counts and the author's own follow-up posts.
+  Measured on five real queued posts covering all three layouts videos live
+  in (single video, carousel, text post with an inline video): 5/5 resolved
+  and downloaded as h264.
+
+  🔴 The whole thing rests on one assumption — which User-Agent gets the
+  server-rendered page — so it lives in `THREADS_USER_AGENT`, not in the
+  crawler, and a page with no post in it raises instead of returning an empty
+  row. The day Threads stops serving it, this fails loud.
+
+  One trap found only by running it live: the page streams a post as several
+  fragments sharing an `id`, and the follow-up posts sit in a different
+  fragment from the caption. Reading only the fragment with the post code
+  returned zero follow-ups for a post that had one, with nothing failing.
+
+  Limits: a carousel with several videos analyzes the first (one post, one
+  row). Caption, follow-ups and counts are returned in `VideoMeta.extra`, but
+  the `videos` table only keeps `title` (caption, first 100 chars) and
+  `uploader` — persisting the rest needs a schema change and is left out here.
+  `batch` still does not pick up Threads links.
+
 - **An official site: <https://vulture-s.github.io/reel-scout/>.** Before this
   the repository had no description, no homepage and no Pages — a tool that is
   on PyPI, documents nineteen MCP tools and ships a skill, with nowhere on
