@@ -18,7 +18,7 @@ img{max-width:100%; height:auto}
 /* 內容欄＝紙張欄。左邊多讓一段，讓文字落在裝訂邊線的右側而不是壓在上面 ——
  * 一條會被字蓋住的邊線不是邊線，是雜訊。 */
 .wrap{
-  max-width:var(--col-wide); margin:0 auto;
+  max-width:var(--paper-col); margin:0 auto;
   padding-left:calc(var(--margin-x) + 20px); padding-right:40px;
 }
 
@@ -42,7 +42,7 @@ hr{border:0; border-top:2px solid var(--rule); margin:32px 0}
  */
 .masthead{background:transparent}
 .mh-in{
-  max-width:var(--col-wide); margin:0 auto;
+  max-width:var(--paper-col); margin:0 auto;
   padding:22px calc(var(--margin-x) + 20px) 12px;
   display:grid; grid-template-columns:1fr auto; align-items:baseline; gap:4px 20px;
 }
@@ -66,7 +66,7 @@ hr{border:0; border-top:2px solid var(--rule); margin:32px 0}
  * 實測：sheet 180→1260，而 .topnav 0→1440。 */
 .topnav{background:transparent}
 .topnav-in{
-  max-width:var(--col-wide); margin:0 auto;
+  max-width:var(--paper-col); margin:0 auto;
   padding:9px calc(var(--margin-x) + 20px);
   border-top:2px solid var(--rule);
   border-bottom:1px solid var(--rule-soft);
