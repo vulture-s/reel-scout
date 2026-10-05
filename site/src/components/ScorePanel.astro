@@ -153,6 +153,13 @@ const boot = JSON.stringify({
   ['pointerdown', 'keydown', 'wheel'].forEach(function (ev) {
     card.addEventListener(ev, stopDemo, { once: true, passive: true });
   });
+  // 🔴 上面三個事件涵蓋不到所有「使用者真的動了」的路徑 —— 輔助科技、某些
+  //    觸控筆、以及任何直接改值的方式，都可能只產生 input 而沒有 pointerdown。
+  //    示範自己也會發 input，所以用 `isTrusted` 分辨：**真人事件才是 true**。
+  //    不補這條的話，示範會在那些路徑上跟使用者搶同一條滑桿。
+  sliders.forEach(function (s) {
+    s.addEventListener('input', function (e) { if (e.isTrusted) stopDemo(); });
+  });
 
   function tween(slider, from, to, ms, done) {
     var t0 = null;
