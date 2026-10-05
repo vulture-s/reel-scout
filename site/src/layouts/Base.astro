@@ -7,6 +7,22 @@ interface Props { title: string; description?: string; current?: string }
 const { title, description = '', current = '' } = Astro.props;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
+// 版號不手寫。這份 repo 的 CHANGELOG 自己有一條疤記著「roadmap 寫 v1.3.1 而程式是
+// 1.4.0」—— 一個手寫的版號就是下一個那種疤。
+//
+// 來源是 `reel_scout/__init__.py`，不是 `pyproject.toml` —— 後者的 version 是
+// `dynamic`，由 hatch 從前者取（實測：對 pyproject 抓 regex 必定落空）。
+// 這也正是 `tests/test_docs_are_current.py` 拿來比對的那一份。
+import { readFileSync } from 'node:fs';
+// cwd 而不是 import.meta.url —— 打包後 import.meta.url 指到 site/ 的產出位置，
+// 不是原始檔位置（實測：它去找 site/… 然後 ENOENT）。
+// astro build 的 cwd 固定是 site/，所以往上一層就是 repo 根。
+const initPy = readFileSync(new URL('reel_scout/__init__.py', `file://${process.cwd()}/../`), 'utf8');
+const version = (initPy.match(/^__version__\s*=\s*"([^"]+)"/m) ?? [])[1] ?? '';
+// 🔴 讀不到就讓建構失敗，不要渲染一個空的版號。
+// 空字串在頁面上長成 "v · MIT"，而那在 CI 上跟成功一模一樣。
+if (!version) throw new Error('could not read __version__ from reel_scout/__init__.py');
+
 // 導覽七項，刻意比 arkiv 少兩項（它另有「案例」與「回饋」）。
 // 「誠實清單」沿用 arkiv 的那一頁 —— 它是本專案最有內容的一頁，
 // 因為 reel-scout 的已知限制是實際踩出來的，不是想像的。
@@ -44,9 +60,15 @@ const nav = [
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
+<header class="masthead">
+  <div class="mh-in">
+    <a class="mh-mark" href={`${base}/`}>reel-scout</a>
+    <p class="mh-sub">短影音拆解 · 本機優先</p>
+    <p class="mh-meta">v{version} · MIT · OPEN SOURCE</p>
+  </div>
+</header>
 <nav class="topnav" aria-label="主要導覽">
   <div class="topnav-in">
-    <a class="topnav-mark" href={`${base}/`}>reel&#8203;scout</a>
     <ul>
       {nav.map((n) => <li><a href={n.href} aria-current={n.id === current ? 'page' : undefined}>{n.label}</a></li>)}
       <li><a href="https://github.com/vulture-s/reel-scout">GitHub</a></li>

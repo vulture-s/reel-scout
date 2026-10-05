@@ -61,6 +61,17 @@ jobs:
         run: |
           grep -rq "feTurbulence" dist/ || { echo "paper fibre missing from build"; exit 1; }
           grep -rq "repeating-linear-gradient" dist/ || { echo "ruled lines missing from build"; exit 1; }
+          # 裝訂邊線跟紙張邊界 —— 兩個都只活在 CSS 裡，掉了頁面照建、只是回到「平」的樣子。
+          grep -rq -- "--margin-rule" dist/ || { echo "margin rule missing from build"; exit 1; }
+          grep -rq -- "--desk" dist/ || { echo "desk/sheet tokens missing from build"; exit 1; }
+
+      # 刊頭的版號是從 reel_scout/__init__.py 讀的。讀不到時建構會 throw，
+      # 但「讀到空字串」不會 —— 那會在頁面上長成 "v · MIT"，而 CI 看起來一樣綠。
+      - name: 刊頭有渲染出真的版號
+        run: |
+          for f in dist/*.html; do
+            grep -qE 'v[0-9]+\.[0-9]+\.[0-9]+ · MIT' "$f" || { echo "no version in masthead: $f"; exit 1; }
+          done
 
       # GA4 不在，網站照樣好好的 —— 只是量不到任何東西，而且要好幾週後才會有人發現。
       - name: GA4 標籤有進到每一頁

@@ -25,52 +25,65 @@
   --paper-rule-step:26px;
   --paper-rule-ink:rgba(35,25,22,.08);
   --paper-col:var(--col-wide);
+
+  /* 本站獨有，theme.py 沒有也不該有（見 tests/test_site_tokens.py）。
+   * 工具是一個寬版的資料表面，給它一張「紙的邊界」只會跟片庫表格打架。 */
+  --desk:#e9e6de;              /* 紙底下的桌面，比紙暗一階 */
+  /* 裝訂邊線用 --rule-soft 的重量，不發明第四種深淺 ——
+   * canon 的規線是三階（2px 主／1px 細／1px --rule-soft 列分隔），
+   * 多一個介於中間的灰階只會讓那三階讀不出來。
+   * 實測：第一版 14% 算出來是 211（紙 239），1px 下太淡看不見。 */
+  --margin-rule:var(--rule-soft);
+  --margin-x:56px;             /* 邊線距紙張左緣 */
 }
 
-/* ── 紙質層 ───────────────────────────────────────────────────────────────
- * 用 body::before 的 fixed 滿版層，而不是 body 的 background：
- * 這樣捲動時紙不會跟著內容跑（一張紙躺在桌上，不是一條跑馬燈），
- * 而且不會跟任何元件自己的 background 打架。
+/* ── 紙與桌 ───────────────────────────────────────────────────────────────
+ * 兩層 fixed，順序是刻意的：
+ *   ::before  紙張（含邊界、裝訂邊線、橫格線）
+ *   ::after   纖維顆粒（滿版，蓋在紙與桌上）
+ * 同 z-index 時後宣告的畫在上面 —— 纖維要蓋過紙，所以紙必須是 ::before。
+ * （第一版寫反了，結果紙把纖維整個蓋掉。）
  *
- * ⚠️ pointer-events:none 不是可選的 —— 少了它整頁點不到任何東西。 */
+ * ⚠️ pointer-events:none 不是可選的 —— 少了它整頁點不到任何東西。
+ */
+body::before,body::after{content:"";position:fixed;z-index:0;pointer-events:none}
+
+/* 紙張：一張比桌面淺一階的紙，用 1px 實線收邊而不是陰影。
+ * canon 明文 REJECT stacked shadows —— 而一張紙的邊界本來就是一條線不是一團暈。 */
 body::before{
-  content:"";
-  position:fixed; inset:0; z-index:0; pointer-events:none;
-  /* 纖維：inline SVG 的 fractalNoise。baseFrequency 高 ＝ 顆粒細（像紙纖維），
-   * 低 ＝ 大片雲霧（像水漬）。0.9 是「近看有織理、遠看是素面」的那一帶。 */
+  top:0; bottom:0; left:50%; transform:translateX(-50%);
+  width:min(var(--paper-col),100%);
+  background-color:var(--bg);
+  background-image:
+    /* 裝訂邊線：距左緣 --margin-x 的一條垂直淡線 */
+    linear-gradient(to right,
+      transparent 0, transparent calc(var(--margin-x) - 1px),
+      var(--margin-rule) calc(var(--margin-x) - 1px),
+      var(--margin-rule) var(--margin-x),
+      transparent var(--margin-x)),
+    /* 橫格線。文字刻意不對齊 —— 對齊要把行高鎖成節距的整數倍，那會綁死整站排版，
+       而在這個濃度下它讀起來是紙的織理不是書寫輔助線。 */
+    repeating-linear-gradient(to bottom,
+      transparent 0, transparent calc(var(--paper-rule-step) - 1px),
+      var(--paper-rule-ink) calc(var(--paper-rule-step) - 1px),
+      var(--paper-rule-ink) var(--paper-rule-step));
+  border-left:1px solid var(--rule-soft);
+  border-right:1px solid var(--rule-soft);
+}
+
+/* 纖維：inline SVG 的 fractalNoise。baseFrequency 高 ＝ 顆粒細（像紙纖維），
+ * 低 ＝ 大片雲霧（像水漬）。0.9 是「近看有織理、遠看是素面」的那一帶。
+ * multiply：加色式的疊層會把紙洗白，乘法才是坐進紙裡。 */
+body::after{
+  inset:0;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23f)'/%3E%3C/svg%3E");
   opacity:var(--paper-fiber-opacity);
-  /* 顆粒疊在紙色上要用 multiply，不然它會把紙洗白。 */
   mix-blend-mode:multiply;
-}
-
-/* ── 裝訂格線 ─────────────────────────────────────────────────────────────
- * 跟纖維一樣走 fixed 層，但**只鋪在內容欄的寬度內**，不滿版 ——
- * 滿版會讓左右兩側的空白也長出橫線，而那兩塊在這個版面裡本來就是留白。
- *
- * 文字刻意不對齊到線上。對齊需要把行高鎖成節距的整數倍，而那會綁死整站的排版；
- * 在 4.5% 濃度下這些線讀起來是紙的織理，不是書寫輔助線 —— 對不對齊看不出來。
- * （一開始寫成「鎖行高 + 只在 .ruled 內」，結果是整站只有文件頁看得到格線，
- *   等於沒做。這版把它放回所有頁面。）
- */
-body::after{
-  content:"";
-  position:fixed; z-index:0; pointer-events:none;
-  top:0; bottom:0; left:50%; transform:translateX(-50%);
-  width:min(var(--paper-col), 100%);
-  background-image:repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent calc(var(--paper-rule-step) - 1px),
-    var(--paper-rule-ink) calc(var(--paper-rule-step) - 1px),
-    var(--paper-rule-ink) var(--paper-rule-step)
-  );
 }
 
 /* 帶內容的元件自己蓋住紙紋，所以紋理只出現在留白與間隙。
  * 🔴 表格刻意不在這份清單裡 —— 第一版有，理由是「列分隔線跟格線是同一種視覺語言」。
  * 實際 render 之後結論相反：工具的片庫整頁就是一張表，遮掉等於整個畫面沒有紋理，
- * 功能在而看不見。量過：8% 的格線跟紙差 17/255，--rule-soft 差 36/255，主次分得開。
- * 兩邊的規則保持一致（theme.py 同一段）。 */
+ * 功能在而看不見。量過：8% 的格線跟紙差 17/255，--rule-soft 差 36/255，主次分得開。 */
 pre{background:var(--surface-2)}
 figure img, video, canvas{background:var(--bg)}
