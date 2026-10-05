@@ -1,48 +1,120 @@
 ---
 import Base from '../layouts/Base.astro';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+// 🔴 每一張都是**實機截圖**，而且**標明是哪一支片** —— 不同區塊挑不同的片，
+// 因為沒有一支片能同時把每一區都展示到最好：
+//   · 三重湯城（YouTube，19 分）—— 有原生中文字幕，所以逐字稿那段是乾淨的
+//   · Awich MV（4 分）—— 唯一跑完整套景別標註的，四色時間軸只有它畫得出來
+//   · 另一支短片 —— 唯一有手工標記的
+// 標明出處不是禮貌，是**不要讓讀者以為一支片就長這樣**。
+const SHOTS = [
+  {
+    f: '00-library', h: '片庫', en: 'LIBRARY',
+    p: '一台機器上的所有片。分組、備註、分數都在同一張表上，點一列就進 inspector。表格會隨螢幕寬度伸縮——它是表不是散文，所以寬螢幕就該用滿。',
+    cmd: 'reel-scout view',
+    alt: 'reel-scout 的片庫畫面：一張表列出所有已分析的影片，每列有標題、結構標籤、分組下拉、分數與備註欄。',
+  },
+  {
+    f: '01-player', h: '單片檢視', en: 'INSPECTOR',
+    p: '影片、標題、平台、時長、原始連結在最上面。底下所有區塊都跟這個播放器同步——點逐字稿的時間、點關鍵影格、點時間軸色帶，都會跳到那一刻。',
+    cmd: 'reel-scout inspect <id>',
+    alt: 'inspector 頂部：片名、來源平台與時長、原始連結，底下是嵌入的影片播放器。',
+  },
+  {
+    f: '02-waveform', h: '波形與進出點', en: 'WAVEFORM',
+    p: '整支片的音訊波形。可以設進點與出點，然後把那一段匯出成 SRT——看到想用的段落時不必切去別的軟體。',
+    cmd: '設進點 / 設出點 / 匯出 SRT（區間）',
+    alt: '音訊波形條，下方有「設進點」「設出點」「清除」「匯出 SRT（區間）」四個按鈕。',
+  },
+  {
+    f: '03-keyframes', h: '關鍵影格', en: 'KEYFRAMES',
+    p: '按場景變化抽出來的楨，每張帶時間碼、每張都有模型寫的描述。楨數依片長編列預算，首尾各保一張——長片不會只抽到開頭那幾秒。',
+    cmd: 'reel-scout vision <id>',
+    alt: '一排關鍵影格縮圖，每張左下角標著時間碼，從 0:00 到 4:15。',
+  },
+  {
+    f: '04-transcript', h: '逐字稿', en: 'TRANSCRIPT',
+    p: '字幕優先：有原生字幕軌就用它，比重跑一次語音辨識準且快。沒有才走 Whisper。每一句都可以點，點了就跳到那一刻。',
+    cmd: 'reel-scout transcribe <path>',
+    alt: '逐字稿列表，左欄是時間碼、右欄是句子，一句一列。',
+  },
+  {
+    f: '05-scores', h: '工藝評分 ＋ 重新加權', en: 'CRAFT SCORE',
+    p: '四個維度加一個總分，長條是墨色不是紅綠——那是一個資料層，不是一個判決。展開「重新加權」可以現場拖權重，看這支片的評價有多少其實是你自己的偏好。四個維度本身不會變，變的只是它們怎麼組合。',
+    cmd: 'reel-scout score <id>',
+    alt: '工藝評分區塊：總分與四個維度各一條長條與數字，底下展開的重新加權面板有四個滑桿。',
+  },
+  {
+    f: '06-decoded', h: '解構分析', en: 'DECODED',
+    p: '把前面幾層交給 LLM 合成出來的結構化欄位：內容結構、類型、格式、節奏、開場類型、開場文字、行動呼籲。這是「下次要找那支用三刀開場的片」能變成一次查詢的原因。',
+    cmd: 'reel-scout analyze <url>',
+    alt: '解構分析的欄位表：內容結構、內容類型、格式、節奏、開場類型、開場文字、行動呼籲。',
+  },
+  {
+    f: '07-marks', h: '手工標記', en: 'MARKS',
+    p: '模型看不出來的東西自己標。時間碼加一句話，之後回來看就知道當時在看什麼——這一層是你的判斷，不是模型的。',
+    cmd: 'reel-scout mark <id> <t> "<說明>"',
+    alt: '標記列表，每列是時間碼加一句手寫的觀察，例如「把技法名寫在紙上當第一顆」。',
+  },
+  {
+    f: '08-grammar', h: '鏡頭語法', en: 'SHOT GRAMMAR',
+    p: '全片剪點偵測之後的結果：景別與運鏡各自的分佈，加一條可以點的時間軸色帶。顏色在這裡是刻意的——它是一組封閉可枚舉的分類，不是裝飾。開頭那個「可分析 79%」是誠實的分母：標不出來的鏡頭會算進去，不會被藏掉。',
+    cmd: 'reel-scout shot-size <id>',
+    alt: '鏡頭語法區塊：景別與運鏡的分佈長條與圖例，底下是四色的時間軸色帶與逐鏡頭明細表。',
+  },
+];
+
+const SURFACES = [
+  ['view', '本機伺服器，整個片庫＋點進去就是 inspector', '自己翻素材的時候'],
+  ['inspect &lt;id&gt;', '釘住單片的互動檢視', '要仔細看一支片'],
+  ['export --format bundle', '一支片一個自包含的 HTML：影片、關鍵影格、波形、字型全內嵌', '寄給別人／當課程教材。對方零安裝，整頁只發一個網路請求'],
+];
 ---
 <Base title="實際畫面 — Reel Scout" current="demo"
-      description="inspector、片庫、以及可以寄給別人的自包含單檔 HTML。">
+      description="inspector 的每一個區塊：片庫、播放器、波形、關鍵影格、逐字稿、工藝評分、解構分析、手工標記、鏡頭語法。全部是實機截圖。">
   <div class="wrap" style="padding-top:48px">
     <p class="eyebrow">WHAT IT LOOKS LIKE</p>
     <h1 style="font-size:clamp(28px,4.6vw,44px); margin:10px 0 18px">實際畫面</h1>
+    <p style="max-width:66ch; color:var(--ink-2)">
+      以下每一張都是<strong>實機截圖</strong>，並且標明是哪一支片。
+      不同區塊用不同的片，因為沒有一支能同時把每一區都展示到最好——
+      標明出處不是禮貌，是不要讓你以為一支片就長這樣。
+    </p>
 
-    <figure style="margin:28px 0 0">
-      <img src={`${base}/img/inspector.jpg`} alt="reel-scout 的 inspector：工藝四維評分、可拖曳的重新加權面板，以及解構分析的欄位表，全部落在紙質的背景上。" />
-      <figcaption class="mono" style="font-size:11px; color:var(--quiet); margin-top:8px">
-        INSPECTOR —— 單片。逐字稿與關鍵楨時間同步，點時間軸就跳播。
-        中文標籤放在模型自己的英文輸出旁邊，英文原樣保留不改寫。
-      </figcaption>
-    </figure>
+    {SHOTS.map((s, i) => (
+      <section class="shot">
+        <div class="shead">
+          <h2>{String(i).padStart(2, '0')} · {s.h}</h2>
+          <span class="en">{s.en}</span>
+        </div>
+        <p style="max-width:68ch; color:var(--ink-2); margin:0 0 4px">{s.p}</p>
+        <p class="shot-cmd mono">{s.cmd}</p>
+        <figure class="shot-fig">
+          <img src={`${base}/img/inspector/${s.f}.webp`} alt={s.alt} loading="lazy" decoding="async" />
+        </figure>
+      </section>
+    ))}
 
-    <div class="shead"><h2>三個介面，一個殼</h2><span class="en">THREE VIEWS</span></div>
+    <div class="shead"><h2>三個介面，一個殼</h2><span class="en">THREE SURFACES</span></div>
     <div class="tw"><table>
       <thead><tr><th>指令</th><th>是什麼</th><th>什麼時候用</th></tr></thead>
       <tbody>
-        <tr>
-          <td class="mono">view</td>
-          <td>本機伺服器，整個片庫＋點進去就是 inspector</td>
-          <td>自己翻素材的時候</td>
-        </tr>
-        <tr>
-          <td class="mono">inspect &lt;id&gt;</td>
-          <td>釘住單片的互動檢視</td>
-          <td>要仔細看一支片</td>
-        </tr>
-        <tr>
-          <td class="mono">export --format bundle</td>
-          <td>一支片一個自包含的 HTML：影片、關鍵楨、波形、字型全內嵌</td>
-          <td>寄給別人／當課程教材。對方零安裝，整頁只發一個網路請求</td>
-        </tr>
+        {SURFACES.map(([cmd, what, when]) => (
+          <tr><td class="mono" set:html={cmd} /><td>{what}</td><td>{when}</td></tr>
+        ))}
       </tbody>
     </table></div>
 
     <div class="shead"><h2>它長這樣是刻意的</h2><span class="en">THE SHELL</span></div>
     <p style="max-width:68ch; color:var(--ink-2)">
-      紙與墨、全程無彩色強調。理由是這些畫面裡會說話的東西是關鍵楨、波形和影片本身——
-      外殼要安靜，內容才大聲。工藝評分的長條也刻意是墨色而不是紅綠：
-      那是一個資料層，不是一個判決。
+      紙與墨。會說話的東西是關鍵影格、波形和影片本身——外殼要安靜，內容才大聲。
+      工藝評分的長條因此是墨色而不是紅綠：那是一個資料層，不是一個判決。
+    </p>
+    <p style="max-width:68ch; color:var(--ink-2)">
+      <strong>唯一刻意用色的是鏡頭語法那條時間軸</strong>——
+      景別是一組封閉可枚舉的分類（因為要有人照著它去現場執行），
+      而分類需要能一眼分開，那不是裝飾。
     </p>
     <p style="max-width:68ch; color:var(--ink-2)">
       品牌字型隨套件一起出貨（拉丁字重很小；中文按實際用到的字動態 subset），
@@ -51,6 +123,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
     <p class="mono" style="font-size:11.5px; color:var(--quiet); letter-spacing:.1em; margin-top:28px">
       <a href={`${base}/install.html`}>裝起來自己看 →</a>
+      　<a href={`${base}/how-it-works.html`}>這些資料怎麼跑出來的 →</a>
     </p>
   </div>
 </Base>

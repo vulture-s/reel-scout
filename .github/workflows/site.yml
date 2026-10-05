@@ -50,9 +50,13 @@ jobs:
         run: |
           for f in index.html how-it-works.html demo.html limits.html \
                    install.html docs.html changelog.html \
-                   commands.html roadmap.html img/inspector.jpg; do
+                   commands.html roadmap.html; do
             test -f "dist/$f" || { echo "missing dist/$f"; exit 1; }
           done
+          # 「實際畫面」整頁的內容就是這九張 —— 少一張，那一節只剩標題與說明，
+          # 而頁面照樣建得出來。數量寫死是刻意的：加截圖時會紅，提醒你一起改這裡。
+          n=$(ls dist/img/inspector/*.webp 2>/dev/null | wc -l | tr -d ' ')
+          [ "$n" = "9" ] || { echo "expected 9 inspector screenshots, found $n"; exit 1; }
 
       # 紙質是這一版官網的主要視覺決定，而它整個活在一個 CSS 檔裡。
       # 那個檔被 tree-shake 掉或改名，頁面仍然會建得出來、只是變成一張白紙 ——

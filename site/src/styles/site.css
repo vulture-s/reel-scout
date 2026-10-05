@@ -206,3 +206,20 @@ footer p{font-size:12.5px; color:var(--quiet); margin:0}
 @media (prefers-reduced-motion: reduce){
   .sc-bar > i{transition:none}
 }
+
+/* ── 實際畫面：逐區塊的截圖 ────────────────────────────────────────────────
+ * 截圖本身是內容（而且是這一頁唯一的內容），所以它可以比文字欄寬 ——
+ * 但仍收在紙內，不出血。外框用 1px 實線，同一套規線語言。
+ */
+.shot{margin:0 0 8px}
+.shot-cmd{
+  margin:8px 0 0; font-size:11.5px; letter-spacing:.06em; color:var(--quiet);
+}
+.shot-fig{
+  margin:14px 0 36px;
+  border:1px solid var(--rule-soft);
+  /* 截圖自帶紙色背景，所以這裡不另外上色 —— 兩層紙疊起來會差一階。 */
+  background:var(--bg);
+  line-height:0;            /* 圖下面的幽靈空隙 */
+}
+.shot-fig img{width:100%; height:auto; display:block}
