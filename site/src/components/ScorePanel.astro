@@ -1,36 +1,46 @@
 ---
-// 首頁的工藝評分面板 —— 用跟工具同一套 token 重建的**活的 HTML**，不是截圖。
+// 首頁的工藝評分面板 —— **可以真的拖**的重新加權，不是截圖也不是示意。
 //
-// 為什麼不是圖：這個面板的主張是「分數不是判決，它取決於你重視什麼」，
-// 而一張靜態圖沒辦法演示那件事。改成真的 DOM 之後順帶拿到三樣：
-// 可選取的文字、讀屏可讀、以及比那張 169KB 的 JPG 小。
+// 為什麼這一塊要能互動：「重新加權」是這個工具少見的功能，而它的主張是
+// 「分數不是判決，它取決於你重視什麼」—— 那件事**沒辦法用靜態畫面演示**。
+// 讀者拖一下、看到總分跟著動，比任何一句話都快。
+//
+// 🔴 數學逐行照 `reel_scout/inspector.py` 的 `computeOverall`（它自己又對齊
+// `ingest.normalize_weights` / `compute_overall`）：負值夾到 0 → 重新縮放到總和 1
+// → 加權和 → 四捨五入到小數兩位。**不自己發明一套** —— 官網算出來的數字如果跟
+// CLI 不一樣，那比沒有這個面板更糟。
+// 預設權重取自 `config.SCORE_WEIGHTS`：30 / 25 / 20 / 25。
+// 驗算：6.5×.30 + 7.0×.25 + 6.0×.20 + 7.5×.25 = 6.775 → 6.78，與 DB 的 overall 一致。
 //
 // 🔴 數字是**語料裡真的那一支**（`02d06d93185562b2`，2026-10-01 由
-// ollama:qwen2.5:14b 評的），不是為了好看編的。官網上的數字一旦可以編，
-// 這整頁關於「可靠度分層」的主張就自己打了自己。
-// 來源影片是公開的 YouTube 片，「實際畫面」那頁的截圖拍的也是同一支。
+// ollama:qwen2.5:14b 評的）。官網上的數字一旦可以編，這整頁關於
+// 「信號可靠度分層」的主張就自己打了自己。
 const CLIP = {
-  title: '三重湯城：台灣真實版 The Backrooms？',
   model: 'ollama:qwen2.5:14b',
-  overall: 6.8,
+  stored: 6.78,
   dims: [
-    { label: '開場鉤子', en: 'HOOK',      value: 6.5 },
-    { label: '視覺敘事', en: 'VISUAL',    value: 7.0 },
-    { label: '節奏',     en: 'PACING',    value: 6.0 },
-    { label: '結構',     en: 'STRUCTURE', value: 7.5 },
+    { k: 'hook',      label: '開場鉤子', value: 6.5, w: 30 },
+    { k: 'visual',    label: '視覺敘事', value: 7.0, w: 25 },
+    { k: 'pacing',    label: '節奏',     value: 6.0, w: 20 },
+    { k: 'structure', label: '結構',     value: 7.5, w: 25 },
   ],
 };
+const boot = JSON.stringify({
+  dims: Object.fromEntries(CLIP.dims.map((d) => [d.k, d.value])),
+  defaults: Object.fromEntries(CLIP.dims.map((d) => [d.k, d.w])),
+  stored: CLIP.stored,
+});
 ---
-<figure class="scorecard" aria-label="工藝評分範例">
+<figure class="scorecard" data-boot={boot} aria-label="工藝評分與重新加權（可操作）">
   <figcaption class="sc-head">
     <span class="lbl">工藝評分</span>
     <span class="sc-model mono">參考，非定論 · {CLIP.model}</span>
   </figcaption>
 
-  <div class="sc-row sc-overall" style={`--v:${CLIP.overall}`}>
+  <div class="sc-row sc-overall" style={`--v:${CLIP.stored}`}>
     <span class="sc-k">總分</span>
-    <span class="sc-bar"><i></i></span>
-    <span class="sc-v mono">{CLIP.overall.toFixed(1)}</span>
+    <span class="sc-bar"><i id="sc-obar"></i></span>
+    <span class="sc-v mono" id="sc-oval" aria-live="polite">{CLIP.stored.toFixed(1)}</span>
   </div>
 
   {CLIP.dims.map((d, i) => (
@@ -41,31 +51,96 @@ const CLIP = {
     </div>
   ))}
 
-  <p class="sc-note">
-    四個維度來自模型，<strong>總分取決於你怎麼加權</strong>——
-    工具裡可以現場拖，看一支片的評價有多少是你自己的偏好。
-  </p>
+  <div class="sc-weights">
+    <p class="lbl" style="margin:0 0 2px">重新加權 —— 拖拖看</p>
+    <p class="sc-wnote">
+      四個維度來自模型，<strong>拖了也不會變</strong>；變的只是它們怎麼組合。
+      權重會自動縮放成總和 100%，所以結果仍在同一把 0–10 的尺上。
+    </p>
+    {CLIP.dims.map((d) => (
+      <div class="wrow">
+        <label for={`w-${d.k}`}>{d.label}</label>
+        <input type="range" id={`w-${d.k}`} data-dim={d.k}
+               min="0" max="100" step="1" value={d.w}
+               aria-label={`${d.label}的權重`} />
+        <span class="wval mono" id={`wv-${d.k}`}>{d.w}%</span>
+      </div>
+    ))}
+    <div class="wfoot">
+      <span class="wdelta mono" id="sc-delta" aria-live="polite"></span>
+      <button type="button" id="sc-reset" class="wbtn">重設為預設</button>
+    </div>
+  </div>
 </figure>
 
 <script is:inline>
-  // 進入視窗才跑，而且只跑一次。
-  // 🔴 尊重 prefers-reduced-motion：那不是偏好設定，對前庭失調的人是症狀開關。
-  //    關掉時不是「比較快的動畫」，是直接到最終值。
-  (function () {
-    var cards = document.querySelectorAll('.scorecard');
-    if (!cards.length) return;
-    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduce || !('IntersectionObserver' in window)) {
-      cards.forEach(function (c) { c.classList.add('is-in'); });
+(function () {
+  var card = document.querySelector('.scorecard');
+  if (!card) return;
+  var boot = JSON.parse(card.dataset.boot);
+  var sliders = [].slice.call(card.querySelectorAll('.wrow input[type=range]'));
+  var obar = document.getElementById('sc-obar');
+  var oval = document.getElementById('sc-oval');
+  var delta = document.getElementById('sc-delta');
+
+  // 逐行照 inspector.py 的 computeOverall —— 夾負值、縮放到總和 1、四捨五入 2dp。
+  function computeOverall(w) {
+    var total = 0, d;
+    for (d in w) if (w.hasOwnProperty(d)) total += Math.max(0, w[d]);
+    if (total <= 0) return null;
+    var sum = 0;
+    for (d in boot.dims) {
+      if (!boot.dims.hasOwnProperty(d)) continue;
+      var wd = (w[d] == null) ? 0 : Math.max(0, w[d]);
+      sum += (+boot.dims[d]) * (wd / total);
+    }
+    return Math.round(sum * 100) / 100;
+  }
+  function currentWeights() {
+    var w = {};
+    sliders.forEach(function (s) { w[s.dataset.dim] = +s.value; });
+    return w;
+  }
+  function isDefault() {
+    return sliders.every(function (s) { return boot.defaults[s.dataset.dim] === +s.value; });
+  }
+  function apply() {
+    var w = currentWeights();
+    sliders.forEach(function (s) {
+      var l = document.getElementById('wv-' + s.dataset.dim);
+      if (l) l.textContent = s.value + '%';
+    });
+    var v = computeOverall(w);
+    if (v == null) {
+      // 全部拖到 0 ＝ 沒有任何維度被重視，那不是 0 分，是「算不出來」。
+      oval.textContent = '—';
+      obar.style.width = '0%';
+      delta.textContent = '權重全為 0，算不出總分';
       return;
     }
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) {
-        if (!e.isIntersecting) return;
-        e.target.classList.add('is-in');
-        io.unobserve(e.target);
-      });
-    }, { threshold: 0.35 });
-    cards.forEach(function (c) { io.observe(c); });
-  })();
+    oval.textContent = v.toFixed(1);
+    obar.style.width = Math.max(0, Math.min(100, v * 10)) + '%';
+    var diff = Math.round((v - boot.stored) * 100) / 100;
+    delta.textContent = isDefault()
+      ? '預設權重 · 與儲存的分數相同'
+      : (diff === 0 ? '與儲存的分數相同'
+                    : '比儲存的分數 ' + (diff > 0 ? '+' : '') + diff.toFixed(2));
+  }
+  sliders.forEach(function (s) { s.addEventListener('input', apply); });
+  document.getElementById('sc-reset').addEventListener('click', function () {
+    sliders.forEach(function (s) { s.value = boot.defaults[s.dataset.dim]; });
+    apply();
+  });
+
+  // 進場動畫：進入視窗才跑、只跑一次。
+  // 🔴 prefers-reduced-motion 時直接到最終值 —— 那不是偏好設定，
+  //    對前庭失調的人是症狀開關。關掉時不是「比較快的動畫」。
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function arrive() { card.classList.add('is-in'); apply(); }
+  if (reduce || !('IntersectionObserver' in window)) { arrive(); return; }
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (e) { if (e.isIntersecting) { arrive(); io.unobserve(e.target); } });
+  }, { threshold: 0.3 });
+  io.observe(card);
+})();
 </script>

@@ -160,13 +160,13 @@ footer p{font-size:12.5px; color:var(--quiet); margin:0}
   :root{--paper-rule-step:22px}
 }
 
-/* ── 工藝評分面板（首頁）────────────────────────────────────────────────────
+/* ── 工藝評分面板（首頁，可互動）──────────────────────────────────────────
  * 形狀照工具裡那一塊：等寬的鍵、墨色長條、右側對齊的數字。
  * 長條刻意是墨色而不是紅綠 —— canon：「功能性狀態色是資料層，不是品牌」，
  * 而一個 6.0 分不是一個警告。
  */
 .scorecard{
-  margin:40px 0 0; padding:20px 22px 16px;
+  margin:40px 0 0; padding:20px 22px 18px;
   background:var(--surface); border:1px solid var(--rule-soft);
   max-width:620px;
 }
@@ -178,31 +178,48 @@ footer p{font-size:12.5px; color:var(--quiet); margin:0}
 }
 .sc-k{font-size:13.5px; color:var(--ink-2)}
 .sc-v{font-size:12.5px; text-align:right; color:var(--ink)}
-.sc-bar{
-  position:relative; height:9px;
-  background:var(--surface-2); border:1px solid var(--rule-soft);
-}
+.sc-bar{position:relative; height:9px; background:var(--surface-2); border:1px solid var(--rule-soft)}
 .sc-bar > i{
-  position:absolute; inset:0 auto 0 0; display:block;
-  background:var(--ink);
-  /* 起點 0：動畫前長條是空的，所以「跑起來」這件事看得見。
-     --v 是 0-10 的分數，寬度是它的百分比。 */
+  position:absolute; inset:0 auto 0 0; display:block; background:var(--ink);
+  /* 起點 0：動畫前長條是空的，所以「跑起來」這件事看得見。 */
   width:0;
   transition:width 900ms cubic-bezier(.22,.9,.3,1);
   transition-delay:calc(var(--i, 0) * 90ms);
 }
 .scorecard.is-in .sc-bar > i{width:calc(var(--v) * 10%)}
-/* 總分那一列重一點 —— 它是結論，其餘四條是依據。 */
+/* 總分那一列重一點 —— 它是結論，其餘四條是依據。
+ * 它也是唯一會被滑桿改寫的一條（維度是模型輸出，拖到哪都不動）。 */
 .sc-overall .sc-k{color:var(--ink); font-weight:600}
 .sc-overall .sc-bar{height:12px}
 .sc-overall .sc-v{font-size:14px}
-.sc-note{
-  margin:14px 0 0; padding-top:12px; border-top:1px solid var(--rule-soft);
-  font-size:13px; color:var(--ink-2);
+/* 總分被 JS 直接改 width 之後，進場那條 900ms 的過渡會讓拖曳變得黏手 ——
+ * 拖的是直接操作，回饋要即時。進場動畫結束後就把它縮短。 */
+.scorecard.is-in #sc-obar{transition-duration:140ms; transition-delay:0s}
+
+/* 重新加權 —— 這一塊是可以真的拖的 */
+.sc-weights{margin-top:16px; padding-top:14px; border-top:1px solid var(--rule-soft)}
+.sc-wnote{margin:0 0 12px; font-size:13px; color:var(--ink-2)}
+.wrow{display:grid; grid-template-columns:5.5em 1fr 3em; align-items:center; gap:12px; padding:3px 0}
+.wrow label{font-size:13.5px; color:var(--ink-2)}
+.wrow input[type=range]{
+  width:100%; min-width:0;
+  /* 瀏覽器的預設 accent 在預設 macOS 上是亮藍 —— 這個殼不花那個顏色。
+   * 工具端的同一條規則在 reel_scout/theme.py。 */
+  accent-color:var(--ink);
 }
+.wval{font-size:12px; text-align:right; color:var(--quiet)}
+.wfoot{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px}
+.wdelta{font-size:11px; color:var(--quiet); letter-spacing:.04em}
+.wbtn{
+  padding:5px 12px; border:1px solid var(--rule); background:var(--bg); color:var(--ink);
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase;
+  cursor:pointer;
+}
+.wbtn:hover{background:var(--surface-2)}
+
 /* 🔴 動畫關掉時直接到最終值，不是「比較快的動畫」。
  * 這條跟 ScorePanel.astro 的 JS 是一對：JS 關掉 observer，CSS 關掉過渡。
- * 只做一半的話，JS 那半仍然會在捲到時把寬度從 0 改到值 —— 也就是仍然會動。 */
+ * ⚠️ 只關**進場**那段 —— 拖曳的回饋不是裝飾性動態，關掉它會讓滑桿變得沒有反應。 */
 @media (prefers-reduced-motion: reduce){
   .sc-bar > i{transition:none}
 }
@@ -223,3 +240,13 @@ footer p{font-size:12.5px; color:var(--quiet); margin:0}
   line-height:0;            /* 圖下面的幽靈空隙 */
 }
 .shot-fig img{width:100%; height:auto; display:block}
+
+/* 警語區塊。⚠️ 開頭的那幾段是「不講學員回家會撞牆」的那種，所以要跟一般散文分開 ——
+ * 但仍然用規線與紙，不用底色警示（canon：功能性狀態色是資料層，不是裝飾）。 */
+.warn{
+  max-width:68ch; margin:14px 0; padding:12px 0 12px 16px;
+  border-left:2px solid var(--rule);
+  font-size:14.5px; color:var(--ink-2);
+}
+.warn strong{color:var(--ink)}
+.warn-inline{display:inline-block; margin-top:4px; font-size:12.5px; color:var(--ink-2)}
