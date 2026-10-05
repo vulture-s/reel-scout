@@ -112,6 +112,23 @@ footer a{font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-tra
 footer a:hover{color:var(--ink)}
 footer p{font-size:12.5px; color:var(--quiet); margin:0}
 
+/* 四條差異化。報紙的分欄：靠一條細線分開，不靠卡片陰影 ——
+ * theme.py 明確拒絕 gradient / glow / 疊影，所以這裡只有 hairline。
+ * 🔴 每欄上緣一條線而不是四邊框：框會在 1124px 的欄寬下變成四個盒子，
+ *    而這一段是連續的論述，不是四張卡。 */
+.diffs{
+  display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:0 44px; margin:18px 0 0;
+}
+.diffs > div{border-top:1px solid var(--rule-soft); padding:16px 0 22px}
+.diffs .en{display:block; font-family:var(--mono); font-size:11px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--quiet); margin-bottom:7px}
+.diffs h3{margin:0 0 7px; font-family:var(--sans); font-weight:600; font-size:16.5px; line-height:1.35}
+.diffs p{margin:0; font-size:14.5px; line-height:1.72; color:var(--ink-2)}
+@media (max-width:720px){
+  .diffs{grid-template-columns:minmax(0,1fr); gap:0}
+}
+
 /* 訂閱框。放在頁尾、每一頁都有 —— 它是本站唯一的自有名單入口。 */
 .sub{border:1px solid var(--rule); padding:18px 20px; margin:0 0 26px; background:var(--surface)}
 .sub h2{margin:0 0 6px; font-family:var(--display); font-weight:400; font-size:17px}

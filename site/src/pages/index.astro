@@ -86,6 +86,36 @@ reel-scout analyze &lt;id&gt;</pre>
       固定一套模型，要換就整批重跑。
     </p>
 
+    <div class="shead"><h2>它跟「貼進 AI 聊天框」差在哪</h2><span class="en">WHY THIS</span></div>
+    <div class="diffs">
+      {diffs.map((d) => (
+        <div>
+          <span class="en">{d.en}</span>
+          <h3>{d.h}</h3>
+          <p>{d.p}</p>
+        </div>
+      ))}
+    </div>
+
+    <div class="shead"><h2>五層信號可靠度</h2><span class="en">SIGNAL RELIABILITY</span></div>
+    <p style="max-width:68ch; color:var(--ink-2)">
+      由上而下愈可靠。這五層<strong>在資料庫裡是五個欄位</strong>，不是一段混在一起的摘要——
+      因為它們可信度差很多，混在一起就沒辦法在事後分辨「這句話是誰說的」。
+    </p>
+    <div class="tw"><table>
+      <thead><tr><th>層</th><th>來源</th><th>可靠度</th><th>為什麼</th></tr></thead>
+      <tbody>
+        {layers.map(([n, src, rel, why]) => (
+          <tr>
+            <td class="mono">{n}</td>
+            <td>{src}</td>
+            <td>{rel}</td>
+            <td>{why}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table></div>
+
     <div class="shead"><h2>同一套引擎，三種玩法</h2><span class="en">NOT JUST REELS</span></div>
     <p style="max-width:68ch; color:var(--ink-2)">
       名字叫 Reel Scout，是因為它從「拆短影音」長出來的。

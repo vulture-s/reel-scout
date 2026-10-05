@@ -4,6 +4,14 @@
 
 ### Added
 
+- **The front page now renders the four differentiators and the five-signal
+  reliability table.** Both were written, kept in sync with the code and never
+  put on the page: `index.astro` declared them and the template never used them.
+  Nothing failed — the build was green, and a source-level grep for their text
+  found it, which is exactly why a platform-coverage gate also passed on copy
+  nobody could see. A test now fails the build when a page declares a content
+  array its template never references.
+
 - **The page is wider: the sheet goes 1080 → 1240, the content column 964 →
   1124.** It gets its own site-only token (`--col-site`) rather than moving
   `--col-wide`, which `theme.py` shares with the inspector — widening the site
