@@ -18,13 +18,13 @@
   --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
   --col:760px; --col-wide:1080px;
 
-  /* 紙質（本站獨有，theme.py 沒有這一組）。
-   * 兩層：feTurbulence 的纖維顆粒 ＋ 裝訂格線。
-   * 強度刻意壓得很低 —— theme.py 的 canon 是「外殼安靜，內容大聲」，
-   * 而這一頁的內容是 keyframe 縮圖與程式碼區塊，它們不該跟背景搶視線。 */
+  /* 紙質 token 與 theme.py 同一份（2026-10-05 下沉到 theme.py，三個介面共用）。
+   * 只有 --paper-col 刻意不同：工具是寬版（--col-tool），官網是 editorial（--col-wide）。
+   * 它是 token 而不是兩份規則，這樣規則本身維持一模一樣。 */
   --paper-fiber-opacity:.05;
   --paper-rule-step:26px;
-  --paper-rule-ink:rgba(35,25,22,.05);
+  --paper-rule-ink:rgba(35,25,22,.08);
+  --paper-col:var(--col-wide);
 }
 
 /* ── 紙質層 ───────────────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ body::after{
   content:"";
   position:fixed; z-index:0; pointer-events:none;
   top:0; bottom:0; left:50%; transform:translateX(-50%);
-  width:min(var(--col-wide), 100%);
+  width:min(var(--paper-col), 100%);
   background-image:repeating-linear-gradient(
     to bottom,
     transparent 0,
@@ -67,9 +67,10 @@ body::after{
   );
 }
 
-/* 會跟格線打架的元件自己遮住它。
- * 表格的列分隔線跟格線是同一種視覺語言，疊在一起會變成兩套深淺不一的橫線
- * —— 這是選紙質強度時就標出來的風險，這裡是它的解。 */
-table{background:var(--bg)}
+/* 帶內容的元件自己蓋住紙紋，所以紋理只出現在留白與間隙。
+ * 🔴 表格刻意不在這份清單裡 —— 第一版有，理由是「列分隔線跟格線是同一種視覺語言」。
+ * 實際 render 之後結論相反：工具的片庫整頁就是一張表，遮掉等於整個畫面沒有紋理，
+ * 功能在而看不見。量過：8% 的格線跟紙差 17/255，--rule-soft 差 36/255，主次分得開。
+ * 兩邊的規則保持一致（theme.py 同一段）。 */
 pre{background:var(--surface-2)}
-figure img{background:var(--bg)}
+figure img, video, canvas{background:var(--bg)}

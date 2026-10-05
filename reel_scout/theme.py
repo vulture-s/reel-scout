@@ -48,6 +48,24 @@ TOKENS = """
      wider-than-2560 desktop (Hevin 2026-10-02): the library is a table, not
      prose, so the ceiling went to 2400. */
   --col-tool:clamp(1180px,94vw,2400px);
+
+  /* Paper. Added 2026-10-05, shared with the site (site/src/styles/paper.css),
+     which pins these values back to this file in tests/test_site_tokens.py.
+
+     This is a deliberate reading of the canon rather than a break from it:
+     "the chrome is quiet so the content is loud" is about what competes for
+     attention, and a 5% fibre is not competing with a keyframe strip. The
+     rule that keeps it honest is the masking below -- anything that carries
+     content (images, video, pre, tables) paints its own surface over the
+     texture, so the texture only ever shows in the margins.
+
+     --paper-col is the one value that differs by surface: the tool is wide
+     (--col-tool), the site is editorial (--col-wide). It is a token rather
+     than two copies of the rule so the rule itself stays identical. */
+  --paper-fiber-opacity:.05;
+  --paper-rule-step:26px;
+  --paper-rule-ink:rgba(35,25,22,.08);
+  --paper-col:var(--col-tool);
 }
 /* Background-aware accent: on any ink surface cyan does not appear, it steps
    to paper white. Kept even though this shell is mono, so an ink panel added
@@ -89,6 +107,55 @@ header.top .sub{margin-top:6px;font-family:var(--mono);font-size:11px;
 /* row divider — the soft third step */
 .row{border-bottom:1px solid var(--rule-soft)}
 hr{border:0;border-top:2px solid var(--rule);margin:32px 0}
+
+/* --- Paper ------------------------------------------------------------
+   Two fixed layers behind everything. Fixed rather than on `body` so the
+   sheet stays still while the content scrolls -- a page on a desk, not a
+   conveyor belt.
+
+   pointer-events:none is not optional. Without it the overlay eats every
+   click on the page and nothing works. */
+body::before,body::after{content:"";position:fixed;z-index:0;pointer-events:none}
+/* fibre. baseFrequency 0.9 is fine grain (reads as paper weave); lower values
+   drift into blotches. multiply because an additive overlay washes the paper
+   colour out instead of sitting in it. */
+body::before{inset:0;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23f)'/%3E%3C/svg%3E");
+  opacity:var(--paper-fiber-opacity);mix-blend-mode:multiply}
+/* ruled lines, inside the content column only -- full bleed would draw lines
+   through margins that are meant to be empty. Text is deliberately not aligned
+   to them: aligning would mean locking line-height to a multiple of the step,
+   and at this ink level they read as weave rather than as writing guides. */
+body::after{top:0;bottom:0;left:50%;transform:translateX(-50%);
+  width:min(var(--paper-col),100%);
+  background-image:repeating-linear-gradient(to bottom,
+    transparent 0,transparent calc(var(--paper-rule-step) - 1px),
+    var(--paper-rule-ink) calc(var(--paper-rule-step) - 1px),
+    var(--paper-rule-ink) var(--paper-rule-step))}
+/* Content sits above the sheet. position:relative is load-bearing -- z-index
+   does nothing on a static element, and without it the whole page renders
+   under the texture. */
+body > *{position:relative;z-index:1}
+/* Masking. Anything carrying content paints its own surface, so the texture
+   only ever shows in the margins and the gaps.
+
+   🔴 Tables are deliberately NOT in this list, and that was a reversal. The
+   first version masked them on the theory that row dividers and ruled lines
+   are the same visual language and would read as two sets of horizontal rules.
+   Rendered, the opposite was true: the library view *is* one full-width table,
+   so masking it meant the whole screen had no texture at all -- the feature
+   existed and could not be seen. Measured on paper (#f1efe9), a ruled line at
+   8% lands 17/255 away from the sheet while --rule-soft lands 36/255 away, so
+   the dividers stay unambiguously the louder of the two. */
+figure,img,video,canvas{background:var(--bg)}
+pre{background:var(--surface-2)}
+
+/* Range inputs: the craft-score re-weighting sliders were being painted in the
+   browser's own accent, which on a default macOS install is a bright blue --
+   the loudest thing on an otherwise mono page, and the one colour this shell
+   says it does not spend. The tokens were right; nothing had told the control
+   about them. */
+input[type=range]{accent-color:var(--ink)}
 """
 
 

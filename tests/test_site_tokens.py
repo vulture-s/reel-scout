@@ -12,12 +12,12 @@ it documents are two slightly different shades of brown that nobody can see
 side by side. So the copy is asserted rather than trusted -- the same move as
 `test_docs_are_current.py`, applied to CSS instead of prose.
 
-Deliberately narrow: only the tokens the site actually restates are checked.
-The site has paper-texture tokens of its own (`--paper-fiber-opacity`,
-`--paper-rule-step`, `--paper-rule-ink`) that `theme.py` has never had, and the
-site uses the editorial `--col`/`--col-wide` rather than the tool's wide
-`--col-tool`. Those differences are intentional and narrated in both files; a
-test that demanded the two be identical would be wrong, not strict.
+Deliberately narrow: only the tokens the site actually restates are checked,
+and one token is asserted to *differ*. `--paper-col` is the width the ruled
+lines span, and it is the whole reason the texture rule can be byte-identical
+in both files: the tool is wide (`--col-tool`), the site is editorial
+(`--col-wide`). A test that demanded the two files be identical would be wrong,
+not strict.
 """
 from __future__ import annotations
 
@@ -38,6 +38,9 @@ SHARED = [
     "--rule", "--rule-soft", "--quiet", "--frame",
     "--display", "--sans", "--mono",
     "--col", "--col-wide",
+    # 紙質。2026-10-05 下沉到 theme.py，所以 viewer / inspector / 匯出單檔與官網
+    # 用的是同一組值 —— 它們必須相等，而不是各自好看。
+    "--paper-fiber-opacity", "--paper-rule-step", "--paper-rule-ink",
 ]
 
 
@@ -103,18 +106,17 @@ def test_the_comparison_can_actually_fail() -> None:
     assert c["--ink"] == a["--ink"]
 
 
-def test_the_site_keeps_its_own_paper_tokens() -> None:
-    """The texture tokens are the site's alone and must not be 'fixed' into theme.py.
+def test_paper_col_is_the_one_token_that_differs() -> None:
+    """The ruled lines span the content column, and the two columns differ.
 
-    If someone later copies them across to make the two files identical, the
-    viewer and the take-home export would start rendering a page texture behind
-    keyframes and waveforms -- which is the one thing `theme.py`'s canon ('the
-    chrome is quiet so the content is loud') tells them not to do.
+    This is asserted rather than left implicit because the obvious "tidy-up"
+    is to make the two files identical. Doing that would either draw the site's
+    ruled lines out to 2400px (past the text, into margins meant to be empty)
+    or pull the tool's in to 1080px (a stripe down the middle of a 2400px
+    library table). Neither is a cosmetic difference.
     """
     site = _decls(_site_css())
     theme_tokens = _theme_tokens()
-    for token in ("--paper-fiber-opacity", "--paper-rule-step", "--paper-rule-ink"):
-        assert token in site, token
-        assert token not in theme_tokens, (
-            "%s belongs to the site only -- see the docstring" % token
-        )
+    assert site["--paper-col"] == "var(--col-wide)"
+    assert theme_tokens["--paper-col"] == "var(--col-tool)"
+    assert site["--paper-col"] != theme_tokens["--paper-col"]
