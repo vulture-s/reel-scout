@@ -750,3 +750,45 @@ def test_a_translation_is_never_paired_with_different_text():
         assert "A different summary" in html and "一支關於手的影片" not in html
     finally:
         conn.close(); os.unlink(path)
+
+
+def test_reweight_readout_carries_the_sum_and_the_overall(temp_db):
+    """The footer line under the sliders states the weight total and the score.
+
+    🔴 Why this exists: the four sliders are each 0-100 and do not have to add
+    up, so the panel rescales to 100% behind the scenes. That was stated only
+    in `reweightNote` *above* the controls -- not on the line that changes while
+    someone drags, which is where it gets read. Worse, the line was blanked
+    whenever the weights sat at default, which is exactly the state that should
+    read "total 100%".
+
+    ⚠️ Asserts on the wiring, not on a display string. "權重總和 100%" also
+    appears in the embedded i18n dictionary, so grepping for it passes even with
+    the whole readout deleted -- the same mistake was made and caught by a
+    negative test on the site's CI gate one commit earlier.
+    """
+    conn = _conn(temp_db)
+    try:
+        vid = _seed(conn)
+        page = inspector.render_inspector(inspector.build_inspect_view(conn, vid))
+        # the raw sum is accumulated off the sliders, clamping negatives --
+        # not read back off the normalised weights, which are always 100%
+        assert page.count("raw+=Math.max(0,+s.value)") == 1
+        # and it is assembled into the line, with the overall beside it
+        assert page.count("sumText") == 3          # built once, used in both branches
+        assert page.count("T('wTotal')") == 1
+        assert page.count("T('wNoTotal')") == 1    # all-zero case says so in words
+        # the default branch must no longer blank the line
+        assert "delta.textContent=''" not in page
+    finally:
+        conn.close()
+
+
+def test_reweight_readout_strings_exist_in_both_locales():
+    # the inspector's chrome is translated; a key added to en only renders the
+    # key name as literal text in zh (test_i18n_dicts_have_identical_keys covers
+    # the key sets -- this pins that the zh side is actually Chinese)
+    from reel_scout import i18n
+    for key in ("wSum", "wSumScaled", "wTotal", "wNoTotal"):
+        assert i18n.STRINGS["en"][key] and i18n.STRINGS["zh"][key]
+        assert i18n.STRINGS["zh"][key] != i18n.STRINGS["en"][key], key

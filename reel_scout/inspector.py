@@ -1406,19 +1406,41 @@ _SCRIPT = r"""
         if(oval) oval.textContent='—';
         if(obar) obar.style.width='0%';
         if(ometer) ometer.className='meter custom';
-        if(delta){delta.textContent=T('zeroWeights'); delta.className='wdelta on';}
+        if(delta){delta.textContent=T('wSum')+' 0%  ·  '+T('wNoTotal'); delta.className='wdelta on';}
         return;
       }
       if(obar) obar.style.width=Math.max(0,Math.min(100,v*10)).toFixed(1)+'%';
       if(oval) oval.textContent=v.toFixed(1);
       var def=isDefault();
       if(ometer) ometer.className='meter'+(def?'':' custom');
+      /* The raw slider sum. It is not necessarily 100: the four are each 0-100
+         and nothing stops them adding to 165.
+
+         🔴 This line used to be blanked whenever the weights were at default --
+         which is exactly the state that should read "total 100%". The panel has
+         always rescaled to 100% behind the scenes, but that was only stated in
+         `reweightNote` above the controls, where it is not being read while
+         someone drags. So the sum and the overall now show unconditionally, and
+         only the comparison against the stored score stays conditional.
+
+         Both halves have to appear when the raw sum is not 100: printing just
+         "100%" reads as "the sliders are locked", printing just "165%"
+         contradicts `reweightNote`. */
+      var raw=0;
+      sliders.forEach(function(s){ raw+=Math.max(0,+s.value); });
       if(delta){
-        if(def||stored==null){ delta.textContent=''; delta.className='wdelta'; }
+        var sumText=T('wSum')+' '+raw+'%'+(raw===100?'':' '+T('wSumScaled'));
+        if(def||stored==null){
+          delta.textContent=sumText+'  ·  '+T('wTotal')+' '+v.toFixed(1);
+          delta.className='wdelta'+(def?'':' on');
+        }
         else{
-          var diff=v-stored;
-          delta.textContent=T('wDefault')+' '+stored.toFixed(1)+'  ·  '+T('wYours')+' '+v.toFixed(1)+
-            '  ('+(diff>=0?'+':'')+diff.toFixed(1)+')';
+          /* Round before taking the sign, or a difference of -0.004 prints as
+             "(-0.0)" -- a minus sign on a number that reads as zero. */
+          var diff=Math.round((v-stored)*10)/10;
+          delta.textContent=sumText+'  ·  '+T('wDefault')+' '+stored.toFixed(1)+
+            '  ·  '+T('wYours')+' '+v.toFixed(1)+
+            '  ('+(diff>0?'+':(diff<0?'-':''))+Math.abs(diff).toFixed(1)+')';
           delta.className='wdelta on';
         }
       }
