@@ -201,11 +201,55 @@ footer p{font-size:12.5px; color:var(--quiet); margin:0}
 .sc-wnote{margin:0 0 12px; font-size:13px; color:var(--ink-2)}
 .wrow{display:grid; grid-template-columns:5.5em 1fr 3em; align-items:center; gap:12px; padding:3px 0}
 .wrow label{font-size:13.5px; color:var(--ink-2)}
+/* 🔴 滑桿必須跟上面的評分長條**看起來不一樣**。
+ * 實際回饋：讀者把這四條讀成「又一排數據」而不是控制項 —— 因為兩者都是
+ * 墨色實心、同寬、同一個格線上。評分長條是**輸出**，滑桿是**輸入**，
+ * 一個頁面上這兩件事長一樣就是在誤導。
+ * 做法：軌道細而淺（不是實心墨塊）＋ 滑鈕明顯＋可抓的游標。 */
 .wrow input[type=range]{
   width:100%; min-width:0;
+  -webkit-appearance:none; appearance:none;
+  height:18px; background:transparent; cursor:grab;
   /* 瀏覽器的預設 accent 在預設 macOS 上是亮藍 —— 這個殼不花那個顏色。
    * 工具端的同一條規則在 reel_scout/theme.py。 */
   accent-color:var(--ink);
+}
+.wrow input[type=range]:active{cursor:grabbing}
+/* 軌道：比評分長條細一半、不填滿 —— 它是一條可以滑的槽，不是一個量出來的值 */
+.wrow input[type=range]::-webkit-slider-runnable-track{
+  height:4px; background:var(--surface-2); border:1px solid var(--rule-soft);
+}
+.wrow input[type=range]::-moz-range-track{
+  height:4px; background:var(--surface-2); border:1px solid var(--rule-soft);
+}
+/* 滑鈕：墨色實心圓＋紙色外圈，讓它從軌道上「浮」出來 */
+.wrow input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; appearance:none;
+  width:16px; height:16px; margin-top:-7px; border-radius:50%;
+  background:var(--ink); border:2px solid var(--surface);
+  box-shadow:0 0 0 1px var(--rule);
+}
+.wrow input[type=range]::-moz-range-thumb{
+  width:16px; height:16px; border-radius:50%;
+  background:var(--ink); border:2px solid var(--surface);
+  box-shadow:0 0 0 1px var(--rule);
+}
+.wrow input[type=range]:focus-visible{outline:2px solid var(--ink); outline-offset:3px}
+/* 整列 hover 時出聲 —— 游標進來就知道這一列是活的 */
+.wrow:hover label, .wrow:hover .wval{color:var(--ink)}
+
+/* 可拖的邀請。刻意不是 .lbl 的灰色小標 —— 那讀起來像區段名不像邀請。 */
+.sc-invite{
+  margin:0 0 8px; font-size:14px; color:var(--ink);
+  display:flex; align-items:baseline; gap:8px;
+}
+.sc-grip{font-family:var(--mono); color:var(--quiet)}
+
+/* 自動示範進行中：被動的那一條亮起來，讓人看得出是「它在動」不是畫面在閃 */
+.scorecard.is-demo .wrow:has(input[data-dim="pacing"]) label,
+.scorecard.is-demo .wrow:has(input[data-dim="pacing"]) .wval{color:var(--ink); font-weight:600}
+.scorecard.is-demo .wrow:has(input[data-dim="pacing"]) input[type=range]::-webkit-slider-runnable-track{
+  background:var(--bg); border-color:var(--rule);
 }
 .wval{font-size:12px; text-align:right; color:var(--quiet)}
 .wfoot{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px}
@@ -250,3 +294,14 @@ footer p{font-size:12.5px; color:var(--quiet); margin:0}
 }
 .warn strong{color:var(--ink)}
 .warn-inline{display:inline-block; margin-top:4px; font-size:12.5px; color:var(--ink-2)}
+
+/* 觸控：命中區加大到 30px（軌道仍然細）。18px 抓得到但偏小 ——
+ * 這不是視覺調整，是拇指的尺寸問題。
+ * 🔴 這一段必須排在上面那組 .wrow input[type=range] 基礎規則**之後**。
+ *    第一版寫進前面那個 @media (max-width:640px) 裡，結果沒生效 ——
+ *    同權重時後者勝，而基礎規則是後來用 append 加到檔尾的。
+ *    實測：390px 下量到的仍是 18px。 */
+@media (max-width:640px){
+  .wrow input[type=range]{height:30px}
+  .wrow input[type=range]::-webkit-slider-thumb{margin-top:-13px}
+}
