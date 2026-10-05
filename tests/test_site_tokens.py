@@ -106,6 +106,31 @@ def test_the_comparison_can_actually_fail() -> None:
     assert c["--ink"] == a["--ink"]
 
 
+SITE_ONLY = ["--desk", "--margin-rule", "--margin-x"]
+
+
+@pytest.mark.parametrize("token", SITE_ONLY)
+def test_sheet_tokens_belong_to_the_site_only(token: str) -> None:
+    """The sheet-on-a-desk tokens must not be "harmonised" into the tool.
+
+    The site draws the content column as a sheet of paper lying on a slightly
+    darker desk, with a notebook margin rule down its left side. That reads
+    well on an editorial column. The tool is a wide data surface -- the library
+    view is one full-width table -- so a margin rule there would land on top of
+    the first column and a desk border would crop the very width that view was
+    widened for (see `theme.py`'s narrated deviation on `--col-tool`).
+
+    The natural tidy-up is to move these into `theme.py` so the two files
+    match. That is why it is asserted rather than left to a comment.
+    """
+    site = _decls(_site_css())
+    theme_tokens = _theme_tokens()
+    assert token in site, "%s is missing from the site stylesheet" % token
+    assert token not in theme_tokens, (
+        "%s belongs to the site only -- see the docstring" % token
+    )
+
+
 def test_paper_col_is_the_one_token_that_differs() -> None:
     """The ruled lines span the content column, and the two columns differ.
 

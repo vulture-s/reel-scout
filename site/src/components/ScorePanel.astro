@@ -1,0 +1,71 @@
+---
+// 首頁的工藝評分面板 —— 用跟工具同一套 token 重建的**活的 HTML**，不是截圖。
+//
+// 為什麼不是圖：這個面板的主張是「分數不是判決，它取決於你重視什麼」，
+// 而一張靜態圖沒辦法演示那件事。改成真的 DOM 之後順帶拿到三樣：
+// 可選取的文字、讀屏可讀、以及比那張 169KB 的 JPG 小。
+//
+// 🔴 數字是**語料裡真的那一支**（`02d06d93185562b2`，2026-10-01 由
+// ollama:qwen2.5:14b 評的），不是為了好看編的。官網上的數字一旦可以編，
+// 這整頁關於「可靠度分層」的主張就自己打了自己。
+// 來源影片是公開的 YouTube 片，「實際畫面」那頁的截圖拍的也是同一支。
+const CLIP = {
+  title: '三重湯城：台灣真實版 The Backrooms？',
+  model: 'ollama:qwen2.5:14b',
+  overall: 6.8,
+  dims: [
+    { label: '開場鉤子', en: 'HOOK',      value: 6.5 },
+    { label: '視覺敘事', en: 'VISUAL',    value: 7.0 },
+    { label: '節奏',     en: 'PACING',    value: 6.0 },
+    { label: '結構',     en: 'STRUCTURE', value: 7.5 },
+  ],
+};
+---
+<figure class="scorecard" aria-label="工藝評分範例">
+  <figcaption class="sc-head">
+    <span class="lbl">工藝評分</span>
+    <span class="sc-model mono">參考，非定論 · {CLIP.model}</span>
+  </figcaption>
+
+  <div class="sc-row sc-overall" style={`--v:${CLIP.overall}`}>
+    <span class="sc-k">總分</span>
+    <span class="sc-bar"><i></i></span>
+    <span class="sc-v mono">{CLIP.overall.toFixed(1)}</span>
+  </div>
+
+  {CLIP.dims.map((d, i) => (
+    <div class="sc-row" style={`--v:${d.value}; --i:${i + 1}`}>
+      <span class="sc-k">{d.label}</span>
+      <span class="sc-bar"><i></i></span>
+      <span class="sc-v mono">{d.value.toFixed(1)}</span>
+    </div>
+  ))}
+
+  <p class="sc-note">
+    四個維度來自模型，<strong>總分取決於你怎麼加權</strong>——
+    工具裡可以現場拖，看一支片的評價有多少是你自己的偏好。
+  </p>
+</figure>
+
+<script is:inline>
+  // 進入視窗才跑，而且只跑一次。
+  // 🔴 尊重 prefers-reduced-motion：那不是偏好設定，對前庭失調的人是症狀開關。
+  //    關掉時不是「比較快的動畫」，是直接到最終值。
+  (function () {
+    var cards = document.querySelectorAll('.scorecard');
+    if (!cards.length) return;
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce || !('IntersectionObserver' in window)) {
+      cards.forEach(function (c) { c.classList.add('is-in'); });
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        e.target.classList.add('is-in');
+        io.unobserve(e.target);
+      });
+    }, { threshold: 0.35 });
+    cards.forEach(function (c) { io.observe(c); });
+  })();
+</script>

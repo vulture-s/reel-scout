@@ -4,7 +4,9 @@
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{
-  margin:0; background:var(--bg); color:var(--ink);
+  margin:0;
+  /* 桌面色，不是紙色 —— 紙是 paper.css 的 body::before 畫的那一欄。 */
+  background:var(--desk); color:var(--ink);
   font:16px/1.6 var(--sans);
   font-synthesis-weight:none;
 }
@@ -13,7 +15,12 @@ body{
 body > *{position:relative; z-index:1}
 a{color:inherit}
 img{max-width:100%; height:auto}
-.wrap{max-width:var(--col-wide); margin:0 auto; padding:0 24px}
+/* 內容欄＝紙張欄。左邊多讓一段，讓文字落在裝訂邊線的右側而不是壓在上面 ——
+ * 一條會被字蓋住的邊線不是邊線，是雜訊。 */
+.wrap{
+  max-width:var(--col-wide); margin:0 auto;
+  padding-left:calc(var(--margin-x) + 20px); padding-right:40px;
+}
 
 /* chrome voice —— 等寬、大寫、只用於功能性文字 */
 .mono,.eyebrow,.lbl,.kicker{font-family:var(--mono)}
@@ -25,14 +32,46 @@ img{max-width:100%; height:auto}
 hr{border:0; border-top:2px solid var(--rule); margin:32px 0}
 .row{border-bottom:1px solid var(--rule-soft)}
 
-/* 頂部導覽 */
-.topnav{border-bottom:2px solid var(--rule); background:var(--bg)}
-.topnav-in{display:flex; align-items:baseline; gap:20px; flex-wrap:wrap; padding:14px 24px}
-.topnav-mark{
-  font-family:var(--display); font-size:19px; letter-spacing:-.02em;
-  text-decoration:none; white-space:nowrap;
+/* ── 刊頭 ─────────────────────────────────────────────────────────────────
+ * 這裡原本是一條 56px 的導覽列，裡面八個等重的 11px 等寬字 —— 包含字標。
+ * 🔴 而字標是 **bug**：`.topnav-mark`（0,1,0）被後面的 `.topnav a`（0,1,1）壓掉，
+ *    寫好的 19px Archivo Black 從來沒生效過。整條頂欄因此沒有任何層級。
+ *
+ * canon 禁 gradient / glow / 陰影，所以能用的槓桿只有**規線、字級、紙**
+ * —— 那正好就是報紙報頭的做法：名稱大、版記小、三道規線分層。
+ */
+.masthead{background:transparent}
+.mh-in{
+  max-width:var(--col-wide); margin:0 auto;
+  padding:22px calc(var(--margin-x) + 20px) 12px;
+  display:grid; grid-template-columns:1fr auto; align-items:baseline; gap:4px 20px;
 }
-.topnav ul{display:flex; gap:16px; flex-wrap:wrap; list-style:none; margin:0; padding:0}
+.mh-mark{
+  grid-column:1; font-family:var(--display); font-weight:400;
+  font-size:clamp(26px,3.4vw,38px); letter-spacing:-.03em; line-height:1;
+  text-decoration:none; color:var(--ink);
+}
+.mh-sub{grid-column:1; margin:0; font-size:13px; color:var(--ink-2)}
+.mh-meta{
+  grid-column:2; grid-row:1 / span 2; margin:0; align-self:end;
+  font-family:var(--mono); font-size:11px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--quiet); white-space:nowrap;
+}
+
+/* 導覽降到自己那一行，夾在 2px 主規線與 1px 細線之間 ——
+ * 頂部於是有三道規線，三階系統才真的在工作。 */
+/* 🔴 規線掛在 .topnav-in 不是 .topnav。
+ * .topnav 是滿版 block（0→viewport），紙張只有 --col-wide 寬 ——
+ * 規線掛在外層會一路畫到桌面上，「一張紙放在桌上」當場破功。
+ * 實測：sheet 180→1260，而 .topnav 0→1440。 */
+.topnav{background:transparent}
+.topnav-in{
+  max-width:var(--col-wide); margin:0 auto;
+  padding:9px calc(var(--margin-x) + 20px);
+  border-top:2px solid var(--rule);
+  border-bottom:1px solid var(--rule-soft);
+}
+.topnav ul{display:flex; gap:18px; flex-wrap:wrap; list-style:none; margin:0; padding:0}
 .topnav a{
   font-family:var(--mono); font-size:11px; letter-spacing:.14em;
   text-transform:uppercase; color:var(--quiet); text-decoration:none;
@@ -65,7 +104,9 @@ table{border-collapse:collapse; width:100%; margin:18px 0; font-size:14.5px}
 th,td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--rule-soft); vertical-align:top}
 th{font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--quiet); border-bottom:1px solid var(--rule)}
 
-footer{border-top:2px solid var(--rule); margin-top:72px; padding:28px 0 56px}
+/* 同上：規線要跟紙同寬，所以掛在內層的 .wrap 而不是滿版的 footer。 */
+footer{margin-top:72px; padding:0 0 56px}
+footer > .wrap{border-top:2px solid var(--rule); padding-top:28px}
 footer .foot-links{display:flex; flex-wrap:wrap; gap:14px; margin-bottom:14px}
 footer a{font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--quiet); text-decoration:none}
 footer a:hover{color:var(--ink)}
@@ -105,9 +146,63 @@ footer p{font-size:12.5px; color:var(--quiet); margin:0}
 }
 
 @media (max-width:640px){
-  .wrap{padding:0 16px}
+  /* 手機上紙＝整個視窗，裝訂邊線收窄才不會吃掉本來就不夠的欄寬。
+   * user-global §7 的 16px 側邊間距在這裡是對 **文字** 而不是對紙。 */
+  :root{--margin-x:22px}
+  .wrap{padding-left:calc(var(--margin-x) + 14px); padding-right:16px}
   .topnav-in{padding:12px 16px; gap:12px}
   .shead{flex-direction:column; gap:4px; align-items:flex-start}
+  /* 刊頭在窄寬改單欄 —— 版記跟字標擠同一列會把字標壓到換行 */
+  .mh-in{grid-template-columns:1fr; padding:16px calc(var(--margin-x) + 14px) 10px}
+  .mh-meta{grid-column:1; grid-row:auto; margin-top:6px}
+  .topnav-in{padding:8px calc(var(--margin-x) + 14px)}
   /* 紙的節距在手機上收一點，否則一屏只看得到幾條線、讀起來像條紋而不是紙 */
   :root{--paper-rule-step:22px}
+}
+
+/* ── 工藝評分面板（首頁）────────────────────────────────────────────────────
+ * 形狀照工具裡那一塊：等寬的鍵、墨色長條、右側對齊的數字。
+ * 長條刻意是墨色而不是紅綠 —— canon：「功能性狀態色是資料層，不是品牌」，
+ * 而一個 6.0 分不是一個警告。
+ */
+.scorecard{
+  margin:40px 0 0; padding:20px 22px 16px;
+  background:var(--surface); border:1px solid var(--rule-soft);
+  max-width:620px;
+}
+.sc-head{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:14px}
+.sc-model{font-size:10.5px; color:var(--quiet); letter-spacing:.08em}
+.sc-row{
+  display:grid; grid-template-columns:5.5em 1fr 2.6em;
+  align-items:center; gap:12px; padding:5px 0;
+}
+.sc-k{font-size:13.5px; color:var(--ink-2)}
+.sc-v{font-size:12.5px; text-align:right; color:var(--ink)}
+.sc-bar{
+  position:relative; height:9px;
+  background:var(--surface-2); border:1px solid var(--rule-soft);
+}
+.sc-bar > i{
+  position:absolute; inset:0 auto 0 0; display:block;
+  background:var(--ink);
+  /* 起點 0：動畫前長條是空的，所以「跑起來」這件事看得見。
+     --v 是 0-10 的分數，寬度是它的百分比。 */
+  width:0;
+  transition:width 900ms cubic-bezier(.22,.9,.3,1);
+  transition-delay:calc(var(--i, 0) * 90ms);
+}
+.scorecard.is-in .sc-bar > i{width:calc(var(--v) * 10%)}
+/* 總分那一列重一點 —— 它是結論，其餘四條是依據。 */
+.sc-overall .sc-k{color:var(--ink); font-weight:600}
+.sc-overall .sc-bar{height:12px}
+.sc-overall .sc-v{font-size:14px}
+.sc-note{
+  margin:14px 0 0; padding-top:12px; border-top:1px solid var(--rule-soft);
+  font-size:13px; color:var(--ink-2);
+}
+/* 🔴 動畫關掉時直接到最終值，不是「比較快的動畫」。
+ * 這條跟 ScorePanel.astro 的 JS 是一對：JS 關掉 observer，CSS 關掉過渡。
+ * 只做一半的話，JS 那半仍然會在捲到時把寬度從 0 改到值 —— 也就是仍然會動。 */
+@media (prefers-reduced-motion: reduce){
+  .sc-bar > i{transition:none}
 }

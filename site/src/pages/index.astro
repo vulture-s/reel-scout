@@ -1,5 +1,6 @@
 ---
 import Base from '../layouts/Base.astro';
+import ScorePanel from '../components/ScorePanel.astro';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 // 四條差異化。每一條都對應一個**可驗證**的事實，不是行銷詞：
@@ -61,13 +62,10 @@ reel-scout analyze &lt;id&gt;</pre>
   </header>
 
   <div class="wrap">
-    <figure style="margin:56px 0 0">
-      <img src={`${base}/img/inspector.jpg`} alt="reel-scout 的 inspector：紙上的工藝四維評分、「重新加權」面板（看評分有多取決於你重視什麼），以及底下的解構分析欄位。" />
-      <figcaption class="mono" style="font-size:11px; color:var(--quiet); margin-top:8px">
-        inspector —— 分數不是判決：拖「重新加權」就看得出它有多取決於你重視什麼。
-        <a href={`${base}/demo.html`}>更多畫面 →</a>
-      </figcaption>
-    </figure>
+    <ScorePanel />
+    <p class="mono" style="font-size:11.5px; color:var(--quiet); letter-spacing:.1em; margin-top:10px">
+      <a href={`${base}/demo.html`}>看完整的 inspector 畫面 →</a>
+    </p>
 
     <div class="shead"><h2>它跟丟連結給 AI 有什麼不同</h2><span class="en">WHY THIS EXISTS</span></div>
     {diffs.map((d) => (
