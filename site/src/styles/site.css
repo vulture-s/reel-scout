@@ -136,6 +136,10 @@ footer p{font-size:12.5px; color:var(--quiet); margin:0; max-width:62ch}
 .diffs .en{display:block; font-family:var(--mono); font-size:11px; letter-spacing:.16em;
   text-transform:uppercase; color:var(--quiet); margin-bottom:7px}
 .diffs h3{margin:0 0 7px; font-family:var(--sans); font-weight:600; font-size:16.5px; line-height:1.35}
+/* 🔴 這兩行也要有行長上限。欄寬是紙張的一半，紙張變流動之後它跟著長 ——
+ * 實測紙 1560 時這裡跑到 48 字/行，而全站其他本文都是 43。
+ * 同樣用 68ch，讓它跟 index 其他段落落在同一個量寬上。 */
+.diffs h3,.diffs p{max-width:68ch}
 .diffs p{margin:0; font-size:14.5px; line-height:1.72; color:var(--ink-2)}
 @media (max-width:720px){
   .diffs{grid-template-columns:minmax(0,1fr); gap:0}
