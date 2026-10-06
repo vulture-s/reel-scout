@@ -50,6 +50,27 @@
   Dragging everything to zero reads `權重總和 0% · 算不出總分`, because no
   dimension being valued is not a score of zero.
 
+- **A Threads post is stored as a post, not just its first video** (schema
+  v20). Rule, written out in `docs/threads.md`: the **first video is
+  analyzed**, **photos are downloaded and stored**, **other videos are
+  listed**; caption, the author's follow-up posts and engagement counts go to
+  `post_meta` (counts with the time they were fetched — they are a snapshot).
+
+  Any other video in the post can be analyzed on demand. In `reel-scout view`
+  the clip's **Post** section shows every item, and a video with no analysis
+  has a **queue analysis** button. The button writes one request row and
+  nothing else — the viewer has no account layer, so it never runs the
+  pipeline; `reel-scout pending --run` does, on the machine that has it. Each
+  request becomes `analyze <post url>?media=N`, so the clip gets its own row,
+  URL and id (`<code>#N`), and dedupe / `batch` / the queue need no change.
+  A request is marked `done` only when the DB shows that row `analyzed`.
+
+  Found while testing live, **not fixed here**: a clip with **no audio
+  stream** fails transcription with `tuple index out of range`. It reproduces
+  on a local file with no Threads code involved, so it is the transcriber's —
+  but every video in one real carousel was silent, so it blocks those posts
+  until it is fixed.
+
 - **Threads posts: `analyze https://www.threads.com/...` now works** (post
   URLs and `/share/` links, `threads.com` and `threads.net`). yt-dlp has no
   Threads extractor, and the post code is not an Instagram shortcode in
@@ -74,11 +95,8 @@
   fragment from the caption. Reading only the fragment with the post code
   returned zero follow-ups for a post that had one, with nothing failing.
 
-  Limits: a carousel with several videos analyzes the first (one post, one
-  row). Caption, follow-ups and counts are returned in `VideoMeta.extra`, but
-  the `videos` table only keeps `title` (caption, first 100 chars) and
-  `uploader` — persisting the rest needs a schema change and is left out here.
-  `batch` still does not pick up Threads links.
+  How the rest of the post (photos, other videos, caption, counts) is stored
+  is the entry above. `batch` still does not pick up Threads links.
 
 - **An official site: <https://vulture-s.github.io/reel-scout/>.** Before this
   the repository had no description, no homepage and no Pages — a tool that is

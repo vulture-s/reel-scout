@@ -241,6 +241,7 @@ def build_inspect_view(conn: db.sqlite3.Connection, video_id: str) -> Optional[D
     view["tr"] = _current_translations(conn, video_id)
     view["shot_grammar"] = _shot_grammar(conn, video_id)
     view["marks"] = marks_mod.list_for(conn, video_id)
+    view["post"] = db.get_post(conn, video_id)
     view["segments"] = segments
     view["language"] = language
     view["duration"] = duration
@@ -587,13 +588,92 @@ def _render_shot_grammar(view: Dict[str, Any]) -> str:
             % (note, dists, band, detail))
 
 
+
+def _render_post(view: Dict[str, Any], base: str = "", live: bool = False) -> str:
+    """The post around the clip: full caption, the author's follow-ups, counts,
+    and every media item with the state of its own analysis.
+
+    The live page may offer "queue analysis" for a video that has none: it
+    writes a request and nothing else (`reel-scout pending --run` executes it).
+    The frozen export has no server to write to, so it gets no button and no
+    photos -- only the text.
+    """
+    post = view.get("post")
+    if not post:
+        return ""
+    vid = view["video_id"]
+    parts = []
+    if post.get("caption"):
+        parts.append('<p class="pcap">%s</p>' % _e(post["caption"]).replace("\n", "<br>"))
+    follow = post.get("self_thread") or []
+    if follow:
+        parts.append('<div class="eyebrow">%s <span class="q">%d</span></div>'
+                     % (_t("followUps"), len(follow)))
+        parts.append("".join('<p class="pfollow">%s</p>'
+                             % _e(t).replace("\n", "<br>") for t in follow))
+    counts = [("&#9829;", post.get("like_count")), ("&#8617;", post.get("reply_count")),
+              ("&#8634;", post.get("repost_count")), ("&#10077;", post.get("quote_count"))]
+    shown = " &middot; ".join("%s %s" % (icon, _e(n)) for icon, n in counts if n is not None)
+    if shown:
+        parts.append('<p class="pcounts">%s <span class="q">%s %s</span></p>'
+                     % (shown, _t("fetchedAt"), _e(post.get("fetched_at") or "")))
+
+    cells = []
+    for m in post.get("media") or []:
+        idx = m["idx"]
+        if m["kind"] == "image":
+            img = ('<img src="%s/api/post-media/%s" alt="" loading="lazy">' % (base, _e(m["id"]))
+                   if live and m.get("file_path") else "")
+            cells.append('<div class="pm">%s<span class="pmn">#%d</span>%s</div>'
+                         % (img, idx, _t("photoStored")))
+            continue
+        target = m.get("analyzed_video_id")
+        if target == vid:
+            state = _t("analyzedHere")
+        elif target:
+            state = ('<a href="%s/inspect/%s">%s</a> <span class="q">%s</span>'
+                     % (base, _e(target), _t("openAnalysis"), _e(m.get("analyzed_status") or "")))
+        elif m.get("request_status") == "pending":
+            state = _t("queued")
+        else:
+            failed = ""
+            if m.get("request_status") == "failed":
+                failed = '%s <span class="q">%s</span> ' % (_t("requestFailed"),
+                                                           _e(m.get("request_error") or ""))
+            button = ('<button class="tbtn reqan" data-post="%s" data-idx="%d">%s</button>'
+                      % (_e(post["video_id"]), idx, _t("requestAnalysis"))) if live else ""
+            state = failed + button
+        cells.append('<div class="pm pmv"><span class="pmn">#%d &#9654;</span>%s</div>'
+                     % (idx, state))
+    if cells:
+        parts.append('<div class="eyebrow">%s <span class="q">%d</span></div>'
+                     '<div class="pmgrid">%s</div>' % (_t("postMedia"), len(cells), "".join(cells)))
+    script = ""
+    if live:
+        # Swaps the button for its new state on success; on refusal (already
+        # analyzed, not a video) the button comes back with the reason as title.
+        script = (
+            "<script>document.querySelectorAll('.reqan').forEach(function(b){"
+            "b.addEventListener('click',function(){b.disabled=true;"
+            "fetch('%s/api/request-analysis/'+b.dataset.post+'/'+b.dataset.idx,{method:'POST'})"
+            ".then(function(r){return r.json().then(function(j){"
+            "if(r.ok){var s=document.createElement('span');s.textContent="
+            "(document.documentElement.lang==='zh'?'已排入佇列':'queued');"
+            "b.replaceWith(s);}"
+            "else{b.disabled=false;b.title=j.error||String(r.status);}});});});});"
+            "</script>" % base)
+    return ('<section class="block post"><div class="eyebrow">%s</div>%s</section>%s'
+            % (_t("post"), "".join(parts), script))
+
+
 def render_inspector(view: Dict[str, Any], base: str = "",
                      video_src: Optional[str] = None,
                      peaks: Optional[List[float]] = None,
                      embed_fonts: bool = False,
                      cjk_woff2: bytes = b"",
                      keyframe_src: Optional[Any] = None,
-                     back_href: Optional[str] = None) -> str:
+                     back_href: Optional[str] = None,
+                     live: bool = False) -> str:
     """Full inspector page for one clip.
 
     Live server: `base` prefixes API/asset URLs and the page fetches its
@@ -780,10 +860,10 @@ def render_inspector(view: Dict[str, Any], base: str = "",
         '<button id="clrio" class="tbtn" data-i18n="clear">clear</button>'
         '<button id="srt" class="tbtn" data-i18n="exportSrt">export SRT (window)</button>'
         '</div></section>'
-        '%s%s%s%s%s%s'
+        '%s%s%s%s%s%s%s'
         % (back, langtoggle, _e(vid), _e(view["title"]), meta, _e(view["url"]),
            summary, preview, _t("waveform", "Waveform"), _WAVEFORM_BINS, wf_marks,
-           marks_block, filmstrip, transcript,
+           _render_post(view, base=base, live=live), marks_block, filmstrip, transcript,
            _render_scores(view), _render_structure(view),
            _render_shot_grammar(view)))
 
@@ -900,9 +980,13 @@ def make_inspect_server(host: str = "127.0.0.1", port: int = 0,
 
         def do_POST(self):
             """The only write surface in the app, and it is narrow on purpose:
-            the annotation endpoints and nothing else. Everything the pipeline
-            produced stays read-only over HTTP."""
+            the annotation endpoints and analysis *requests* -- both the
+            operator's own layer. Everything the pipeline produced stays
+            read-only over HTTP, and nothing here runs the pipeline."""
             path = self.path.split("?", 1)[0]
+            if path.startswith("/api/request-analysis/"):
+                self._request_analysis(path[len("/api/request-analysis/"):])
+                return
             if not (path.startswith("/api/annotate/") or path == "/api/groups"
                     or path.startswith("/api/groups/")):
                 self._send(404, "not found")
@@ -936,7 +1020,42 @@ def make_inspect_server(host: str = "127.0.0.1", port: int = 0,
             self._send(status, json.dumps(body, ensure_ascii=False),
                        "application/json; charset=utf-8")
 
+        def _request_analysis(self, rest):
+            """Queue one more video of a post for analysis. Writes a request
+            row and nothing else -- the pipeline never runs inside this server
+            (`reel-scout pending --run` does), so this is the same kind of
+            operator-layer write as an annotation."""
+            post_id, _, idx = rest.partition("/")
+            try:
+                n = int(idx)
+            except ValueError:
+                self._send(400, json.dumps({"error": "bad media index"}), "application/json")
+                return
+            conn = db.get_connection()
+            try:
+                req = db.request_analysis(conn, post_id, n)
+                status, body = 200, {"status": req["status"], "media_idx": n}
+            except db.PostRequestError as exc:
+                status, body = exc.status, {"error": str(exc)}
+            finally:
+                conn.close()
+            self._send(status, json.dumps(body, ensure_ascii=False),
+                       "application/json; charset=utf-8")
+
+        def _post_media(self, conn, media_id):
+            row = conn.execute("SELECT file_path, kind FROM post_media WHERE id = ?",
+                               (media_id,)).fetchone()
+            if (row is None or row["kind"] != "image" or not row["file_path"]
+                    or not os.path.exists(row["file_path"])):
+                self._send(404, "not found")
+                return
+            with open(row["file_path"], "rb") as f:
+                self._send(200, f.read(), "image/jpeg")
+
         def _route(self, path, conn):
+            if path.startswith("/api/post-media/"):
+                self._post_media(conn, path[len("/api/post-media/"):])
+                return
             if path == "/api/groups" or path.startswith("/api/groups/"):
                 status, body = annotate.handle_api(conn, "GET", path, None)
                 self._send(status, json.dumps(body, ensure_ascii=False),
@@ -1006,7 +1125,7 @@ def make_inspect_server(host: str = "127.0.0.1", port: int = 0,
             # `view` mode: "/" is the library, so offer a way back. With a
             # pinned default_id, "/" renders THIS page — a link would loop.
             self._send(200, render_inspector(
-                view, back_href=None if default_id else "/"))
+                view, back_href=None if default_id else "/", live=True))
 
         def _stream(self, conn, vid):
             video = db.get_video(conn, vid)
@@ -1071,6 +1190,13 @@ a{color:inherit}
 .summary{margin:.7rem 0 0;color:var(--ink-2);max-width:var(--col)}
 .block{padding:20px 0;border-bottom:1px solid var(--rule-soft)}
 .block .eyebrow{margin-bottom:.6rem}
+.post .pcap,.post .pfollow{margin:.2rem 0 .8rem;line-height:1.6}
+.post .pfollow{padding-left:.8rem;border-left:2px solid var(--rule-soft)}
+.post .pcounts{margin:.2rem 0 1rem}
+.pmgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.pm{border:1px solid var(--rule-soft);padding:6px;display:flex;flex-direction:column;gap:4px;font-size:.85em}
+.pm img{width:100%;height:auto;display:block}
+.pmn{color:var(--quiet)}
 /* content is the loud part: the player gets the room, no chrome around it */
 .preview{display:flex;justify-content:center}
 .player{width:100%;max-height:64vh;background:var(--frame)}

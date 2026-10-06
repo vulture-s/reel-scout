@@ -15,7 +15,7 @@ import pytest
 
 from reel_scout.crawl import detect_platform, get_crawler
 from reel_scout.crawl.threads import (
-    ThreadsCrawler, parse_post, pick_videos, post_texts,
+    ThreadsCrawler, media_items, media_param, parse_post, post_texts,
 )
 
 POST_URL = "https://www.threads.com/@someone/post/DaAaAaAaAaA"
@@ -92,6 +92,10 @@ def test_extract_id_post_and_share():
     c = ThreadsCrawler()
     assert c.extract_id(POST_URL) == "DaAaAaAaAaA"
     assert c.extract_id(SHARE_URL) == "_xYz123"
+    # ?media=N is a different clip of the same post: its own id, its own row.
+    assert c.extract_id(POST_URL + "?xmt=1&media=2") == "DaAaAaAaAaA#2"
+    assert media_param(POST_URL) is None
+    assert media_param(POST_URL + "?media=3") == 3
     with pytest.raises(ValueError):
         c.extract_id("https://www.threads.com/@someone")
 
@@ -103,7 +107,7 @@ def test_parse_post_returns_root_not_a_reply():
     would analyze a stranger's clip under the author's URL."""
     post = parse_post(_page(_root()))
     assert post["code"] == "DaAaAaAaAaA"
-    assert pick_videos(post)[0]["video_versions"][0]["url"].endswith("root.mp4?sig=1")
+    assert media_items(post)[0]["url"].endswith("root.mp4?sig=1")
 
 
 def test_login_wall_shell_fails_loud():
@@ -114,27 +118,42 @@ def test_login_wall_shell_fails_loud():
         parse_post(shell)
 
 
+def _img(name, w=1080, h=1350):
+    return {"image_versions2": {"candidates": [
+        {"url": "https://cdn.example/%s.jpg?sig=1" % name, "width": w, "height": h},
+        {"url": "https://cdn.example/%s_small.jpg" % name, "width": 320, "height": 400}]}}
+
+
+def _carousel():
+    # media_type 8: photo, video, photo, video -- numbered as a person swipes
+    return _root(media_type=8, video_versions=None, carousel_media=[
+        _img("p1"), {"video_versions": _vv("v2")}, _img("p3"), {"video_versions": _vv("v4")}])
+
+
 @pytest.mark.parametrize("layout,expect", [
-    ("single", ["root"]),
-    ("carousel", ["c1", "c3"]),
-    ("inline", ["inline"]),
+    ("single", [(1, "video", "root")]),
+    ("carousel", [(1, "image", "p1"), (2, "video", "v2"), (3, "image", "p3"), (4, "video", "v4")]),
+    ("inline", [(1, "video", "inline")]),
     ("text_only", []),
 ])
-def test_pick_videos_covers_the_three_observed_layouts(layout, expect):
+def test_media_items_numbers_items_in_display_order(layout, expect):
     if layout == "single":
         post = _root()
-    elif layout == "carousel":  # media_type 8; image items have no video
-        post = _root(media_type=8, video_versions=None, carousel_media=[
-            {"video_versions": _vv("c1")}, {"image_versions2": {}},
-            {"video_versions": _vv("c3")}])
+    elif layout == "carousel":
+        post = _carousel()
     elif layout == "inline":    # media_type 19: text post + linked inline video
         post = _root(media_type=19, video_versions=None)
         post["text_post_app_info"]["linked_inline_media"] = {"video_versions": _vv("inline")}
     else:
         post = _root(media_type=19, video_versions=None)
-    got = [v["video_versions"][0]["url"].split("/")[-1].split(".")[0]
-           for v in pick_videos(post)]
+    got = [(i["idx"], i["kind"], i["url"].split("/")[-1].split(".")[0])
+           for i in media_items(post)]
     assert got == expect
+
+
+def test_media_items_takes_the_largest_photo_rendition():
+    item = [i for i in media_items(_carousel()) if i["idx"] == 1][0]
+    assert (item["width"], item["height"]) == (1080, 1350)
 
 
 def test_follow_ups_streamed_in_a_later_fragment_are_merged_back():
@@ -148,10 +167,12 @@ def test_follow_ups_streamed_in_a_later_fragment_are_merged_back():
 
 # --- download --------------------------------------------------------------
 
-def _download(post, tmp_path):
+def _download(post, tmp_path, url=SHARE_URL, fetched=None):
     page = _page(post).encode("utf-8")
 
     def fake_fetch(url, ua, timeout=60):
+        if fetched is not None:
+            fetched.append(url)
         if "cdn.example" in url:
             return url, b"\x00\x00\x00\x18ftypmp42"
         assert ua == "UA-under-test"
@@ -162,7 +183,7 @@ def _download(post, tmp_path):
          patch("reel_scout.crawl.threads.config.THREADS_USER_AGENT", "UA-under-test"), \
          patch("reel_scout.crawl.threads.ffprobe.probe_duration", return_value=68.3), \
          patch("reel_scout.crawl.threads.ffprobe.warn_if_not_apple_playable"):
-        return ThreadsCrawler().download(SHARE_URL, output_dir=str(tmp_path))
+        return ThreadsCrawler().download(url, output_dir=str(tmp_path))
 
 
 def test_download_resolves_share_link_to_post_code_and_keeps_the_post(tmp_path):
@@ -174,7 +195,7 @@ def test_download_resolves_share_link_to_post_code_and_keeps_the_post(tmp_path):
     assert meta.title == "the caption, in full"
     assert meta.upload_date == "20260806"
     assert meta.duration_sec == 68.3
-    assert meta.file_path.endswith("th_DaAaAaAaAaA.mp4")
+    assert meta.file_path.endswith("th_DaAaAaAaAaA_m1.mp4")
     assert meta.file_size_bytes > 0
     assert meta.extra["caption"] == "the caption, in full"
     assert json.loads(meta.extra["self_thread"]) == ["part 2 of the thread"]
@@ -185,3 +206,31 @@ def test_download_resolves_share_link_to_post_code_and_keeps_the_post(tmp_path):
 def test_download_text_only_post_raises(tmp_path):
     with pytest.raises(RuntimeError, match="has no video"):
         _download(_root(media_type=19, video_versions=None), tmp_path)
+
+
+def test_carousel_analyzes_first_video_and_stores_photos_only(tmp_path):
+    """The first *video* is the clip; photos are downloaded now (small, and the
+    signed URLs expire); other videos are listed but not downloaded."""
+    fetched = []
+    meta = _download(_carousel(), tmp_path, fetched=fetched)
+    assert meta.platform_id == "DaAaAaAaAaA"
+    assert meta.file_path.endswith("th_DaAaAaAaAaA_m2.mp4")
+    assert meta.extra["analyzed_idx"] == "2"
+    items = {i["idx"]: i for i in json.loads(meta.extra["post_media_json"])}
+    assert items[1]["file_path"].endswith("th_DaAaAaAaAaA_m1.jpg")
+    assert items[3]["file_path"].endswith("th_DaAaAaAaAaA_m3.jpg")
+    assert "file_path" not in items[4]
+    assert not any("v4.mp4" in u for u in fetched)
+
+
+def test_media_param_downloads_that_item_as_its_own_clip(tmp_path):
+    meta = _download(_carousel(), tmp_path, url=POST_URL + "?media=4")
+    assert meta.platform_id == "DaAaAaAaAaA#4"
+    assert meta.file_path.endswith("th_DaAaAaAaAaA_m4.mp4")
+    assert meta.extra["media_index"] == "4"
+    assert "post_media_json" not in meta.extra   # the parent post owns that
+
+
+def test_media_param_pointing_at_a_photo_raises(tmp_path):
+    with pytest.raises(RuntimeError, match="no video at media=3"):
+        _download(_carousel(), tmp_path, url=POST_URL + "?media=3")

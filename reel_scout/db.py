@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from . import config
 from .utils.stderr import warn
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -781,6 +781,31 @@ def _migrate_v18_to_v19(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _migrate_v19_to_v20(conn: sqlite3.Connection) -> None:
+    """A post is more than its first video (v19 -> v20).
+
+    `videos` holds one clip per row, and until now the only trace of the post
+    around it was `title` -- the caption cut to 100 characters. A Threads post
+    also carries the full caption, the author's own follow-up posts, engagement
+    counts at the time it was fetched, and, in a carousel, photos and further
+    videos.
+
+    Three tables, all additive, none touching `videos`:
+      * `post_meta`   -- the post's text and counts (counts are a snapshot, so
+                         `fetched_at` travels with them)
+      * `post_media`  -- every item in display order; photos are stored, the
+                         first video is analyzed, others are listed
+      * `analysis_requests` -- "analyze item N too", queued from the viewer.
+                         Like annotations it is the operator's own layer: the
+                         viewer writes a request and never runs the pipeline.
+
+    The tables themselves are created in init_db's always-run block, which is
+    what fresh installs get too; this step only records the version.
+    """
+    conn.execute("UPDATE schema_version SET version = 20")
+    conn.commit()
+
+
 def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
     if conn is None:
         # `REEL_SCOUT_DATA` defaults to "./data", i.e. relative to wherever the
@@ -866,6 +891,9 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
             current_ver = 18
         if current_ver < 19:
             _migrate_v18_to_v19(conn)
+            current_ver = 19
+        if current_ver < 20:
+            _migrate_v19_to_v20(conn)
     # Fresh installs never run the ladder, so every table added by a migration
     # also needs a CREATE IF NOT EXISTS here -- the same reason audio_events
     # below is repeated.
@@ -995,6 +1023,44 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
             comments        INTEGER,
             notes           TEXT,
             recorded_at     TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS post_meta (
+            video_id        TEXT PRIMARY KEY REFERENCES videos(id),
+            code            TEXT NOT NULL,
+            caption         TEXT,
+            self_thread_json TEXT,
+            like_count      INTEGER,
+            reply_count     INTEGER,
+            repost_count    INTEGER,
+            quote_count     INTEGER,
+            media_type      TEXT,
+            resolved_url    TEXT,
+            fetched_at      TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS post_media (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_id          TEXT NOT NULL REFERENCES videos(id),
+            idx               INTEGER NOT NULL,
+            kind              TEXT NOT NULL,
+            source_url        TEXT,
+            file_path         TEXT,
+            width             INTEGER,
+            height            INTEGER,
+            analyzed_video_id TEXT,
+            UNIQUE(video_id, idx)
+        );
+
+        CREATE TABLE IF NOT EXISTS analysis_requests (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_id        TEXT NOT NULL REFERENCES videos(id),
+            media_idx       INTEGER NOT NULL,
+            status          TEXT NOT NULL DEFAULT 'pending',
+            error           TEXT,
+            requested_at    TEXT DEFAULT (datetime('now')),
+            updated_at      TEXT DEFAULT (datetime('now')),
+            UNIQUE(video_id, media_idx)
         );
     """)
     conn.commit()
@@ -2213,3 +2279,168 @@ def normalize_media_paths(
     if not dry_run:
         conn.commit()
     return changed, missing
+
+
+# --- Posts (v20): the post around a clip ------------------------------------
+
+def _int_or_none(value: Any) -> Optional[int]:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def save_crawl_extras(conn: sqlite3.Connection, video_id: str, meta: Any) -> None:
+    """Persist what a crawler knew about the *post* beyond the clip itself.
+
+    Every call site that turns a crawl into a `videos` row calls this right
+    after `upsert_video`, so the post is stored whichever surface downloaded it
+    (analyze, crawl, MCP). Crawlers that return no post data are a no-op.
+
+    Two shapes arrive from the Threads crawler:
+      * a post download (`post_media_json` present): store the post's text,
+        counts and every media item; the analyzed video's item points at this
+        row. A re-crawl refreshes text and counts but never forgets which
+        items already have an analysis of their own.
+      * an item download (`?media=N`, `media_index` present): link item N of
+        the parent post to this new row.
+    """
+    extra = getattr(meta, "extra", None) or {}
+    code = extra.get("post_code")
+    if not code:
+        return
+    if "post_media_json" in extra:
+        conn.execute(
+            """INSERT INTO post_meta (video_id, code, caption, self_thread_json,
+                   like_count, reply_count, repost_count, quote_count,
+                   media_type, resolved_url, fetched_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))
+               ON CONFLICT(video_id) DO UPDATE SET
+                   code=excluded.code, caption=excluded.caption,
+                   self_thread_json=excluded.self_thread_json,
+                   like_count=excluded.like_count, reply_count=excluded.reply_count,
+                   repost_count=excluded.repost_count, quote_count=excluded.quote_count,
+                   media_type=excluded.media_type, resolved_url=excluded.resolved_url,
+                   fetched_at=excluded.fetched_at""",
+            (video_id, code, extra.get("caption"), extra.get("self_thread"),
+             _int_or_none(extra.get("like_count")), _int_or_none(extra.get("reply_count")),
+             _int_or_none(extra.get("repost_count")), _int_or_none(extra.get("quote_count")),
+             extra.get("media_type"), extra.get("resolved_url")))
+        analyzed = _int_or_none(extra.get("analyzed_idx"))
+        for item in json.loads(extra["post_media_json"]):
+            conn.execute(
+                """INSERT INTO post_media (video_id, idx, kind, source_url, file_path,
+                       width, height, analyzed_video_id)
+                   VALUES (?,?,?,?,?,?,?,?)
+                   ON CONFLICT(video_id, idx) DO UPDATE SET
+                       kind=excluded.kind, source_url=excluded.source_url,
+                       file_path=COALESCE(excluded.file_path, post_media.file_path),
+                       width=excluded.width, height=excluded.height,
+                       analyzed_video_id=COALESCE(post_media.analyzed_video_id,
+                                                  excluded.analyzed_video_id)""",
+                (video_id, item["idx"], item["kind"], item.get("url"),
+                 item.get("file_path"), item.get("width"), item.get("height"),
+                 video_id if item["idx"] == analyzed else None))
+    elif "media_index" in extra:
+        parent = _video_id(getattr(meta, "platform", ""), code)
+        conn.execute(
+            "UPDATE post_media SET analyzed_video_id = ? WHERE video_id = ? AND idx = ?",
+            (video_id, parent, _int_or_none(extra["media_index"])))
+    conn.commit()
+
+
+def get_post(conn: sqlite3.Connection, video_id: str) -> Optional[Dict[str, Any]]:
+    """The post around `video_id` -- its text, counts and media items, each item
+    with the status of its own analysis -- or None when nothing was stored.
+
+    Also answers for a row produced by `?media=N`: it resolves to the parent
+    post, so either clip's page shows the same post.
+    """
+    row = conn.execute("SELECT * FROM post_meta WHERE video_id = ?", (video_id,)).fetchone()
+    if row is None:
+        parent = conn.execute(
+            "SELECT video_id FROM post_media WHERE analyzed_video_id = ?",
+            (video_id,)).fetchone()
+        if parent is None:
+            return None
+        row = conn.execute("SELECT * FROM post_meta WHERE video_id = ?",
+                           (parent[0],)).fetchone()
+        if row is None:
+            return None
+    post = dict(row)
+    try:
+        post["self_thread"] = json.loads(post.pop("self_thread_json") or "[]")
+    except ValueError:
+        post["self_thread"] = []
+    requests = {r["media_idx"]: dict(r) for r in conn.execute(
+        "SELECT * FROM analysis_requests WHERE video_id = ?", (post["video_id"],))}
+    media = []
+    for m in conn.execute(
+            """SELECT pm.*, v.status AS analyzed_status FROM post_media pm
+               LEFT JOIN videos v ON v.id = pm.analyzed_video_id
+               WHERE pm.video_id = ? ORDER BY pm.idx""", (post["video_id"],)):
+        item = dict(m)
+        req = requests.get(item["idx"])
+        item["request_status"] = req["status"] if req else None
+        item["request_error"] = req["error"] if req else None
+        media.append(item)
+    post["media"] = media
+    return post
+
+
+class PostRequestError(ValueError):
+    """Bad analysis request from a user surface; carries the HTTP status."""
+
+    def __init__(self, message: str, status: int = 400) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+def request_analysis(conn: sqlite3.Connection, video_id: str, idx: int) -> Dict[str, Any]:
+    """Queue item `idx` of the post at `video_id` for analysis.
+
+    Idempotent: asking twice returns the existing request, and a failed one is
+    re-armed. Never runs anything -- `reel-scout pending --run` does, on the
+    machine that holds the pipeline.
+    """
+    item = conn.execute("SELECT * FROM post_media WHERE video_id = ? AND idx = ?",
+                        (video_id, idx)).fetchone()
+    if item is None:
+        raise PostRequestError("post %s has no media item %s" % (video_id, idx), 404)
+    if item["kind"] != "video":
+        raise PostRequestError("media item %d is a %s; only videos are analyzed"
+                               % (idx, item["kind"]))
+    if item["analyzed_video_id"]:
+        raise PostRequestError("media item %d already has its own analysis (%s)"
+                               % (idx, item["analyzed_video_id"]), 409)
+    conn.execute(
+        """INSERT INTO analysis_requests (video_id, media_idx) VALUES (?, ?)
+           ON CONFLICT(video_id, media_idx) DO UPDATE SET
+               status = CASE WHEN status = 'failed' THEN 'pending' ELSE status END,
+               error = CASE WHEN status = 'failed' THEN NULL ELSE error END,
+               updated_at = datetime('now')""",
+        (video_id, idx))
+    conn.commit()
+    return dict(conn.execute(
+        "SELECT * FROM analysis_requests WHERE video_id = ? AND media_idx = ?",
+        (video_id, idx)).fetchone())
+
+
+def list_analysis_requests(conn: sqlite3.Connection,
+                           status: Optional[str] = "pending") -> List[Dict[str, Any]]:
+    sql = """SELECT r.*, p.code, v.uploader, v.platform FROM analysis_requests r
+             JOIN post_meta p ON p.video_id = r.video_id
+             JOIN videos v ON v.id = r.video_id"""
+    args = ()  # type: tuple
+    if status:
+        sql += " WHERE r.status = ?"
+        args = (status,)
+    sql += " ORDER BY r.requested_at, r.id"
+    return [dict(r) for r in conn.execute(sql, args)]
+
+
+def set_analysis_request(conn: sqlite3.Connection, request_id: int, status: str,
+                         error: Optional[str] = None) -> None:
+    conn.execute("UPDATE analysis_requests SET status = ?, error = ?, "
+                 "updated_at = datetime('now') WHERE id = ?", (status, error, request_id))
+    conn.commit()
