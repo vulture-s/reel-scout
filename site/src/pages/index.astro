@@ -44,13 +44,19 @@ const layers = [
   ['L4', 'VLM 看畫面',        '最可靠',   '模型直接看關鍵楨——唯一能否證前三層的那一層'],
 ];
 ---
-<Base title="Reel Scout — 影片拆解成可查詢的資料，本機優先" current="home"
-      description="把 YouTube Shorts、IG Reels、TikTok、Threads 貼文（需自行開啟）、以及長片與訪談，變成可查詢的結構化資料。五層信號分開記、分數可重新加權。開源、MIT、跑在你自己的機器上。">
+<Base title="Reel Scout — 一鍵安裝屬於你的拍片靈感池" current="home"
+      description="貼一個 YouTube Shorts、IG Reels、TikTok（Threads 需自行開啟）的網址，reel-scout 下載、轉錄、抽關鍵楨、讓模型看畫面，把每一種信號分開存進你自己的資料庫。開源、MIT、跑在你自己的機器上。">
   <header class="wrap" style="padding-top:56px">
-    <p class="eyebrow">一鍵安裝屬於你的拍片靈感池</p>
-    <h1 style="font-size:clamp(34px,6.4vw,62px); margin:10px 0 0">
-      把爆款影片<br>拆成你能查詢的資料
+    <h1 style="font-size:clamp(34px,6.4vw,62px); margin:0">
+      一鍵安裝屬於你的拍片靈感池
     </h1>
+    {/* 第二大的那一行。它原本是 h1 —— 每頁只能有一個 h1，而「一鍵安裝…」才是
+        賣點，所以這句降成 lede：字級仍然是全頁第二大，只是不再進標題結構。 */}
+    <p style="font-family:var(--display); font-weight:400; letter-spacing:-.02em;
+              font-size:clamp(22px,3.2vw,34px); line-height:1.2; color:var(--ink-2);
+              margin:14px 0 0; max-width:24ch">
+      把爆款影片拆成你能查詢的資料
+    </p>
     <p style="max-width:62ch; font-size:17.5px; color:var(--ink-2); margin:18px 0 0">
       貼一個 YouTube Shorts、Instagram Reels、TikTok（或自行開啟後的 Threads 貼文）的網址 —— 涵蓋短影、長片、訪談、教學 playlist 也吃。
     </p>
