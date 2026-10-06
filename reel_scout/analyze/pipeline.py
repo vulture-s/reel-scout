@@ -296,9 +296,22 @@ def _process_single(
                     print("  Subtitle empty; falling back to Whisper...")
                     sub_path = None
             if not sub_path:
-                print("  Transcribing (local Whisper)...")
-                transcriber = get_transcriber(options.whisper_backend)
-                result = transcriber.transcribe(file_path)
+                if ffprobe.probe_audio_stream_count(file_path) == 0:
+                    # No audio stream at all: nothing to transcribe, and handing
+                    # the file to Whisper crashed inside its decoder (PyAV asks
+                    # for audio stream 0 unconditionally). Store an empty
+                    # transcript -- so this is not retried every run -- whose
+                    # model names the reason, and carry on: keyframes and VLM
+                    # are still worth having for a silent clip. A probe that
+                    # fails (None) is not silence; it falls through to Whisper.
+                    print("  No audio stream -- skipping transcription "
+                          "(visual analysis continues)")
+                    from ..transcribe.base import TranscriptResult
+                    result = TranscriptResult(model="none:no-audio-stream")
+                else:
+                    print("  Transcribing (local Whisper)...")
+                    transcriber = get_transcriber(options.whisper_backend)
+                    result = transcriber.transcribe(file_path)
             segments_data = [
                 {"start": s.start, "end": s.end, "text": s.text,
                  "confidence": s.confidence}
