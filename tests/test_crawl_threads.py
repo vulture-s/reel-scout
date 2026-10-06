@@ -234,3 +234,33 @@ def test_media_param_downloads_that_item_as_its_own_clip(tmp_path):
 def test_media_param_pointing_at_a_photo_raises(tmp_path):
     with pytest.raises(RuntimeError, match="no video at media=3"):
         _download(_carousel(), tmp_path, url=POST_URL + "?media=3")
+
+
+def test_off_by_default_refuses_before_any_request(tmp_path):
+    """Threads is opt-in: with no THREADS_USER_AGENT, nothing leaves the
+    machine -- not the page fetch, not even the rate limiter's wait."""
+    with patch("reel_scout.crawl.threads._fetch") as fetch, \
+         patch("reel_scout.crawl.threads.get_limiter") as limiter, \
+         patch("reel_scout.crawl.threads.config.THREADS_USER_AGENT", ""):
+        with pytest.raises(RuntimeError, match="off by default"):
+            ThreadsCrawler().download(SHARE_URL, output_dir=str(tmp_path))
+    fetch.assert_not_called()
+    limiter.assert_not_called()
+
+
+def test_the_shipped_default_is_off():
+    """Pin the default in the source, not the runtime value: config loads the
+    project .env on import, so a machine that opted in (as the maintainer's
+    does) would make a runtime check fail there and pass everywhere else.
+    Exactly one getenv for the key, and its default is the empty string -- a
+    package that installs with a crawler User-Agent filled in impersonates a
+    crawler for every user."""
+    import ast
+    from reel_scout import config
+    tree = ast.parse(open(config.__file__, encoding="utf-8").read())
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "getenv"
+             and n.args and isinstance(n.args[0], ast.Constant)
+             and n.args[0].value == "THREADS_USER_AGENT"]
+    assert len(calls) == 1
+    assert len(calls[0].args) == 2 and calls[0].args[1].value == ""

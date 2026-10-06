@@ -11,8 +11,8 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const diffs = [
   {
     en: 'URL IN, DATA OUT',
-    h: 'IG Reel、TikTok、Threads 網址直接吃',
-    p: '前沿模型無法直接吃 IG 與 TikTok 的連結——你得先自己下載、上傳、管理檔案生命週期。reel-scout 透過內建 yt-dlp 下載鏈，一條指令從網址到結構化資料。Threads 讀貼文頁本身，單則貼文可解。',
+    h: 'IG Reel、TikTok 網址直接吃',
+    p: '前沿模型無法直接吃 IG 與 TikTok 的連結——你得先自己下載、上傳、管理檔案生命週期。reel-scout 透過內建 yt-dlp 下載鏈，一條指令從網址到結構化資料。Threads 讀貼文頁本身，單則貼文可解——但預設關閉，因為那條路要冒充搜尋引擎爬蟲，理由寫在誠實清單。',
   },
   {
     en: 'FIVE SIGNAL LAYERS',
@@ -45,14 +45,14 @@ const layers = [
 ];
 ---
 <Base title="Reel Scout — 影片拆解成可查詢的資料，本機優先" current="home"
-      description="把 YouTube Shorts、IG Reels、TikTok、Threads 貼文、以及長片與訪談，變成可查詢的結構化資料。五層信號分開記、分數可重新加權。開源、MIT、跑在你自己的機器上。">
+      description="把 YouTube Shorts、IG Reels、TikTok、Threads 貼文（需自行開啟）、以及長片與訪談，變成可查詢的結構化資料。五層信號分開記、分數可重新加權。開源、MIT、跑在你自己的機器上。">
   <header class="wrap" style="padding-top:56px">
     <p class="eyebrow">一鍵安裝屬於你的拍片靈感池</p>
     <h1 style="font-size:clamp(34px,6.4vw,62px); margin:10px 0 0">
       把爆款影片<br>拆成你能查詢的資料
     </h1>
     <p style="max-width:62ch; font-size:17.5px; color:var(--ink-2); margin:18px 0 0">
-      貼一個 YouTube Shorts、Instagram Reels、TikTok 或 Threads 貼文的網址 —— 涵蓋短影、長片、訪談、教學 playlist 也吃。
+      貼一個 YouTube Shorts、Instagram Reels、TikTok（或自行開啟後的 Threads 貼文）的網址 —— 涵蓋短影、長片、訪談、教學 playlist 也吃。
     </p>
     <p style="max-width:62ch; font-size:17.5px; color:var(--ink-2); margin:14px 0 0">
       reel-scout 下載、轉錄、抽關鍵楨、讓模型看畫面，

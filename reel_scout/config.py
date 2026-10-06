@@ -325,12 +325,15 @@ FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg")
 # (`python -m yt_dlp`) over whatever `yt-dlp` is first on PATH — a stale PATH
 # build silently produces baffling extractor errors. See crawl/ytdlp.py.
 YTDLP_BIN = os.getenv("YTDLP_BIN", "")
-# User-Agent for Threads post pages. Threads serves browsers a login wall and
-# search crawlers the server-rendered post (with video URLs) -- this string is
-# the one assumption crawl/threads.py rests on, so it is overridable here
-# instead of baked into the crawler. Measured working 2026-10-05.
-THREADS_USER_AGENT = os.getenv(
-    "THREADS_USER_AGENT", "Googlebot/2.1 (+http://www.google.com/bot.html)")
+# User-Agent for Threads post pages. EMPTY BY DEFAULT = Threads is off.
+#
+# Threads serves browsers a login wall and search crawlers the server-rendered
+# post; the crawler only works when it presents a search-crawler User-Agent.
+# That impersonates a crawler, and Threads' robots.txt says automated collection
+# is prohibited without written permission. A public package must not do that
+# on install, so it is opt-in: set this yourself, for your own single posts, at
+# your own risk. See docs/threads.md "Off by default".
+THREADS_USER_AGENT = os.getenv("THREADS_USER_AGENT", "")
 
 # --- Diarization ---
 DIARIZE_ENABLED = os.getenv("DIARIZE_ENABLED", "false").lower() in ("true", "1", "yes")
@@ -390,7 +393,7 @@ def show() -> str:
         f"OCR_ENGINE:           {OCR_ENGINE}",
         f"FFMPEG_BIN:           {FFMPEG_BIN}",
         f"YTDLP_BIN:            {YTDLP_BIN or '(auto)'}",
-        f"THREADS_USER_AGENT:   {THREADS_USER_AGENT}",
+        f"THREADS_USER_AGENT:   {THREADS_USER_AGENT or '(not set -- Threads is off)'}",
         f"DIARIZE_ENABLED:      {DIARIZE_ENABLED}",
         f"PYANNOTE_AUTH_TOKEN:  {'***' if PYANNOTE_AUTH_TOKEN else '(not set)'}",
         f"WEBHOOK_URL:          {WEBHOOK_URL or '(not set)'}",

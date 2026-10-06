@@ -16,6 +16,11 @@ without cookies), the caption, author, timestamp and engagement counts.
 That makes the User-Agent the single fragile assumption here, so it lives in
 ``config.THREADS_USER_AGENT`` rather than in this file, and every way the page
 can come back without a post raises instead of returning an empty meta.
+
+It is also why the crawler is OFF unless that setting is filled in: presenting
+a crawler User-Agent impersonates a crawler, and Threads' robots.txt prohibits
+automated collection without written permission. A public package does not do
+that on install; a user who sets it is choosing to, for their own posts.
 """
 from __future__ import annotations
 
@@ -208,6 +213,16 @@ class ThreadsCrawler(BaseCrawler):
     def download(self, url: str, output_dir: Optional[str] = None) -> VideoMeta:
         if output_dir is None:
             output_dir = config.VIDEOS_DIR
+
+        if not config.THREADS_USER_AGENT:
+            # Checked before the rate limiter and before any request: off means
+            # nothing leaves this machine.
+            raise RuntimeError(
+                "Threads is off by default. Fetching a post only works by "
+                "presenting a search-crawler User-Agent, and Threads' robots.txt "
+                "prohibits automated collection without written permission. To "
+                "opt in for your own single posts, at your own risk, set "
+                "THREADS_USER_AGENT (see docs/threads.md, 'Off by default').")
 
         limiter = get_limiter(self.platform)
         limiter.wait()
