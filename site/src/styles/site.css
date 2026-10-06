@@ -15,6 +15,14 @@ body{
 body > *{position:relative; z-index:1}
 a{color:inherit}
 img{max-width:100%; height:auto}
+
+/* 斷句。瀏覽器自己就會做中文避頭尾（實測兩引擎、六頁、五種寬度，標點掉行首
+ * 與開引號在行尾各 0 筆 —— 用 line-break:anywhere 關掉它確認偵測得到，那個 0
+ * 才是真的），所以這裡只補它不管的那件事：**末行只剩一兩個字**。
+ * 實測 390px 下 22 筆孤行，例如「…零金／鑰。」「…判斷留給／人。」。
+ * text-wrap:pretty 讓排版器回頭重排最後幾行去消掉它 —— 量過：
+ * Chrome 37→11、WebKit 40→6。不支援的瀏覽器會忽略它，退回現狀。 */
+p,li,td,th,blockquote,h1,h2,h3{text-wrap:pretty}
 /* 內容欄＝紙張欄。左邊多讓一段，讓文字落在裝訂邊線的右側而不是壓在上面 ——
  * 一條會被字蓋住的邊線不是邊線，是雜訊。 */
 .wrap{
@@ -110,7 +118,11 @@ footer > .wrap{border-top:2px solid var(--rule); padding-top:28px}
 footer .foot-links{display:flex; flex-wrap:wrap; gap:14px; margin-bottom:14px}
 footer a{font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--quiet); text-decoration:none}
 footer a:hover{color:var(--ink)}
-footer p{font-size:12.5px; color:var(--quiet); margin:0}
+/* 🔴 行長上限。這兩處原本沒有，所以 #163 把紙張從 1080 加寬到 1240 時，
+ * 它們跟著從 68 字/行變成 80 —— 中文的舒適區約 25–40，68 已經偏長。
+ * 有寫 max-width:68ch 的本文不受影響（43 字/行，加寬前後都一樣），
+ * 受害的剛好是沒人替它設上限的那兩塊，而訂閱框每一頁都有。 */
+footer p{font-size:12.5px; color:var(--quiet); margin:0; max-width:62ch}
 
 /* 四條差異化。報紙的分欄：靠一條細線分開，不靠卡片陰影 ——
  * theme.py 明確拒絕 gradient / glow / 疊影，所以這裡只有 hairline。
@@ -131,8 +143,8 @@ footer p{font-size:12.5px; color:var(--quiet); margin:0}
 
 /* 訂閱框。放在頁尾、每一頁都有 —— 它是本站唯一的自有名單入口。 */
 .sub{border:1px solid var(--rule); padding:18px 20px; margin:0 0 26px; background:var(--surface)}
-.sub h2{margin:0 0 6px; font-family:var(--display); font-weight:400; font-size:17px}
-.sub p{margin:0 0 12px; font-size:13.5px; color:var(--ink-2)}
+.sub h2{margin:0 0 6px; font-family:var(--display); font-weight:400; font-size:17px; max-width:62ch}
+.sub p{margin:0 0 12px; font-size:13.5px; color:var(--ink-2); max-width:62ch}
 .sub form{display:flex; gap:10px; flex-wrap:wrap}
 .sub input[type=email]{
   flex:1 1 240px; min-width:0; padding:9px 11px;

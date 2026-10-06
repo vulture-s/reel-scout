@@ -78,6 +78,20 @@ jobs:
           done
 
       # GA4 不在，網站照樣好好的 —— 只是量不到任何東西，而且要好幾週後才會有人發現。
+      - name: 中文斷句的兩條規則有進到產出
+        run: |
+          # 量的是 **壓過之後的 CSS**：Astro 會把註解整個拿掉，所以這裡 grep 到的
+          # 一定是真的規則，不會像讀 .astro 原始碼那次被註解餵飽。
+          css=$(ls dist/_astro/*.css | head -1)
+          grep -q "text-wrap:pretty" "$css" || {
+            echo "orphan-line avoidance (text-wrap:pretty) missing"; exit 1; }
+          # 這兩塊沒有行長上限時會跟著紙張一起拉寬（#163 就把它們推到 80 字/行）。
+          # 比對整條規則而不只是 62ch —— 屬性順序每次壓縮都可能不同，但一定在同一塊裡。
+          for sel in "footer p" "\.sub p"; do
+            grep -qE "$sel\{[^}]*max-width:62ch" "$css" || {
+              echo "measure cap missing on: $sel"; exit 1; }
+          done
+
       - name: 首頁有提到每一個抓得到的平台
         run: |
           # 🔴 量的是**渲染後**的 dist/index.html，不是 index.astro。

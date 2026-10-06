@@ -130,6 +130,23 @@
 
 ### Fixed
 
+- **Chinese line-breaking: orphan last lines, and two blocks with no measure
+  cap.** Audited both engines across six pages and five widths by reconstructing
+  every rendered line from per-character client rects. Two things came back
+  clean and stay that way: kinsoku (no punctuation starting a line, no opening
+  bracket ending one) is handled by the browser, 0 violations; and no Latin word
+  or number is ever split. Two were not:
+
+  `text-wrap: pretty` for the orphans — a last line holding one or two
+  characters, 37 of them in Chrome and 40 in WebKit, almost all at phone width
+  (「…零金／鑰。」「…判斷留給／人。」). Now 11 and 6.
+
+  A 62ch cap on the subscribe box and the footer, which had no `max-width` at
+  all. Widening the sheet to 1240 pushed them from 68 characters a line to 80,
+  while capped prose stayed at 43 — the regression landed exactly on the two
+  blocks nobody had set a limit for, and the subscribe box is on every page.
+  Longest line on the site is now 44 characters, down from 90.
+
 - **The site said Threads could not be crawled, which stopped being true the
   moment the Threads crawler merged.** Rewritten to what is now the real
   limitation: it works by reading the server-rendered page Threads serves to
