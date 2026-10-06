@@ -4,6 +4,18 @@
 
 ### Added
 
+- **The sheet is fluid on desktop instead of a fixed 1240.**
+  `clamp(1240px, 100vw - 100px, 1560px)` — never narrower than before, 50px of
+  desk left at the sides, and it stops at 1560 because past that only the tables
+  keep growing: prose, the score panel and the reweight card are all already at
+  their own caps. Measured: at a 1512 display the sheet goes 1240 → 1412; at
+  1920 it reaches the 1560 ceiling.
+
+  The four differentiator cards needed a cap of their own — their column is half
+  the sheet, so they tracked it up to 48 characters a line while the rest of the
+  site sat at 43. Now 68ch like everything else. Orphan counts and kinsoku are
+  unchanged from the typography pass (11 Chrome / 6 WebKit, 0 violations).
+
 - **The front page now renders the four differentiators and the five-signal
   reliability table.** Both were written, kept in sync with the code and never
   put on the page: `index.astro` declared them and the template never used them.
