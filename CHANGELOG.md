@@ -181,6 +181,21 @@
   blocks nobody had set a limit for, and the subscribe box is on every page.
   Longest line on the site is now 44 characters, down from 90.
 
+- **A clip with no audio stream crashed transcription** with
+  `IndexError: tuple index out of range`. faster-whisper decodes through PyAV,
+  which asks for audio stream 0 whether or not one exists. Found on a real
+  Threads carousel whose three videos were all silent, and reproduced on a
+  plain local file — so it was never a Threads problem; "no audio stream" was
+  simply unhandled.
+
+  Now the stream count is probed first. Zero streams → an empty transcript
+  whose model reads `none:no-audio-stream` (so it is stored, not retried every
+  run, and says why it is empty), Whisper is not called, and the clip goes on
+  to keyframes, VLM and scoring — the real carousel clip now analyzes end to
+  end. A probe that *fails* is not treated as silence: it still goes to
+  Whisper, so an unreadable file keeps failing loudly instead of being
+  recorded as "no speech".
+
 - **The site said Threads could not be crawled, which stopped being true the
   moment the Threads crawler merged.** Rewritten to what is now the real
   limitation: it works by reading the server-rendered page Threads serves to

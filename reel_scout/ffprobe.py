@@ -39,6 +39,33 @@ def probe_duration(path: str) -> Optional[float]:
         return None
 
 
+def probe_audio_stream_count(path: str) -> Optional[int]:
+    """How many audio streams the file has, or ``None`` if ffprobe could not say.
+
+    Zero is a real answer and the reason this exists: a clip with no audio
+    stream at all (common on Threads -- every video in one real carousel was
+    silent) made faster-whisper die inside PyAV with ``tuple index out of
+    range``, because its decoder asks for audio stream 0 unconditionally.
+    ``None`` must stay distinct from 0: a failed probe is "unknown", and the
+    caller should fall through to the transcriber rather than declare silence.
+    """
+    cmd = [
+        config.FFMPEG_BIN.replace("ffmpeg", "ffprobe"),
+        "-v", "error",
+        "-select_streams", "a",
+        "-show_entries", "stream=index",
+        "-of", "csv=p=0",
+        path,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return len([line for line in result.stdout.splitlines() if line.strip()])
+
+
 #: Video codecs Apple's MP4 pipeline will actually render. Measured on a real
 #: iPad 2026-08-25: h264 plays, vp9 does not, av1 does not. Audio codec is not
 #: part of this -- `h264 + opus` plays with sound.
