@@ -58,6 +58,36 @@ caption), but never forgets which items already have an analysis of their own.
 
 The same thing without the viewer: `reel-scout analyze "<post url>?media=N" --score`.
 
+## Off by default
+
+**Threads support is disabled until you set `THREADS_USER_AGENT`.** Read why
+before you do:
+
+- The only way the post page carries the post is when the request presents a
+  **search-crawler User-Agent** — i.e. it **impersonates** a crawler such as
+  Googlebot. A browser or an honest User-Agent gets a login wall.
+- Threads' `robots.txt` opens with: *"Collection of data on Threads through
+  automated means is prohibited unless you have express written permission
+  from Threads"*, and disallows everything for any agent it does not name.
+  The paths it opens to Googlebot are opened to Google, under Meta's automated
+  data collection terms — not to a tool borrowing the name.
+
+So turning it on is a decision to act against Threads' stated terms. If you
+make it, keep it to what it was built for: **one post at a time, one you chose
+by hand** (a link you shared or pasted). Do not point it at lists of URLs that
+a program produced, do not schedule it, and do not use it for search or
+profile pages (the crawler refuses those URLs anyway). For anything at scale,
+use the official Threads API (`keyword_search`, which needs Meta's approval).
+
+```
+# .env -- your choice, your risk
+THREADS_USER_AGENT=Googlebot/2.1 (+http://www.google.com/bot.html)
+```
+
+If Threads stops serving that page, the crawler raises and names the
+User-Agent. The answer then is to stop, not to find a User-Agent that looks
+more like a real browser.
+
 ## How it fetches, and why it is fragile
 
 yt-dlp has no Threads extractor, and the post code is not an Instagram shortcode
@@ -67,8 +97,8 @@ wall, but serves **search crawlers** a server-rendered page whose embedded JSON
 carries the whole post.
 
 That makes **the User-Agent the single assumption** everything rests on. It
-lives in `THREADS_USER_AGENT` (default: Googlebot), not in the crawler, so it
-can be changed without a release. There is no official guarantee behind it;
+lives in `THREADS_USER_AGENT` (empty by default — see above), not in the
+crawler. There is no official guarantee behind it;
 Meta can close it any day — for instance by verifying that a "Googlebot"
 request really comes from Google.
 

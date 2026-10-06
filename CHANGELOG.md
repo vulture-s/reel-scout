@@ -16,6 +16,28 @@
   site sat at 43. Now 68ch like everything else. Orphan counts and kinsoku are
   unchanged from the typography pass (11 Chrome / 6 WebKit, 0 violations).
 
+- 🔴 **Threads is now off by default (opt-in via `THREADS_USER_AGENT`).**
+  The crawler only gets a post by presenting a search-crawler User-Agent —
+  impersonating one — and Threads' `robots.txt` opens with "collection of data
+  on Threads through automated means is prohibited unless you have express
+  written permission", disallowing everything for agents it does not name.
+  Until this change the package shipped with Googlebot as the default, so
+  every install did that out of the box.
+
+  Now the default is empty and the crawler refuses **before any request**
+  (not even the rate limiter runs), with a message saying why and how to opt
+  in. `docs/threads.md` gains an "Off by default" section stating the terms
+  plainly and the limits of fair use: one hand-picked post at a time, never
+  program-generated URL lists, schedules, search or profile pages; at scale,
+  use the official API. If Threads stops serving that page, the answer is to
+  stop — not to find a User-Agent that looks more like a browser. The site
+  copy (home, how-it-works, honest list) says the same; the homepage no longer
+  lists Threads among "URLs it eats directly".
+
+  The shipped default is pinned by an AST test on the source rather than the
+  runtime value, because config loads the project `.env` — a machine that has
+  opted in would otherwise fail the check there and pass everywhere else.
+
 - **The front page now renders the four differentiators and the five-signal
   reliability table.** Both were written, kept in sync with the code and never
   put on the page: `index.astro` declared them and the template never used them.
