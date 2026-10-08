@@ -34,6 +34,8 @@ import unicodedata
 import urllib.request
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
+from .utils import https
+
 #: Only the platforms the pipeline can actually ingest. A shared doc collects
 #: Drive links and long-form YouTube too; those are not silently attempted.
 URL_RE = re.compile(
@@ -76,7 +78,7 @@ def export_url(url: str) -> str:
 def fetch(url: str) -> str:
     real = export_url(url)
     req = urllib.request.Request(real, headers={"User-Agent": "reel-scout-batch"})
-    with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as resp:
+    with https.urlopen(req, timeout=FETCH_TIMEOUT) as resp:
         text = resp.read().decode("utf-8", errors="replace")
     if "docs.google.com" in real and "<html" in text[:400].lower():
         raise RuntimeError(
