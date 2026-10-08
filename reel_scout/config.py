@@ -202,6 +202,30 @@ WHISPER_ZH_PROMPT = os.getenv("WHISPER_ZH_PROMPT", "以下是一段繁體中文�
 
 # --- Crawl ---
 IG_COOKIES_FILE = os.getenv("IG_COOKIES_FILE", "")
+
+
+def ig_cookies_file() -> str:
+    """The cookies path in effect *now*.
+
+    `crawl --cookies` / `browse --cookies` / MCP `crawl.cookies` set
+    os.environ after this module was imported, so reading the module-level
+    IG_COOKIES_FILE alone made all three flags silent no-ops. The live env
+    wins; the import-time value is the fallback (and what tests patch).
+    """
+    path = os.environ.get("IG_COOKIES_FILE", IG_COOKIES_FILE) or ""
+    return os.path.expanduser(path) if path else ""
+
+
+def check_cookies_path(path: str) -> str:
+    """Validate an explicitly passed cookies path; return it expanded.
+
+    An explicit flag that points nowhere is a typo, not a preference -- fail
+    instead of crawling logged-out and blaming the cookies afterwards.
+    """
+    p = os.path.expanduser(path)
+    if not os.path.isfile(p):
+        raise ValueError("cookies file not found: %s" % p)
+    return p
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "10"))
 
 # --- Vision ---
@@ -373,7 +397,7 @@ def show() -> str:
         f"WHISPER_MULTILINGUAL: {WHISPER_MULTILINGUAL}",
         f"WHISPER_CHUNK_LENGTH: {WHISPER_CHUNK_LENGTH or '(default)'}",
         f"WHISPER_GUARD:        {WHISPER_GUARD_ENABLED}",
-        f"IG_COOKIES_FILE:      {IG_COOKIES_FILE or '(not set)'}",
+        f"IG_COOKIES_FILE:      {ig_cookies_file() or '(not set)'}",
         f"RATE_LIMIT_PER_MINUTE:{RATE_LIMIT_PER_MINUTE}",
         f"KEYFRAME_STRATEGY:    {KEYFRAME_STRATEGY}",
         f"KEYFRAME_MAX:         {KEYFRAME_MAX}",
