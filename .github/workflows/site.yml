@@ -78,6 +78,16 @@ jobs:
           done
 
       # GA4 不在，網站照樣好好的 —— 只是量不到任何東西，而且要好幾週後才會有人發現。
+      - name: 行長上限 —— 量渲染後最長那一行
+        run: |
+          # 🔴 為什麼要開瀏覽器：這個 regression 兩天內犯了兩次，兩次都不是「忘了寫
+          #    max-width」，而是**別的地方變寬之後，沒有上限的區塊跟著長**
+          #    （#163 紙張加寬 ⇒ footer 68→80 字/行；#168 改流動寬度 ⇒ 四欄區 43→48）。
+          #    靜態查「某某 selector 有沒有 max-width」擋不住下一個新加的區塊；
+          #    量渲染結果擋得住 —— 它不在乎是誰、為什麼變寬。
+          npx playwright install --with-deps chromium
+          node scripts/measure-lines.mjs
+
       - name: 中文斷句的兩條規則有進到產出
         run: |
           # 量的是 **壓過之後的 CSS**：Astro 會把註解整個拿掉，所以這裡 grep 到的
