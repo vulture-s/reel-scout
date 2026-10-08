@@ -164,6 +164,20 @@
 
 ### Fixed
 
+- **Threads (and Doc-based `batch`) never worked on python.org macOS Python.**
+  That installer ships without access to the system CA store until someone runs
+  "Install Certificates.command", so every urllib HTTPS request failed with
+  `CERTIFICATE_VERIFY_FAILED`. Found on the maintainer's M2 Max, where the Threads
+  crawler had never once succeeded -- every earlier live test had run on Windows,
+  whose Python reads the OS store. yt-dlp handles certificates itself, which is
+  why IG / TikTok / YouTube never showed it.
+
+  The two internet-facing urllib calls (Threads post pages, `batch` Doc export) now
+  go through `reel_scout/utils/https.py`: a user-set `SSL_CERT_FILE` wins, else
+  certifi's bundle (now a declared dependency), else the platform default.
+  Verified on the affected machine: same Python, same URL -- plain `urlopen` fails,
+  the helper returns 200.
+
 - **Chinese line-breaking: orphan last lines, and two blocks with no measure
   cap.** Audited both engines across six pages and five widths by reconstructing
   every rendered line from per-character client rects. Two things came back

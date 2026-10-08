@@ -29,6 +29,9 @@ classifiers = [
 
 dependencies = [
     "yt-dlp>=2024.1.0",
+    # urllib HTTPS on python.org macOS builds has no CA store until
+    # "Install Certificates.command" runs; see reel_scout/utils/https.py
+    "certifi>=2023.7.22",
 ]
 
 [project.urls]

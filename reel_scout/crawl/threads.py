@@ -35,6 +35,7 @@ from .base import BaseCrawler, VideoMeta
 from .rate_limiter import get_limiter
 from .. import config
 from .. import ffprobe
+from ..utils import https
 from ..utils.stderr import warn
 
 
@@ -189,7 +190,7 @@ def post_texts(post: Dict[str, Any]) -> Tuple[str, List[str]]:
 def _fetch(url: str, user_agent: str, timeout: int = 60) -> Tuple[str, bytes]:
     """GET ``url`` following redirects; return (final URL, body)."""
     req = urllib.request.Request(url, headers={"User-Agent": user_agent})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with https.urlopen(req, timeout=timeout) as resp:
         return resp.geturl(), resp.read()
 
 
