@@ -138,6 +138,11 @@ LLM_RETRY_BACKOFF = float(os.getenv("LLM_RETRY_BACKOFF", "5"))
 # retries IS the pathology, and letting the batch move on is the right trade.
 BATCH_ANALYZE_TIMEOUT = float(os.getenv("BATCH_ANALYZE_TIMEOUT", "1800"))
 BATCH_EXPORT_TIMEOUT = float(os.getenv("BATCH_EXPORT_TIMEOUT", "300"))
+# How often the MCP batch worker says "still alive", independent of progress.
+# Progress events alone go quiet for the whole of one analyze child (up to
+# BATCH_ANALYZE_TIMEOUT) or one scoring retry, which is longer than the stale
+# threshold batch_status uses -- so a working batch read as dead.
+BATCH_HEARTBEAT_SEC = float(os.getenv("BATCH_HEARTBEAT_SEC", "60"))
 
 
 def batch_score_timeout() -> float:
