@@ -23,9 +23,10 @@ from __future__ import annotations
 
 import os
 import sqlite3
-import sys
 import time
 from typing import Optional
+
+from ..utils.stderr import warn
 
 # Per-platform default rates (requests per minute).
 PLATFORM_RATES = {
@@ -48,8 +49,7 @@ def effective_rate(platform: str) -> int:
     try:
         cap = int(raw)
     except ValueError:
-        print(f"[rate-limit] ignoring non-integer RATE_LIMIT_PER_MINUTE={raw!r}",
-              file=sys.stderr)
+        warn(f"[rate-limit] ignoring non-integer RATE_LIMIT_PER_MINUTE={raw!r}")
         return base
     return max(1, min(base, cap))
 
@@ -115,9 +115,8 @@ class RateLimiter:
         except (sqlite3.Error, OSError) as e:
             # Loud, but don't refuse to work: an unwritable data dir should not
             # turn every crawl into an error. Pacing degrades to per-process.
-            print(f"[rate-limit] shared state unavailable ({path}: {e}); "
-                  f"pacing {self.platform} within this process only",
-                  file=sys.stderr)
+            warn(f"[rate-limit] shared state unavailable ({path}: {e}); "
+                 f"pacing {self.platform} within this process only")
             slot = max(time.time(), self._last_local + interval)
             self._last_local = slot
         delay = slot - time.time()
