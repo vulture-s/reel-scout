@@ -270,6 +270,10 @@ def frame_motion(path: str, _decoded=None
         stream = container.streams.video[0]
         stream.codec_context.flags2 |= Flags2.export_mvs
         time_base = float(stream.time_base)
+        # Counted from the stream's own start, because the shot table is: the
+        # ffmpeg pass that cuts it reports time from 0. Raw pts on a file whose
+        # stream starts at 6s put every shot's motion on the shot after it.
+        start = getattr(stream, "start_time", None) or 0
         for frame in container.decode(stream):
             if _decoded is not None:
                 _decoded[0] = True
@@ -295,7 +299,7 @@ def frame_motion(path: str, _decoded=None
                 forward["dst_x"].astype(np.float64) - frame.width / 2.0,
                 forward["dst_y"].astype(np.float64) - frame.height / 2.0,
                 dxs, dys)
-            yield (frame.pts or 0) * time_base, dx, dy, zoom, rot, agree
+            yield ((frame.pts or 0) - start) * time_base, dx, dy, zoom, rot, agree
     finally:
         container.close()
 
