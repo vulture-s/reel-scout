@@ -358,8 +358,12 @@ def _process_single(
                 import tempfile
                 wav_path = tempfile.mktemp(suffix=".wav")
                 try:
-                    extract_wav(file_path, wav_path)
+                    # At the analyzer's own rate, not extract_wav's 16 kHz
+                    # default (that is Whisper's): PANNs reads 16 kHz as
+                    # double-pitch audio and hears talk as animal noise.
                     analyzer = get_audio_analyzer()
+                    extract_wav(file_path, wav_path,
+                                sample_rate=getattr(analyzer, "sample_rate", 16000))
                     timeline = analyzer.analyze(wav_path)
                     events_data = [
                         {"event_type": e.event_type, "label": e.label,

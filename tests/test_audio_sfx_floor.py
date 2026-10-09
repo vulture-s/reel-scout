@@ -38,8 +38,8 @@ def one_window_wav():
     with wave.open(path, "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
-        w.setframerate(16000)
-        w.writeframes(struct.pack("<%dh" % 32000, *([0] * 32000)))
+        w.setframerate(32000)    # Cnn14's rate; the analyzer refuses others
+        w.writeframes(struct.pack("<%dh" % 64000, *([0] * 64000)))
     yield path
     os.unlink(path)
 
