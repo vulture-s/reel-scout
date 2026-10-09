@@ -41,7 +41,7 @@ class TikTokCrawler(BaseCrawler):
         output_template = os.path.join(output_dir, f"tt_{vid}.%(ext)s")
 
         # Get metadata
-        meta_cmd = ytdlp.cmd("--dump-json", "--no-download", url)
+        meta_cmd = ytdlp.cmd("--dump-json", "--no-download", "--", url)
         result = subprocess.run(
             meta_cmd, capture_output=True, text=True, timeout=60,
         )
@@ -63,7 +63,7 @@ class TikTokCrawler(BaseCrawler):
             "-f", ytdlp.apple_safe_format(),
             "--merge-output-format", "mp4",
             "-o", output_template,
-            url,
+            "--", url,  # "--": a URL is never an option
         )
         result = subprocess.run(
             dl_cmd, capture_output=True, text=True, timeout=300,

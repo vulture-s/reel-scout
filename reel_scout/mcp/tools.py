@@ -1158,10 +1158,14 @@ def _tool_export(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 #: How long a batch may go without a heartbeat before we stop believing it.
-#: Generous on purpose: 18s/video is the happy path, but one bad link plus
-#: whisper on a long clip can legitimately run minutes, and crying "stalled" at
-#: a job that is working is worse than being slow to notice a dead one.
+#: The worker beats every BATCH_HEARTBEAT_SEC (60s) from a thread of its own,
+#: independent of progress, so this is "fifteen missed beats", not "one slow
+#: video" -- before that thread existed, one analyze child running past 15
+#: minutes was enough to call a live worker dead.
 _BATCH_STALE_AFTER_SEC = 900
+
+#: States in which a batch is still owned by a worker that may be alive.
+_BATCH_BUSY_STATES = ("running", "starting")
 
 
 def _batch_entries_from_args(args: Dict[str, Any]):
@@ -1290,7 +1294,15 @@ def _batch_state(row: Any, has_pending: bool) -> str:
         return status
     beat = row["heartbeat_at"]
     if not beat:
-        return "starting"
+        # Spawned but not yet beating. That is "starting" only for as long as
+        # a worker could plausibly take to come up; a spawn that never did
+        # must not hold the batch_start gate shut forever.
+        beat = _row_get(row, "created_at")
+        if not beat:
+            return "starting"
+        quiet = "starting"
+    else:
+        quiet = "running"
     try:
         last = datetime.datetime.strptime(beat, "%Y-%m-%d %H:%M:%S")
     except (TypeError, ValueError):
@@ -1299,7 +1311,14 @@ def _batch_state(row: Any, has_pending: bool) -> str:
     # which is deprecated from 3.12.
     now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     age = (now - last).total_seconds()
-    return "stalled" if age > _BATCH_STALE_AFTER_SEC else "running"
+    return "stalled" if age > _BATCH_STALE_AFTER_SEC else quiet
+
+
+def _row_get(row: Any, key: str) -> Any:
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return None
 
 
 def _tool_batch_start(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1326,11 +1345,15 @@ def _tool_batch_start(args: Dict[str, Any]) -> Dict[str, Any]:
     conn = db.init_db()
     try:
         live = db.get_latest_batch(conn, source=BATCH_SOURCE)
-        if live is not None and not args.get("force") and _batch_state(live, False) == "running":
+        live_state = _batch_state(live, False) if live is not None else None
+        if live_state in _BATCH_BUSY_STATES and not args.get("force"):
+            # "starting" counts: two quick batch_start calls used to spawn two
+            # workers, because the first had not written a heartbeat yet.
             return _error_result(
-                "batch %s is still running (%d/%d done). Wait for it, ask "
+                "batch %s is still %s (%d/%d done). Wait for it, ask "
                 "batch_status about it, or pass force=true." % (
-                    live["id"], live["completed"] or 0, live["total_urls"] or 0))
+                    live["id"], live_state, live["completed"] or 0,
+                    live["total_urls"] or 0))
 
         out_root = args.get("out") or os.path.join(
             os.path.expanduser("~"), "reel-scout-batch", _batch_stamp(conn))

@@ -1,19 +1,48 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
+
+
+def _parse_env_line(line: str):
+    """(key, value) for one .env line, or None to skip it.
+
+    Two shell habits used to go wrong silently:
+    - `export VLM_BACKEND=ollama` set a variable literally named
+      "export VLM_BACKEND", so VLM_BACKEND stayed at the dead omlx default.
+    - `WHISPER_TASK=transcribe  # or "translate"` (how .env.example's own
+      commented lines read once uncommented) kept the comment as part of the
+      value. An unquoted value now ends at whitespace + `#`; a `#` with no
+      space before it (a URL fragment, a password) is kept, and a quoted
+      value is taken verbatim between its quotes.
+    """
+    line = line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        return None
+    key, _, value = line.partition("=")
+    key = key.strip()
+    if key.startswith("export ") or key.startswith("export\t"):
+        key = key[len("export"):].strip()
+    if not key:
+        return None
+    value = value.strip()
+    if value[:1] in ("'", '"'):
+        end = value.find(value[0], 1)
+        value = value[1:end] if end != -1 else value[1:]
+    else:
+        m = re.search(r"\s#", value)
+        if m:
+            value = value[:m.start()].rstrip()
+    return key, value
 
 
 def _parse_env_file(p: Path) -> None:
     with open(p, "r", encoding="utf-8") as f:
         for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            key = key.strip()
-            value = value.strip().strip("\"'")
-            os.environ.setdefault(key, value)
+            parsed = _parse_env_line(line)
+            if parsed is not None:
+                os.environ.setdefault(parsed[0], parsed[1])
 
 
 def _env_candidates(env_path: str = ".env"):
@@ -138,6 +167,11 @@ LLM_RETRY_BACKOFF = float(os.getenv("LLM_RETRY_BACKOFF", "5"))
 # retries IS the pathology, and letting the batch move on is the right trade.
 BATCH_ANALYZE_TIMEOUT = float(os.getenv("BATCH_ANALYZE_TIMEOUT", "1800"))
 BATCH_EXPORT_TIMEOUT = float(os.getenv("BATCH_EXPORT_TIMEOUT", "300"))
+# How often the MCP batch worker says "still alive", independent of progress.
+# Progress events alone go quiet for the whole of one analyze child (up to
+# BATCH_ANALYZE_TIMEOUT) or one scoring retry, which is longer than the stale
+# threshold batch_status uses -- so a working batch read as dead.
+BATCH_HEARTBEAT_SEC = float(os.getenv("BATCH_HEARTBEAT_SEC", "60"))
 
 
 def batch_score_timeout() -> float:
@@ -334,6 +368,11 @@ OCR_ENABLED = os.getenv("OCR_ENABLED", "true").lower() in ("true", "1", "yes")
 #                  a tesseract binary; falls back to vlm if unavailable). Stronger
 #                  CJK, but violates minimal-deps, hence off by default.
 OCR_ENGINE = os.getenv("OCR_ENGINE", "vlm")
+# tesseract language models (`+`-joined). Without one tesseract reads English
+# only, and Chinese captions come back as Latin noise that, being non-empty,
+# replaces the VLM's correct reading. A model that is not installed makes
+# tesseract fail, which falls back to the VLM text rather than to noise.
+OCR_LANG = os.getenv("OCR_LANG", "chi_tra+eng")
 
 # --- Shot metrics (§4E evidence-based pacing) ---
 # Measure cut rhythm (cuts/min) + audio energy/BPM so the pacing score rests on

@@ -230,13 +230,15 @@ def test_live_page_button_queues_and_never_runs_the_pipeline(temp_db):
 
         with patch("reel_scout.analyze.pipeline.run") as run:
             req = urllib.request.Request(base + "/api/request-analysis/%s/3" % vid,
-                                         data=b"", method="POST")
+                                         data=b"{}", method="POST",
+                                         headers={"Content-Type": "application/json"})
             body = json.loads(urllib.request.urlopen(req, timeout=5).read())
             run.assert_not_called()
         assert body == {"status": "pending", "media_idx": 3}
 
         bad = urllib.request.Request(base + "/api/request-analysis/%s/1" % vid,
-                                     data=b"", method="POST")
+                                     data=b"{}", method="POST",
+                                     headers={"Content-Type": "application/json"})
         with pytest.raises(urllib.error.HTTPError) as exc:
             urllib.request.urlopen(bad, timeout=5)
         assert exc.value.code == 400

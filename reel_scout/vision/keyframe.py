@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import List
 
 from .. import config
+from .. import ffprobe as _ffprobe
 
 
 @dataclass
@@ -425,7 +426,7 @@ def _get_duration(video_path: str) -> float:
     60s rather than returning None and skipping extraction. The None-on-failure
     policy is for values that get persisted; this one never leaves this module."""
     cmd = [
-        config.FFMPEG_BIN.replace("ffmpeg", "ffprobe"),
+        _ffprobe.ffprobe_bin(),
         "-v", "quiet",
         "-show_entries", "format=duration",
         "-of", "csv=p=0",

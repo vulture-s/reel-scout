@@ -27,6 +27,7 @@ instead of one blended average. Nothing downstream can recover the split if the
 stamp is missing, which is why `provenance()` refuses an empty model name.
 """
 
+import math
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import config, db
@@ -71,10 +72,18 @@ def normalize_weights(weights: Optional[Dict[str, float]]) -> Dict[str, float]:
             v = float(weights.get(d, config.SCORE_WEIGHTS[d]))
         except (TypeError, ValueError):
             v = config.SCORE_WEIGHTS[d]
+        # inf / nan are not weights: inf made every overall NaN. Same fallback
+        # as a value that would not parse.
+        if not math.isfinite(v):
+            v = config.SCORE_WEIGHTS[d]
         raw[d] = max(0.0, v)
-    total = sum(raw.values())
-    if total <= 0:
+    # Scale by the largest first so the sum cannot overflow: two weights of
+    # 1e308 summed to inf and divided every weight down to 0.0.
+    top = max(raw.values())
+    if top <= 0:
         return dict(config.SCORE_WEIGHTS)
+    raw = {d: v / top for d, v in raw.items()}
+    total = sum(raw.values())
     return {d: raw[d] / total for d in _DIMENSIONS}
 
 
