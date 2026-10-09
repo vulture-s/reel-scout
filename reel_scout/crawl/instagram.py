@@ -152,7 +152,7 @@ class InstagramCrawler(BaseCrawler):
             # every slide renders to the same ig_<post>.mp4 template, and the
             # photo slides fail the whole download.
             dl_cmd += ["--playlist-items", str(playlist_index)]
-        dl_cmd.append(url)
+        dl_cmd += ["--", url]  # "--": a URL is never an option
         result = subprocess.run(
             dl_cmd, capture_output=True, text=True, timeout=300,
         )
