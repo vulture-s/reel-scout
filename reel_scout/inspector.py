@@ -20,10 +20,12 @@ from __future__ import annotations
 
 import array
 import html
+import ipaddress
 import json
 import os
 import re
 import subprocess
+from urllib.parse import urlsplit
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import (annotate, config, db, i18n, label_shots,
@@ -655,7 +657,8 @@ def _render_post(view: Dict[str, Any], base: str = "", live: bool = False) -> st
         script = (
             "<script>document.querySelectorAll('.reqan').forEach(function(b){"
             "b.addEventListener('click',function(){b.disabled=true;"
-            "fetch('%s/api/request-analysis/'+b.dataset.post+'/'+b.dataset.idx,{method:'POST'})"
+            "fetch('%s/api/request-analysis/'+b.dataset.post+'/'+b.dataset.idx,"
+            "{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})"
             ".then(function(r){return r.json().then(function(j){"
             "if(r.ok){var s=document.createElement('span');s.textContent="
             "(document.documentElement.lang==='zh'?'已排入佇列':'queued');"
@@ -905,6 +908,69 @@ def _parse_range(header: Optional[str], size: int) -> Optional[Tuple[int, int]]:
     return (start, end)
 
 
+def _trusted_host_names() -> set:
+    """Extra Host names allowed to write, from REEL_SCOUT_ALLOWED_HOSTS
+    (comma-separated) -- e.g. a MagicDNS name, if one is ever used instead of
+    the IP that scripts/web.sh prints."""
+    raw = os.environ.get("REEL_SCOUT_ALLOWED_HOSTS", "")
+    return {h.strip().lower() for h in raw.split(",") if h.strip()}
+
+
+def _host_is_trusted(hostname: Optional[str]) -> bool:
+    """IP literals and localhost cannot be DNS-rebound; any other name can."""
+    if not hostname:
+        return False
+    hostname = hostname.lower()
+    if hostname == "localhost":
+        return True
+    try:
+        ipaddress.ip_address(hostname)
+        return True
+    except ValueError:
+        return hostname in _trusted_host_names()
+
+
+def write_refusal(headers: Any) -> Optional[Tuple[int, str]]:
+    """Why a POST must not be honoured, or None when it may proceed.
+
+    The write endpoints delete groups and overwrite the operator's notes, and
+    the DB keeps no history. Without this, any page open in the same browser
+    could do that with `fetch(url, {method: 'POST', mode: 'no-cors'})`: a
+    text/plain body is a "simple" request, so no CORS preflight ever asked.
+
+    1. Host must be an IP literal, localhost, or explicitly allowed -- a page
+       that DNS-rebinds its own name onto 127.0.0.1 is "same-origin" with us
+       and would sail past the Origin check; its Host header still names it.
+    2. A browser always sends Origin on POST. When present it must be us
+       (scheme-less compare of netloc against Host); `null` is refused.
+    3. Content-Type must be application/json -- which a cross-site page cannot
+       send without a preflight this server never answers -- *unless* Origin
+       already proved the request same-origin. That exception is what keeps
+       the viewer's pagehide `sendBeacon` safe on browsers that send it as
+       text/plain; a request with neither proof is refused.
+    """
+    host = (headers.get("Host") or "").strip()
+    if not host:
+        return 403, "missing Host header"
+    hostname = urlsplit("//" + host).hostname
+    if not _host_is_trusted(hostname):
+        return 403, "untrusted Host %r (set REEL_SCOUT_ALLOWED_HOSTS to allow it)" % host
+    site = (headers.get("Sec-Fetch-Site") or "").strip().lower()
+    if site in ("cross-site", "same-site"):
+        return 403, "cross-site write refused"
+    origin = headers.get("Origin")
+    same_origin = False
+    if origin is not None:
+        origin = origin.strip()
+        if origin == "null" or urlsplit(origin).netloc.lower() != host.lower():
+            return 403, "cross-origin write refused"
+        same_origin = True
+    ctype = (headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+    if ctype != "application/json" and not same_origin:
+        return 415, "writes require Content-Type: application/json"
+    return None
+
+
 def make_inspect_server(host: str = "127.0.0.1", port: int = 0,
                         default_id: Optional[str] = None):
     """Build (but don't start) the inspector HTTP server. Each request opens its
@@ -984,6 +1050,11 @@ def make_inspect_server(host: str = "127.0.0.1", port: int = 0,
             operator's own layer. Everything the pipeline produced stays
             read-only over HTTP, and nothing here runs the pipeline."""
             path = self.path.split("?", 1)[0]
+            refusal = write_refusal(self.headers)
+            if refusal is not None:
+                self._send(refusal[0], json.dumps({"error": refusal[1]}),
+                           "application/json")
+                return
             if path.startswith("/api/request-analysis/"):
                 self._request_analysis(path[len("/api/request-analysis/"):])
                 return
