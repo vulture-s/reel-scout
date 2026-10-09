@@ -363,21 +363,59 @@ def _video_ids(conn) -> Set[str]:
     return {r[0] for r in conn.execute("SELECT id FROM videos")}
 
 
-def resolve_video_id(conn, before: Set[str], url: str) -> Optional[str]:
-    """Which row this run produced, or None.
+def reported_video_id(report_path: str) -> Optional[str]:
+    """The video id the `analyze` child says it produced, or None.
 
-    Matched by set difference rather than URL equality: shared links routinely
-    carry `?igsh=`-style tracking parameters and will not compare equal to what
-    was stored. None means the caller must skip — handing one entry's analysis to
-    another is worse than producing one bundle fewer.
+    This is the primary answer: the child knows which row it wrote, and no
+    other process's writes can change what it reports. None when the report is
+    missing, unreadable, or does not name exactly one video.
+    """
+    try:
+        with open(report_path, "r", encoding="utf-8") as f:
+            items = json.load(f).get("items") or []
+    except (OSError, ValueError, AttributeError):
+        return None
+    ids = {it.get("video_id") for it in items if isinstance(it, dict)}
+    ids.discard(None)
+    if len(ids) == 1:
+        return next(iter(ids))
+    return None
+
+
+def resolve_video_id(conn, before: Set[str], url: str) -> Optional[str]:
+    """Fallback when the child's report is unavailable: which row is ours?
+
+    A row only counts if its stored url is the url this entry passed to
+    `analyze` -- the child stores exactly that string. Set difference alone is
+    not enough: when this entry's video was already in the library, the child
+    adds no row, and a row another process added in the same window (a second
+    batch, MCP `analyze`, the CLI) was the only "new" one -- and got claimed,
+    handing that video's analysis to this entry's label. None means the caller
+    must skip: one bundle fewer beats a bundle under the wrong name.
     """
     new = _video_ids(conn) - before
-    if len(new) == 1:
-        return next(iter(new))
-    if len(new) > 1:
-        return None
-    row = conn.execute("SELECT id FROM videos WHERE url = ?", (url,)).fetchone()
-    return row["id"] if row else None
+    same_url = {r[0] for r in conn.execute("SELECT id FROM videos WHERE url = ?", (url,))}
+    mine = new & same_url
+    if len(mine) == 1:
+        return next(iter(mine))
+    if not mine and len(same_url) == 1:
+        return next(iter(same_url))
+    return None
+
+
+def _report_path(out_root: str, index: int) -> str:
+    """Where the analyze child writes the id it produced. Cleared first so a
+    leftover from an earlier run can never be read as this one's answer."""
+    path = os.path.join(out_root, ".analyze-ids-%d-%d.json" % (os.getpid(), index))
+    _discard(path)
+    return path
+
+
+def _discard(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 def needs_completion(conn, video_id: str) -> bool:
@@ -502,10 +540,13 @@ def run_batch(entries: List[Tuple[str, str]], out_root: str, mode: str,
         print("    %s" % url)
 
         before = _video_ids(conn)
-        cmd = self_cmd("analyze", url)
+        report = _report_path(out_root, i)
+        cmd = self_cmd("analyze", url, "--report-ids", report)
         if mode != "full":
             cmd.append("--skip-vision")
         rc = _run(cmd, verbose, timeout=config.BATCH_ANALYZE_TIMEOUT)
+        reported = reported_video_id(report)
+        _discard(report)
         if rc != 0:
             reason = _step_failure("analyze", rc, config.BATCH_ANALYZE_TIMEOUT)
             print("    x %s" % reason)
@@ -513,7 +554,7 @@ def run_batch(entries: List[Tuple[str, str]], out_root: str, mode: str,
             emit("item_failed", url=url, label=label, reason=reason)
             continue
 
-        vid = resolve_video_id(conn, before, url)
+        vid = reported or resolve_video_id(conn, before, url)
         if not vid:
             print("    x could not tell which video this produced — skipped, not guessed")
             failed.append({"label": label, "url": url, "reason": "video id unresolved"})

@@ -106,7 +106,7 @@ class InstagramCrawler(BaseCrawler):
             base_cmd.extend(["--cookies", cookies])
 
         # Get metadata
-        meta_cmd = base_cmd + ["--dump-json", "--no-download", url]
+        meta_cmd = base_cmd + ["--dump-json", "--no-download", "--", url]
         result = subprocess.run(
             meta_cmd, capture_output=True, text=True, timeout=60,
         )
@@ -152,7 +152,7 @@ class InstagramCrawler(BaseCrawler):
             # every slide renders to the same ig_<post>.mp4 template, and the
             # photo slides fail the whole download.
             dl_cmd += ["--playlist-items", str(playlist_index)]
-        dl_cmd.append(url)
+        dl_cmd += ["--", url]  # "--": a URL is never an option
         result = subprocess.run(
             dl_cmd, capture_output=True, text=True, timeout=300,
         )
@@ -216,7 +216,7 @@ class InstagramCrawler(BaseCrawler):
             "--dump-json",
             "--no-download",
             "--playlist-end", str(limit),
-            url,
+            "--", url,  # "--": a URL is never an option
         ]
 
         result = subprocess.run(

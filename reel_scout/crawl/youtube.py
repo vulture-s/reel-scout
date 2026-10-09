@@ -192,7 +192,7 @@ class YouTubeCrawler(BaseCrawler):
             "-o", output_template,
             "--no-playlist",
             "--remote-components", "ejs:github",
-            url,
+            "--", url,  # "--": a URL is never an option
         )
         try:
             subprocess.run(cmd, capture_output=True, text=True, timeout=120)
@@ -214,7 +214,7 @@ class YouTubeCrawler(BaseCrawler):
             "--dump-json",
             "--no-download",
             "--remote-components", "ejs:github",
-            url,
+            "--", url,  # "--": a URL is never an option
         )
         result = subprocess.run(
             meta_cmd, capture_output=True, text=True, timeout=60,
@@ -264,7 +264,7 @@ class YouTubeCrawler(BaseCrawler):
                 "--no-playlist",
                 "--remote-components", "ejs:github",
                 *extra,
-                url,
+                "--", url,  # "--": a URL is never an option
             )
             try:
                 return subprocess.run(
@@ -384,7 +384,7 @@ class YouTubeCrawler(BaseCrawler):
             "--no-download",
             "--playlist-end", str(limit),
             "--remote-components", "ejs:github",
-            url,
+            "--", url,  # "--": a URL is never an option
         )
 
         result = subprocess.run(
