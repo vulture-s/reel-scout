@@ -77,6 +77,25 @@ def _measured_block(analysis_json: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _parse_score_json(text: str) -> dict:
+    """The score reply as a dict, or ValueError naming what was wrong with it.
+
+    Prose around the object is tolerated (the outermost {...} is used), as it
+    always was. No object at all, broken JSON, or JSON that is not an object
+    raise -- the caller writes nothing.
+    """
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        m = re.search(r"\{[\s\S]*\}", text or "")
+        if not m:
+            raise ValueError("score reply has no JSON object: %r" % (text or "")[:200])
+        data = json.loads(m.group())      # JSONDecodeError is a ValueError
+    if not isinstance(data, dict):
+        raise ValueError("score reply is not a JSON object: %r" % (text or "")[:200])
+    return data
+
+
 @dataclass
 class VideoScore:
     hook_strength: float = 0.0
@@ -136,20 +155,18 @@ def score_video(
     llm = get_llm(llm_backend)
     result_text = llm.complete(prompt, max_tokens=300, temperature=0.2)
 
-    # Parse JSON response
-    try:
-        data = json.loads(result_text)
-    except json.JSONDecodeError:
-        m = re.search(r"\{[\s\S]*\}", result_text)
-        if m:
-            data = json.loads(m.group())
-        else:
-            data = {}
-
-    hook = float(data.get("hook_strength", 0))
-    visual = float(data.get("visual_storytelling", 0))
-    pacing = float(data.get("pacing", 0))
-    structure = float(data.get("structure", 0))
+    # Parse JSON response. Anything that is not four in-range numbers is an
+    # error, never a score: this used to fall back to `{}` and
+    # `data.get(dim, 0)`, so a refusal or a truncated reply was written down as
+    # 0.0 x4, and a reply on the wrong scale (47, -3, 85, NaN) went in as-is --
+    # `overall` 16.95, 77.75 or NULL in the corpus aggregates. The agent-ingest
+    # path already refuses all of these through `ingest._as_score`; this is the
+    # same gate, so the two producers cannot disagree about what a score is.
+    data = _parse_score_json(result_text)
+    hook = ingest._as_score(data.get("hook_strength"), "hook_strength")
+    visual = ingest._as_score(data.get("visual_storytelling"), "visual_storytelling")
+    pacing = ingest._as_score(data.get("pacing"), "pacing")
+    structure = ingest._as_score(data.get("structure"), "structure")
     # overall is COMPUTED from the dimensions, never read from the model's own
     # "overall" field (it drifts ~0.1 from the formula). Delegating to
     # ingest.compute_overall means the agent-ingest path and this path are the
