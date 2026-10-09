@@ -110,3 +110,29 @@ def test_import_time_value_still_works_without_env(no_cookies_env, monkeypatch, 
     jar.write_text("x")
     monkeypatch.setattr(config, "IG_COOKIES_FILE", str(jar))
     assert instagram._cookie_args() == ["--cookies", str(jar)]
+
+
+def test_cli_browse_cookies_flag_reaches_ytdlp(no_cookies_env, tmp_path, monkeypatch):
+    """`browse --cookies` is the profile-listing path -- the one that most
+    needs a login -- and was a no-op the same way as `crawl --cookies`."""
+    jar = tmp_path / "cookies.txt"
+    jar.write_text("# Netscape HTTP Cookie File\n")
+    calls = []
+
+    def _run(cmd, **kw):
+        calls.append(list(cmd))
+        # rc 0 + empty listing: no instaloader fallback, no network.
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(sys, "argv", ["reel-scout", "browse",
+                                      "https://www.instagram.com/someuser/",
+                                      "--cookies", str(jar)])
+    with patch("reel_scout.crawl.instagram.get_limiter"), \
+         patch("reel_scout.crawl.instagram.ytdlp.base_cmd", return_value=["yt-dlp"]), \
+         patch("reel_scout.crawl.instagram.subprocess.run", side_effect=_run):
+        try:
+            cli.main()
+        except SystemExit:
+            pass
+    assert calls, "yt-dlp was never invoked"
+    assert _cookie_values(calls) == [str(jar)] * len(calls)
