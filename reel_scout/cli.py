@@ -1160,7 +1160,7 @@ def _cmd_view(args) -> None:
     viewer.serve(host=args.host, port=args.port, open_browser=args.open_browser)
 
 
-def _cmd_export(args) -> None:
+def _cmd_export(args) -> Optional[int]:
     from . import db
     from .export.json_export import export_csv, export_html, export_json
 
@@ -1179,7 +1179,7 @@ def _cmd_export(args) -> None:
             if video_id is None:
                 print(f"Video not found: {args.video}")
                 conn.close()
-                return
+                return 1
         count = export_skeleton(conn, args.output, video_id=video_id)
         print(f"Wrote {count} skeleton JSON file(s) to {args.output}/")
     elif args.format == "storyboard":
@@ -1191,7 +1191,7 @@ def _cmd_export(args) -> None:
             if video_id is None:
                 print(f"Video not found: {args.video}")
                 conn.close()
-                return
+                return 1
         count = export_storyboard(conn, args.output, video_id=video_id)
         print(f"Wrote {count} storyboard project(s) to {args.output}/")
         if count:
@@ -1208,7 +1208,7 @@ def _cmd_export(args) -> None:
             if video_id is None:
                 print(f"Video not found: {args.video}")
                 conn.close()
-                return
+                return 1
         path = export_html(conn, args.output, video_id=video_id)
         print(f"Wrote self-contained viewer to {path}")
     elif args.format == "bundle":
@@ -1220,7 +1220,7 @@ def _cmd_export(args) -> None:
             if vid is None:
                 print(f"Video not found: {args.video}")
                 conn.close()
-                return
+                return 1
             ids = [vid]
         summary = build_bundle(conn, args.output, video_ids=ids,
                                cjk_ttf=args.cjk_font,
@@ -1233,11 +1233,18 @@ def _cmd_export(args) -> None:
         print("Wrote %d self-contained reel(s) + index.html to %s/ (%.1f MB total)"
               % (len(summary["written"]), summary["out_dir"],
                  summary["total_bytes"] / 1048576.0))
+        # A reel that was asked for and skipped is a failure, not a smaller
+        # success: `batch` reads only this exit code, and 0 here recorded a
+        # folder holding nothing but "Nothing bundled" as a finished bundle.
+        if summary["skipped"] and (ids is not None or not summary["written"]):
+            conn.close()
+            return 1
 
     conn.close()
+    return None
 
 
-def _cmd_score(args) -> None:
+def _cmd_score(args) -> Optional[int]:
     from . import db
     from .scorer import score_video
 
@@ -1248,7 +1255,7 @@ def _cmd_score(args) -> None:
     if not video:
         print(f"Video not found: {args.video_id}")
         conn.close()
-        return
+        return 1
 
     existing = db.get_score(conn, args.video_id)
     if existing:
@@ -1272,9 +1279,15 @@ def _cmd_score(args) -> None:
         print(f"  Structure:  {score.structure:.1f}")
         print(f"  Reasoning:  {score.reasoning}")
     except ValueError as e:
+        # Includes json.JSONDecodeError from an unparseable model reply. Exit
+        # non-zero: `batch` retries and reports on this code alone, and a 0
+        # here was read as "scored" while nothing was written.
         print(f"Error: {e}")
+        conn.close()
+        return 1
 
     conn.close()
+    return None
 
 
 def _cmd_ingest(args) -> None:
