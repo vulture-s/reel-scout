@@ -481,8 +481,19 @@ def run_batch(entries: List[Tuple[str, str]], out_root: str, mode: str,
     # monotonic, not wall clock: an NTP correction must not move the deadline.
     started = time.monotonic()
 
+    used_slugs: Set[str] = set()
     for i, (label, url) in enumerate(entries, 1):
         slug = slugify(label, i, url)
+        # One student, two reels, same label: both slugged to one directory and
+        # the second bundle overwrote the first (IG titles are "Video by
+        # <handle>", so the page filenames collide too) while the manifest
+        # listed both as done. The first keeps the plain name.
+        if slug in used_slugs:
+            base = "%s-%s" % (slug, _url_key(url) or "%02d" % i)
+            slug, n = base, 2
+            while slug in used_slugs:
+                slug, n = "%s-%d" % (base, n), n + 1
+        used_slugs.add(slug)
         # Checked here and nowhere else, matching the cancel contract exactly:
         # half an analysis is worse than one more finished video. Overshoot is
         # therefore bounded by one item, not by the deadline.
