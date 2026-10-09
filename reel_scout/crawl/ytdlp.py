@@ -14,12 +14,15 @@ Two long-standing footguns live here (roadmap 5B):
 """
 from __future__ import annotations
 
+import atexit
 import glob
 import importlib.util
 import os
+import shutil
 import sys
+import tempfile
 from functools import lru_cache
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from .. import config
 from ..utils.stderr import warn
@@ -85,6 +88,49 @@ def apple_safe_format(max_height: int = None) -> str:
         "best{h}[vcodec!*=av01]/"
         "bestvideo{h}+bestaudio/best{h}"
     ).format(h=h) + ("/best" if h else "")
+
+
+_COOKIE_DIR = None  # type: Optional[str]
+
+
+def _cleanup_cookie_copies() -> None:
+    global _COOKIE_DIR
+    if _COOKIE_DIR:
+        shutil.rmtree(_COOKIE_DIR, ignore_errors=True)
+        _COOKIE_DIR = None
+
+
+def private_cookie_copy(path: str) -> str:
+    """A throwaway copy of the cookies file for ONE yt-dlp invocation.
+
+    yt-dlp saves its cookie jar back to `--cookies <file>` on exit by
+    truncating the file in place and rewriting it -- not atomically. Hand two
+    concurrent runs the user's own file and a reader can catch it mid-rewrite:
+    it fails to load ("does not look like a Netscape format cookies file"), or
+    loads half, and then writes that half back. Measured with four processes
+    on a 300-cookie jar: 3 of 4 failed and 60 cookies were left. The original
+    is therefore only ever read; what yt-dlp writes lands in a private copy.
+
+    The copies live in one 0700 directory per process, are 0600 themselves
+    (they are login credentials), and are removed at exit. Cookie refreshes
+    yt-dlp would have written back are deliberately dropped -- the session
+    cookie is what matters and it is long-lived.
+    """
+    global _COOKIE_DIR
+    if not _COOKIE_DIR or not os.path.isdir(_COOKIE_DIR):
+        _COOKIE_DIR = tempfile.mkdtemp(prefix="reel-scout-cookies-")
+        os.chmod(_COOKIE_DIR, 0o700)
+        atexit.register(_cleanup_cookie_copies)
+    fd, copy = tempfile.mkstemp(suffix=".txt", dir=_COOKIE_DIR)
+    try:
+        os.chmod(copy, 0o600)
+        with open(path, "rb") as src, os.fdopen(fd, "wb") as dst:
+            fd = -1
+            shutil.copyfileobj(src, dst)
+    finally:
+        if fd != -1:
+            os.close(fd)
+    return copy
 
 
 def cmd(*args: str) -> List[str]:

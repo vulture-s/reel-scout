@@ -40,7 +40,21 @@ def recorded():
 
 
 def _cookie_values(calls):
-    return [c[c.index("--cookies") + 1] for c in calls if "--cookies" in c]
+    """What each yt-dlp call was given as its cookie jar -- by content, because
+    yt-dlp gets a private copy of the file, never the file itself (see
+    tests/test_cookie_private_copy.py)."""
+    out = []
+    for c in calls:
+        if "--cookies" in c:
+            with open(c[c.index("--cookies") + 1], encoding="utf-8") as f:
+                out.append(f.read())
+    return out
+
+
+def _args_content(args):
+    assert args[0] == "--cookies"
+    with open(args[1], encoding="utf-8") as f:
+        return f.read()
 
 
 def test_cli_crawl_cookies_flag_reaches_ytdlp(temp_db, no_cookies_env, recorded,
@@ -53,7 +67,7 @@ def test_cli_crawl_cookies_flag_reaches_ytdlp(temp_db, no_cookies_env, recorded,
     except SystemExit:
         pass
     assert recorded, "yt-dlp was never invoked"
-    assert _cookie_values(recorded) == [str(jar)] * len(recorded)
+    assert _cookie_values(recorded) == [jar.read_text()] * len(recorded)
 
 
 def test_cli_crawl_missing_cookies_file_is_an_error(temp_db, no_cookies_env, recorded,
@@ -74,7 +88,7 @@ def test_mcp_crawl_cookies_reach_ytdlp_and_do_not_leak(temp_db, no_cookies_env,
     jar = tmp_path / "cookies.txt"
     jar.write_text("# Netscape HTTP Cookie File\n")
     tools.call_tool("crawl", {"urls": [IG], "cookies": str(jar)})
-    assert recorded and _cookie_values(recorded) == [str(jar)] * len(recorded)
+    assert recorded and _cookie_values(recorded) == [jar.read_text()] * len(recorded)
     # The MCP server is long-lived: the next call must not inherit the jar.
     assert "IG_COOKIES_FILE" not in os.environ
     del recorded[:]
@@ -102,14 +116,14 @@ def test_env_set_after_import_wins(no_cookies_env, monkeypatch, tmp_path):
     jar = tmp_path / "c.txt"
     jar.write_text("x")
     monkeypatch.setenv("IG_COOKIES_FILE", str(jar))
-    assert instagram._cookie_args() == ["--cookies", str(jar)]
+    assert _args_content(instagram._cookie_args()) == "x"
 
 
 def test_import_time_value_still_works_without_env(no_cookies_env, monkeypatch, tmp_path):
     jar = tmp_path / "c.txt"
     jar.write_text("x")
     monkeypatch.setattr(config, "IG_COOKIES_FILE", str(jar))
-    assert instagram._cookie_args() == ["--cookies", str(jar)]
+    assert _args_content(instagram._cookie_args()) == "x"
 
 
 def test_cli_browse_cookies_flag_reaches_ytdlp(no_cookies_env, tmp_path, monkeypatch):
@@ -135,4 +149,4 @@ def test_cli_browse_cookies_flag_reaches_ytdlp(no_cookies_env, tmp_path, monkeyp
         except SystemExit:
             pass
     assert calls, "yt-dlp was never invoked"
-    assert _cookie_values(calls) == [str(jar)] * len(calls)
+    assert _cookie_values(calls) == [jar.read_text()] * len(calls)
