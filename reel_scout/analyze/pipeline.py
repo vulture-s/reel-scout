@@ -245,7 +245,23 @@ def _process_single(
 ) -> str:
     # Step 1: Download (skip if already exists)
     existing = db.get_video_by_url(conn, url)
-    if existing and existing["file_path"] and media_paths.exists(existing["file_path"]):
+    if (existing is not None and existing["platform"] == LOCAL_PLATFORM
+            and _is_local_source(url)
+            and existing["platform_id"] != _hash_file(url)):
+        # Same path, different bytes: an edit re-exported over the old file.
+        # Reusing the row would pair the new cut with the old cut's transcript,
+        # frames, analysis and score -- every stage reports "already done".
+        # The content hash is the identity of a local clip, so register anew.
+        print("  Local file changed since %s was analyzed -- treating it as a "
+              "new clip" % existing["id"])
+        existing = None
+        url_is_recut = True
+    else:
+        url_is_recut = False
+    if url_is_recut:
+        print("  Registering local file...")
+        video_id = _register_local_video(conn, url)
+    elif existing and existing["file_path"] and media_paths.exists(existing["file_path"]):
         video_id = existing["id"]
         print("  Skipping download (already exists)")
     elif _is_local_source(url):
