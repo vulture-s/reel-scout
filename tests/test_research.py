@@ -165,3 +165,38 @@ def test_render_report_falls_back_when_llm_unavailable(monkeypatch):
     finally:
         conn.close()
         os.unlink(path)
+
+
+def test_invalid_videos_are_left_out_of_the_averages():
+    """A clip whose media never processed is not a weak clip.
+
+    stats, patterns and health all exclude `status='invalid'`; research did not,
+    so a fake 0.0 left over from a never-processed clip dragged a channel's
+    average (and the LLM report built on it) down. Found 2026-10-09: a 7.0
+    channel reported 4.67 with one invalid row in it.
+    """
+    from reel_scout import validity
+    conn, path = _fresh_db()
+    try:
+        mapping = _two_channel_corpus(conn)
+        fake = db.upsert_video(conn, platform="youtube", platform_id="z",
+                               url="https://y/z", title="z", uploader="Alpha")
+        conn.execute(
+            "INSERT INTO scores (video_id, hook_strength, visual_storytelling, "
+            "pacing, structure, overall) VALUES (?,0,0,0,0,0)", (fake,))
+        conn.commit()
+        validity.mark_invalid(conn, fake, "0 keyframes")
+        mapping["https://chan/alpha"].append(fake)
+
+        report = research.aggregate(conn, mapping, niche="n")
+        alpha = next(c for c in report["channels"]
+                     if c["channel_url"] == "https://chan/alpha")
+        assert alpha["avg_overall"] == 7.0
+        assert alpha["video_count"] == 2
+        # Reported, not silently dropped.
+        assert alpha["excluded_invalid"] == 1
+        assert report["niche_wide"]["excluded_invalid"] == 1
+        assert report["niche_wide"]["video_count"] == 3
+    finally:
+        conn.close()
+        os.unlink(path)

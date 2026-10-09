@@ -98,10 +98,19 @@ class PipelineOptions:
     end_sec: float = 0.0      # 招③ focus window end (0 = whole clip)
 
 
-def run(urls: List[str], options: Optional[PipelineOptions] = None) -> int:
-    """Run the pipeline over `urls`. Returns how many items errored."""
+def run(urls: List[str], options: Optional[PipelineOptions] = None,
+        report_path: Optional[str] = None) -> int:
+    """Run the pipeline over `urls`. Returns how many items errored.
+
+    `report_path`, when given, receives `{"items": [{"url", "video_id"}]}` for
+    every item that finished. `reel-scout batch` runs each entry as a separate
+    `analyze` process and needs to know which row that process produced;
+    asking the child is the only answer that cannot be confused by another
+    process writing to the same library at the same time.
+    """
     if options is None:
         options = PipelineOptions()
+    produced = []  # type: List[dict]
 
     config.ensure_dirs()
     conn = db.init_db()
@@ -151,6 +160,7 @@ def run(urls: List[str], options: Optional[PipelineOptions] = None) -> int:
             try:
                 video_id = _process_single(conn, url, options)
                 db.update_batch_item(conn, batch_id, url, "done", video_id=video_id)
+                produced.append({"url": url, "video_id": video_id})
                 print(f"  Done: {video_id}")
             except Exception as e:
                 errors += 1
@@ -171,12 +181,21 @@ def run(urls: List[str], options: Optional[PipelineOptions] = None) -> int:
     finally:
         signal.signal(signal.SIGINT, original_handler)
         conn.close()
+        if report_path:
+            _write_report(report_path, produced)
 
     # Deliberately not counting the interrupt: a Ctrl-C also leaves work undone,
     # but that is the operator's own doing and it already says so on screen.
     # Folding it in here would change what an exit code means for a case nobody
     # complained about, so it stays a separate decision.
     return errors
+
+
+def _write_report(path: str, produced: List[dict]) -> None:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"items": produced}, f, ensure_ascii=False)
+    os.replace(tmp, path)
 
 
 def fallback_blocked_because(backend, fallback_model, primary_model,
@@ -339,8 +358,12 @@ def _process_single(
                 import tempfile
                 wav_path = tempfile.mktemp(suffix=".wav")
                 try:
-                    extract_wav(file_path, wav_path)
+                    # At the analyzer's own rate, not extract_wav's 16 kHz
+                    # default (that is Whisper's): PANNs reads 16 kHz as
+                    # double-pitch audio and hears talk as animal noise.
                     analyzer = get_audio_analyzer()
+                    extract_wav(file_path, wav_path,
+                                sample_rate=getattr(analyzer, "sample_rate", 16000))
                     timeline = analyzer.analyze(wav_path)
                     events_data = [
                         {"event_type": e.event_type, "label": e.label,
@@ -531,6 +554,21 @@ def _process_single(
                         f"left empty for a later vision retry",
                         file=sys.stderr,
                     )
+
+    # Vision was attempted and not one frame came back described: the VLM is
+    # down, not the clip. Merging now would put "(no vision data)" into the
+    # prompt and score visual_storytelling on nothing -- and because merge and
+    # score are skipped as "already done" on every later run, the retry the
+    # message above promises would backfill the descriptions and change
+    # nothing else. Stop here instead; a re-run with the VLM up merges then.
+    # A partial layer (some frames described) is evidence and still merges.
+    if (not options.skip_vision and frames
+            and not db.get_described_keyframe_ids(conn, video_id)):
+        raise RuntimeError(
+            "no keyframe could be described (%d tried; is the VLM backend "
+            "running?) -- stopping before merge so the analysis and score are "
+            "not built on an empty visual layer. Re-run analyze once the VLM "
+            "is reachable." % len(frames))
 
     # Step 3.5: Shot & audio metrics (§4E measured pacing).
     # Measures cut rhythm (cuts/min) + audio energy/BPM so the pacing score rests
