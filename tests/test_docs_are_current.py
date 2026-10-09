@@ -84,6 +84,11 @@ def _subparsers(parser: argparse.ArgumentParser) -> Dict[str, argparse.ArgumentP
 def _flags(parser: argparse.ArgumentParser) -> Set[str]:
     out: Set[str] = set()
     for action in parser._actions:
+        # help=SUPPRESS marks an internal plumbing flag (e.g. analyze
+        # --report-ids, which only `batch` passes); it is hidden from --help
+        # on purpose and must not be advertised to agents either.
+        if action.help == argparse.SUPPRESS:
+            continue
         for opt in action.option_strings:
             if opt.startswith("--") and opt != "--help":
                 out.add(opt)
