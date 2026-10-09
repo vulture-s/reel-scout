@@ -18,6 +18,30 @@ from . import config
 from .utils.stderr import warn
 
 
+def ffprobe_bin(ffmpeg: Optional[str] = None, pathmod=os.path) -> str:
+    """The ffprobe to run: `FFPROBE_BIN` if set, else the one beside ffmpeg.
+
+    Only the *file name* is rewritten. This used to be
+    `FFMPEG_BIN.replace("ffmpeg", "ffprobe")`, which also rewrote every
+    directory containing "ffmpeg" -- `/opt/homebrew/Cellar/ffmpeg/7.1/bin/ffmpeg`
+    became `.../Cellar/ffprobe/...`, `C:\\ffmpeg\\bin\\ffmpeg.exe` became
+    `C:\\ffprobe\\...` -- and every probe then failed quietly to None.
+    `pathmod` exists so the Windows split can be tested on any host.
+    """
+    override = os.environ.get("FFPROBE_BIN", "").strip()
+    if override:
+        return override
+    ffmpeg = ffmpeg or config.FFMPEG_BIN
+    head, name = pathmod.split(ffmpeg)
+    if name.lower().startswith("ffmpeg"):
+        name = "ffprobe" + name[len("ffmpeg"):]
+    else:
+        # A custom-named binary (a wrapper, a test double) keeps the old
+        # semantics -- the same substitution, applied to the file name only.
+        name = name.replace("ffmpeg", "ffprobe")
+    return pathmod.join(head, name) if head else name
+
+
 def probe_duration(path: str) -> Optional[float]:
     """Best-effort duration probe in seconds.
 
@@ -26,7 +50,7 @@ def probe_duration(path: str) -> Optional[float]:
     unset until something actually measures it.
     """
     cmd = [
-        config.FFMPEG_BIN.replace("ffmpeg", "ffprobe"),
+        ffprobe_bin(),
         "-v", "quiet",
         "-show_entries", "format=duration",
         "-of", "csv=p=0",
@@ -50,7 +74,7 @@ def probe_audio_stream_count(path: str) -> Optional[int]:
     caller should fall through to the transcriber rather than declare silence.
     """
     cmd = [
-        config.FFMPEG_BIN.replace("ffmpeg", "ffprobe"),
+        ffprobe_bin(),
         "-v", "error",
         "-select_streams", "a",
         "-show_entries", "stream=index",
@@ -79,7 +103,7 @@ def probe_video_codec(path: str) -> Optional[str]:
     failed probe as a pass.
     """
     cmd = [
-        config.FFMPEG_BIN.replace("ffmpeg", "ffprobe"),
+        ffprobe_bin(),
         "-v", "error",
         "-select_streams", "v:0",
         "-show_entries", "stream=codec_name",
@@ -107,7 +131,7 @@ def probe_dimensions(path: str) -> Optional[Tuple[int, int]]:
     failed probe as landscape will silently mis-shape every vertical clip.
     """
     cmd = [
-        config.FFMPEG_BIN.replace("ffmpeg", "ffprobe"),
+        ffprobe_bin(),
         "-v", "error",
         "-select_streams", "v:0",
         "-show_entries", "stream=width,height",
