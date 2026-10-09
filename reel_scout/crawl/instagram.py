@@ -219,6 +219,9 @@ class InstagramCrawler(BaseCrawler):
             url,
         ]
 
+        # Profile listing is the most login-sensitive IG request there is; it
+        # shares the per-platform pace with download() (it used to bypass it).
+        get_limiter(self.platform).wait()
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=120,
         )

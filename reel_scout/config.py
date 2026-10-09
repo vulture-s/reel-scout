@@ -202,7 +202,13 @@ WHISPER_ZH_PROMPT = os.getenv("WHISPER_ZH_PROMPT", "以下是一段繁體中文�
 
 # --- Crawl ---
 IG_COOKIES_FILE = os.getenv("IG_COOKIES_FILE", "")
-RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "10"))
+# Ceiling on crawl requests/minute, applied per platform on top of the built-in
+# per-platform defaults (crawl/rate_limiter.PLATFORM_RATES): it can only slow
+# pacing down. Read at call time by the limiter; this copy is for `config` output.
+try:
+    RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "10"))
+except ValueError:  # the limiter warns and ignores it; don't crash every import
+    RATE_LIMIT_PER_MINUTE = 10
 
 # --- Vision ---
 KEYFRAME_STRATEGY = os.getenv("KEYFRAME_STRATEGY", "scene")

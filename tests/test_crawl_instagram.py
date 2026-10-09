@@ -13,6 +13,30 @@ def _patch_basecmd():
     return patch("reel_scout.crawl.instagram.ytdlp.base_cmd", return_value=["yt-dlp"])
 
 
+@pytest.fixture(autouse=True)
+def _no_pacing(monkeypatch):
+    """browse() now waits on the shared IG limiter; tests must not sleep 12s
+    or write a ratelimit.db into the working directory."""
+    import reel_scout.crawl.instagram as ig
+    monkeypatch.setattr(ig, "get_limiter", lambda platform: MagicMock())
+
+
+def test_browse_waits_for_the_instagram_limiter(monkeypatch):
+    import reel_scout.crawl.instagram as ig
+    order = []
+    lim = MagicMock()
+    lim.wait.side_effect = lambda: order.append("wait")
+    monkeypatch.setattr(ig, "get_limiter", lambda platform: order.append(platform) or lim)
+
+    def _run(cmd, **kw):
+        order.append("yt-dlp")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with _patch_basecmd(), patch("reel_scout.crawl.instagram.subprocess.run", side_effect=_run):
+        InstagramCrawler().browse("https://www.instagram.com/someuser/", limit=5)
+    assert order == ["instagram", "wait", "yt-dlp"], order
+
+
 def test_browse_success_no_fallback():
     c = InstagramCrawler()
     ok = MagicMock()
