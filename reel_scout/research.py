@@ -16,7 +16,7 @@ import json as _json
 from collections import Counter
 from typing import Any, Dict, List, Optional
 
-from . import compare, db
+from . import compare, db, validity
 from .llm import get_llm
 
 # Tag fields aggregated per channel / niche (from compare.collect_video + the
@@ -97,11 +97,21 @@ def aggregate(
     niche-wide summary. No network, no LLM — unit-testable."""
     channels: List[Dict[str, Any]] = []
     all_rows: List[Dict[str, Any]] = []
+    excluded_total = 0
     for channel_url, video_ids in channel_to_video_ids.items():
+        # Same exclusion stats / patterns / health apply: a clip whose media
+        # never processed is a non-measurement, and its leftover 0.0 would drag
+        # the channel average the report is then written from. Counted rather
+        # than dropped silently, so a short channel says why it is short.
+        valid_ids = [v for v in video_ids if not validity.is_invalid(conn, v)]
+        excluded = len(video_ids) - len(valid_ids)
+        excluded_total += excluded
+        video_ids = valid_ids
         rows = [_collect_row(conn, vid) for vid in video_ids]
         all_rows.extend(rows)
         summary = _summarize(rows)
         summary["channel_url"] = channel_url
+        summary["excluded_invalid"] = excluded
         # A representative uploader label (most common non-null title-of-channel
         # proxy: the uploader on the videos).
         uploaders = _distribution(
@@ -112,6 +122,7 @@ def aggregate(
 
     niche_wide = _summarize(all_rows)
     niche_wide.pop("channel_url", None)
+    niche_wide["excluded_invalid"] = excluded_total
     return {
         "niche": niche,
         "channel_count": len(channel_to_video_ids),
@@ -191,6 +202,9 @@ def _fallback_report(report: Dict[str, Any]) -> str:
     lines.append("## Niche-wide")
     lines.append("- Channels: %d | videos: %d (analyzed %d)" % (
         report["channel_count"], nw["video_count"], nw["analyzed_count"]))
+    if nw.get("excluded_invalid"):
+        lines.append("- Excluded %d clip(s) marked invalid (media never processed)"
+                     % nw["excluded_invalid"])
     lines.append("- Modal format: %s | modal structure: %s | avg overall: %s" % (
         nw["modal_format"], nw["modal_structure"], nw["avg_overall"]))
     for field, dist in nw["distributions"].items():
