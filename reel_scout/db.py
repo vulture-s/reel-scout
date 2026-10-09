@@ -1334,7 +1334,18 @@ def save_transcript(
            VALUES (?,?,?,?,?,?)""",
         (video_id, language, text_full, segments_json, whisper_model, duration_sec),
     )
-    update_video_status(conn, video_id, "transcribed")
+    # Advance to 'transcribed', never back to it. An analysed clip whose
+    # transcript is re-saved keeps its analysis, and every export listing
+    # filters on 'analyzed' -- demoting it hid the clip from all of them, for
+    # good, because the pipeline skips merge once an analysis exists. An
+    # 'invalid' mark is a verdict about the media and is not a transcript's to
+    # undo either.
+    conn.execute(
+        "UPDATE videos SET status='transcribed', error_message=NULL, "
+        "updated_at=datetime('now') WHERE id=? "
+        "AND COALESCE(status, '') NOT IN ('analyzed', 'invalid')",
+        (video_id,),
+    )
     conn.commit()
     if notice:
         warn(notice)
