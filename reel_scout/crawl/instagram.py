@@ -66,6 +66,27 @@ def photo_only_count(stderr: str) -> int:
     return 0
 
 
+
+def _cookie_args() -> List[str]:
+    """`--cookies <path>` for yt-dlp, resolved at call time.
+
+    A configured path that does not exist is reported on stderr rather than
+    raised: public reels still work logged-out, and a stale IG_COOKIES_FILE in
+    .env should not break them -- but it must not be silent either, or the
+    later "need cookies?" error sends the user to re-export cookies that were
+    never being sent.
+    """
+    path = config.ig_cookies_file()
+    if not path:
+        return []
+    if not os.path.exists(path):
+        warn("[instagram] IG_COOKIES_FILE does not exist, crawling without "
+             "cookies: %s" % path)
+        return []
+    # A private copy, never the user's file: yt-dlp rewrites --cookies in place
+    # on exit, and concurrent runs racing on that rewrite destroy the jar.
+    return ["--cookies", ytdlp.private_cookie_copy(path)]
+
 class InstagramCrawler(BaseCrawler):
     platform = "instagram"
 
@@ -100,10 +121,7 @@ class InstagramCrawler(BaseCrawler):
         output_template = os.path.join(output_dir, f"ig_{post_id}.%(ext)s")
 
         # Build command with cookies if available
-        base_cmd = list(ytdlp.base_cmd())
-        cookies = config.IG_COOKIES_FILE
-        if cookies and os.path.exists(cookies):
-            base_cmd.extend(["--cookies", cookies])
+        base_cmd = list(ytdlp.base_cmd()) + _cookie_args()
 
         # Get metadata
         meta_cmd = base_cmd + ["--dump-json", "--no-download", "--", url]
@@ -206,10 +224,7 @@ class InstagramCrawler(BaseCrawler):
         Returns VideoMeta entries with metadata only (no downloaded files).
         Requires cookies for most profiles.
         """
-        base_cmd = list(ytdlp.base_cmd())
-        cookies = config.IG_COOKIES_FILE
-        if cookies and os.path.exists(cookies):
-            base_cmd.extend(["--cookies", cookies])
+        base_cmd = list(ytdlp.base_cmd()) + _cookie_args()
 
         cmd = base_cmd + [
             "--flat-playlist",

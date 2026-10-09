@@ -14,12 +14,15 @@ Two long-standing footguns live here (roadmap 5B):
 """
 from __future__ import annotations
 
+import atexit
 import glob
 import importlib.util
 import os
+import shutil
 import sys
+import tempfile
 from functools import lru_cache
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from .. import config
 from ..utils.stderr import warn
@@ -85,6 +88,102 @@ def apple_safe_format(max_height: int = None) -> str:
         "best{h}[vcodec!*=av01]/"
         "bestvideo{h}+bestaudio/best{h}"
     ).format(h=h) + ("/best" if h else "")
+
+
+_COOKIE_DIR = None  # type: Optional[str]
+_COOKIE_PREFIX = "reel-scout-cookies-"
+
+#: How long a private copy may outlive the yt-dlp call it was made for. The
+#: longest IG call holding one is metadata (60 s) + download (300 s); 15 min
+#: is comfortably past that. Without a bound, a long-lived process (the MCP
+#: server never exits) kept one login-cookie copy per video until it died, and
+#: a killed process (no atexit) left its copies in the temp dir for good.
+_COOKIE_COPY_TTL_SEC = 15 * 60
+
+
+def _sweep_stale_cookie_copies(now: Optional[float] = None) -> None:
+    """Delete private copies older than the TTL, in any reel-scout cookie dir.
+
+    Covers this process and ones that died without running atexit. Only files
+    past the TTL are touched, so a copy some live yt-dlp is still reading is
+    left alone; an emptied dir is removed only once it too is past the TTL
+    (a live process whose dir vanished just makes a new one, see below).
+    """
+    import time
+    now = time.time() if now is None else now
+    root = tempfile.gettempdir()
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return
+    for d in names:
+        if not d.startswith(_COOKIE_PREFIX):
+            continue
+        dpath = os.path.join(root, d)
+        try:
+            entries = os.listdir(dpath)
+        except OSError:
+            continue
+        for f in entries:
+            fpath = os.path.join(dpath, f)
+            try:
+                if now - os.path.getmtime(fpath) > _COOKIE_COPY_TTL_SEC:
+                    os.unlink(fpath)
+            except OSError:
+                pass
+        try:
+            if now - os.path.getmtime(dpath) > _COOKIE_COPY_TTL_SEC:
+                os.rmdir(dpath)               # fails, harmlessly, if not empty
+        except OSError:
+            pass
+
+
+def _cleanup_cookie_copies() -> None:
+    global _COOKIE_DIR
+    if _COOKIE_DIR:
+        shutil.rmtree(_COOKIE_DIR, ignore_errors=True)
+        _COOKIE_DIR = None
+
+
+def private_cookie_copy(path: str) -> str:
+    """A throwaway copy of the cookies file for ONE yt-dlp invocation.
+
+    yt-dlp saves its cookie jar back to `--cookies <file>` on exit by
+    truncating the file in place and rewriting it -- not atomically. Hand two
+    concurrent runs the user's own file and a reader can catch it mid-rewrite:
+    it fails to load ("does not look like a Netscape format cookies file"), or
+    loads half, and then writes that half back. Measured with four processes
+    on a 300-cookie jar: 3 of 4 failed and 60 cookies were left. The original
+    is therefore only ever read; what yt-dlp writes lands in a private copy.
+
+    The copies live in one 0700 directory per process, are 0600 themselves
+    (they are login credentials), and are removed at exit. Cookie refreshes
+    yt-dlp would have written back are deliberately dropped -- the session
+    cookie is what matters and it is long-lived.
+    """
+    global _COOKIE_DIR
+    _sweep_stale_cookie_copies()
+    if not _COOKIE_DIR or not os.path.isdir(_COOKIE_DIR):
+        _COOKIE_DIR = tempfile.mkdtemp(prefix=_COOKIE_PREFIX)
+        os.chmod(_COOKIE_DIR, 0o700)
+        atexit.register(_cleanup_cookie_copies)
+    try:
+        fd, copy = tempfile.mkstemp(suffix=".txt", dir=_COOKIE_DIR)
+    except FileNotFoundError:
+        # Another process's sweep removed our (empty, idle) dir between the
+        # isdir check and here. Make a fresh one; the copy still goes private.
+        _COOKIE_DIR = tempfile.mkdtemp(prefix=_COOKIE_PREFIX)
+        os.chmod(_COOKIE_DIR, 0o700)
+        fd, copy = tempfile.mkstemp(suffix=".txt", dir=_COOKIE_DIR)
+    try:
+        os.chmod(copy, 0o600)
+        with open(path, "rb") as src, os.fdopen(fd, "wb") as dst:
+            fd = -1
+            shutil.copyfileobj(src, dst)
+    finally:
+        if fd != -1:
+            os.close(fd)
+    return copy
 
 
 def cmd(*args: str) -> List[str]:

@@ -559,11 +559,19 @@ def _tool_crawl(args: Dict[str, Any]) -> Dict[str, Any]:
 
     cookies = args.get("cookies")
     if cookies:
-        os.environ["IG_COOKIES_FILE"] = cookies
+        try:
+            cookies = config.check_cookies_path(cookies)
+        except ValueError as e:
+            return _error_result(str(e))
 
     config.ensure_dirs()
     conn = db.init_db()
     results = []
+    # Scope the override to this call: the MCP server is long-lived, and a
+    # cookies path from one request must not leak into the next one.
+    prev_cookies = os.environ.get("IG_COOKIES_FILE")
+    if cookies:
+        os.environ["IG_COOKIES_FILE"] = cookies
     try:
         for url in urls:
             try:
@@ -597,6 +605,11 @@ def _tool_crawl(args: Dict[str, Any]) -> Dict[str, Any]:
                 results.append({"url": url, "status": "error", "error": str(exc)})
     finally:
         conn.close()
+        if cookies:
+            if prev_cookies is None:
+                os.environ.pop("IG_COOKIES_FILE", None)
+            else:
+                os.environ["IG_COOKIES_FILE"] = prev_cookies
     return _text_result(results)
 
 

@@ -525,7 +525,11 @@ def _cmd_browse(args) -> None:
     from .crawl import get_crawler
 
     if args.cookies:
-        os.environ["IG_COOKIES_FILE"] = args.cookies
+        try:
+            os.environ["IG_COOKIES_FILE"] = config.check_cookies_path(args.cookies)
+        except ValueError as e:
+            print(f"Error: {e}")
+            return
 
     try:
         crawler = get_crawler(args.url)
@@ -571,7 +575,11 @@ def _cmd_crawl(args) -> None:
         return
 
     if args.cookies:
-        os.environ["IG_COOKIES_FILE"] = args.cookies
+        try:
+            os.environ["IG_COOKIES_FILE"] = config.check_cookies_path(args.cookies)
+        except ValueError as e:
+            print(f"Error: {e}")
+            return
 
     urls = _collect_urls(args)
 
@@ -2106,9 +2114,9 @@ def _run_config_checks():
         tok = "token set" if config.PYANNOTE_AUTH_TOKEN else "TOKEN MISSING"
         checks.append(("diarize", ok and bool(config.PYANNOTE_AUTH_TOKEN),
                        "pyannote.audio %s, %s" % ("installed" if ok else "NOT installed", tok)))
-    if config.IG_COOKIES_FILE:
+    if config.ig_cookies_file():
         ok = _probe_import("instaloader")
-        cookies_ok = os.path.exists(config.IG_COOKIES_FILE)
+        cookies_ok = os.path.exists(config.ig_cookies_file())
         checks.append(("instagram", ok and cookies_ok,
                        "instaloader %s, cookies %s" % (
                            "installed" if ok else "NOT installed",
