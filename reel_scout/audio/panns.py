@@ -164,7 +164,18 @@ def _read_wav_samples(wav_path: str) -> Tuple[List[float], int]:
     return [s / max_val for s in samples], framerate
 
 
+#: The rate Cnn14's mel front-end was trained on, and the only one it reads
+#: correctly. Fed 16 kHz (Whisper's rate, which the pipeline used to hand it)
+#: every 2-second window reaches the model as one second at double pitch, and
+#: talk comes back as Gargling / Animal / Frog. See tests/test_panns_sample_rate.
+SAMPLE_RATE = 32000
+
+
 class PannsAnalyzer(BaseAudioAnalyzer):
+    #: What the caller must extract at. The pipeline reads this rather than
+    #: hard-coding a number, so the analyzer and the extraction cannot drift.
+    sample_rate = SAMPLE_RATE
+
     def __init__(
         self,
         model_path: str = "",
@@ -231,6 +242,12 @@ class PannsAnalyzer(BaseAudioAnalyzer):
     def analyze(self, audio_path: str) -> AudioTimeline:
         self._ensure_model()
         samples, sr = _read_wav_samples(audio_path)
+        if sr != self.sample_rate:
+            # Refuse rather than infer: a wrong rate does not fail, it returns
+            # confident nonsense that lands in the merge prompt.
+            raise ValueError(
+                "PANNs expects %d Hz audio, got %d Hz (%s) -- extract with "
+                "sample_rate=%d" % (self.sample_rate, sr, audio_path, self.sample_rate))
         duration = len(samples) / sr
 
         window_samples = int(self._window_sec * sr)
