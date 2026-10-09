@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import threading
 import traceback
 from typing import Any, Dict, List, Tuple
 
@@ -107,13 +108,56 @@ def _retry(fn, *args, **kwargs):
             time.sleep(1)
 
 
+class Heartbeat(object):
+    """Touch the batch's heartbeat on a fixed cadence, whatever the job is doing.
+
+    The progress sink also touches it, but only when an event arrives -- and
+    none arrive while one analyze child runs (up to BATCH_ANALYZE_TIMEOUT) or
+    while scoring retries. That silence was longer than the stale threshold, so
+    batch_status called a working batch "stalled" and batch_start let a second
+    worker start beside it.
+
+    Its own connection: sqlite connections are not shared across threads. A
+    failed touch is skipped, not raised -- the next beat will try again, and a
+    heartbeat that crashes the worker would defeat its own purpose.
+    """
+
+    def __init__(self, batch_id: str, interval: float) -> None:
+        self.batch_id = batch_id
+        self.interval = max(float(interval), 0.05)
+        self._stop = threading.Event()
+        self._thread = threading.Thread(
+            target=self._loop, name="batch-heartbeat", daemon=True)
+
+    def _loop(self) -> None:
+        while not self._stop.wait(self.interval):
+            try:
+                conn = db.get_connection(timeout=30)
+                try:
+                    db.touch_batch_heartbeat(conn, self.batch_id)
+                finally:
+                    conn.close()
+            except Exception:  # noqa: BLE001
+                continue
+
+    def start(self) -> "Heartbeat":
+        self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=5)
+
+
 def run(batch_id: str) -> int:
     config.ensure_dirs()
     conn = db.get_connection(timeout=30)
+    beat = None
     try:
         entries, meta = load_job(conn, batch_id)
         db.set_batch_meta(conn, batch_id, status="running")
         db.touch_batch_heartbeat(conn, batch_id)
+        beat = Heartbeat(batch_id, config.BATCH_HEARTBEAT_SEC).start()
         sink = make_progress_sink(conn, batch_id)
         try:
             result = batch_mod.run_batch(
@@ -141,6 +185,8 @@ def run(batch_id: str) -> int:
             db.mark_batch_completed(conn, batch_id)
         return 0
     finally:
+        if beat is not None:
+            beat.stop()
         conn.close()
 
 
