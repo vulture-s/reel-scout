@@ -270,10 +270,16 @@ def frame_motion(path: str, _decoded=None
         stream = container.streams.video[0]
         stream.codec_context.flags2 |= Flags2.export_mvs
         time_base = float(stream.time_base)
-        # Counted from the stream's own start, because the shot table is: the
-        # ffmpeg pass that cuts it reports time from 0. Raw pts on a file whose
-        # stream starts at 6s put every shot's motion on the shot after it.
-        start = getattr(stream, "start_time", None) or 0
+        # Counted from the *file's* start, because the shot table is: the
+        # ffmpeg pass that cuts it shifts every stream by the input's format
+        # start_time (not the video stream's). Raw pts on a file that starts
+        # at 6s put every shot's motion on the shot after it; subtracting the
+        # video stream's own start instead would be wrong the other way on a
+        # file whose video starts after its audio (video 0.5s, format 0s:
+        # ffmpeg reports the first frame at 0.5, so must we).
+        # container.start_time is in AV_TIME_BASE (microseconds), or None.
+        start_sec = (getattr(container, "start_time", None) or 0) / float(
+            getattr(av, "time_base", 1000000) or 1000000)
         for frame in container.decode(stream):
             if _decoded is not None:
                 _decoded[0] = True
@@ -299,7 +305,7 @@ def frame_motion(path: str, _decoded=None
                 forward["dst_x"].astype(np.float64) - frame.width / 2.0,
                 forward["dst_y"].astype(np.float64) - frame.height / 2.0,
                 dxs, dys)
-            yield ((frame.pts or 0) - start) * time_base, dx, dy, zoom, rot, agree
+            yield (frame.pts or 0) * time_base - start_sec, dx, dy, zoom, rot, agree
     finally:
         container.close()
 

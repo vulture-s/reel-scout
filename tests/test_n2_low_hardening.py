@@ -30,20 +30,79 @@ from reel_scout import config, db, ingest, motion, ocr
 
 # --- motion ---------------------------------------------------------------
 
-def test_motion_time_is_counted_from_the_stream_start():
+def _with_starts(mods, container_us=None, stream_pts=None):
+    container = mods["av"].open("x")
+    if container_us is not None:
+        type(container).start_time = container_us
+    if stream_pts is not None:
+        type(container.streams.video[0]).start_time = stream_pts
+    return container
+
+
+def test_motion_time_is_counted_from_the_file_start():
     np = pytest.importorskip("numpy")
     from tests.test_motion import _Frame, _fake_av, _mvs
 
     frames = [_Frame(14, _mvs([(4.0, 0.0)] * 50))]
     mods = _fake_av(frames)
-    stream = mods["av"].open("x").streams.video[0]
-    type(stream).start_time = 12          # 12 * time_base 0.5 = 6.0 s
-    try:
-        with patch.dict(sys.modules, mods):
-            (t, *_), = list(motion.frame_motion("f.mp4"))
-    finally:
-        del type(stream).start_time
-    assert t == pytest.approx(1.0)        # (14 - 12) * 0.5, not 14 * 0.5
+    _with_starts(mods, container_us=6000000, stream_pts=12)   # both at 6.0 s
+    with patch.dict(sys.modules, mods):
+        (t, *_), = list(motion.frame_motion("f.mp4"))
+    assert t == pytest.approx(1.0)        # 14 * 0.5 - 6, not 14 * 0.5
+
+
+def test_a_video_stream_starting_after_the_audio_keeps_its_offset():
+    """Review follow-up (2026-10-09). ffmpeg -- and so the shot table -- shifts
+    by the *format* start time. Video at 0.5 s, audio and format at 0: the
+    first frame is at 0.5 s in the shot table, so it must be here too.
+    Subtracting the stream's own start put it at 0.0."""
+    pytest.importorskip("numpy")
+    from tests.test_motion import _Frame, _fake_av, _mvs
+
+    frames = [_Frame(1, _mvs([(4.0, 0.0)] * 50))]          # pts 1 * 0.5 = 0.5 s
+    mods = _fake_av(frames)
+    _with_starts(mods, container_us=0, stream_pts=1)
+    with patch.dict(sys.modules, mods):
+        (t, *_), = list(motion.frame_motion("f.mp4"))
+    assert t == pytest.approx(0.5)
+
+
+def test_motion_and_ffmpeg_agree_on_a_real_offset_file(tmp_path):
+    """End to end on real PyAV + ffmpeg, both shapes of offset."""
+    import shutil
+    import subprocess
+    pytest.importorskip("numpy")
+    pytest.importorskip("av")
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not on PATH")
+    src = str(tmp_path / "src.mp4")
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "testsrc=duration=2:size=160x120:rate=25", "-f", "lavfi",
+                    "-i", "sine=duration=3", "-c:v", "libx264", "-c:a", "aac",
+                    "-y", src], check=True, timeout=60)
+    shifted = str(tmp_path / "ts6.mp4")
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-i", src, "-c", "copy",
+                    "-output_ts_offset", "6", "-y", shifted], check=True, timeout=60)
+    late = str(tmp_path / "late.mp4")
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-itsoffset", "0.5", "-i", src,
+                    "-i", src, "-map", "0:v", "-map", "1:a", "-c", "copy", "-y",
+                    late], check=True, timeout=60)
+
+    def ffmpeg_first(path):
+        out = subprocess.run(["ffmpeg", "-hide_banner", "-i", path, "-vf",
+                              "showinfo", "-f", "null", "-"], capture_output=True,
+                             text=True, timeout=60).stderr
+        return float(out.split("pts_time:", 1)[1].split()[0])
+
+    # The first yielded frame is the first P-frame (the I-frame carries no
+    # vectors), so compare a window, not an equality: it must sit within the
+    # first second after where ffmpeg puts frame 0 -- 0.0 for the shifted file
+    # (not 6.0), 0.5 for the late-video one (not 0.0).
+    for path in (shifted, late):
+        times = [r[0] for r in motion.frame_motion(path)]
+        assert times, "no motion frames decoded from %s" % path
+        zero = ffmpeg_first(path)
+        assert zero <= times[0] < zero + 1.0, (path, zero, times[0])
 
 
 def test_motion_without_a_start_time_is_unchanged():
