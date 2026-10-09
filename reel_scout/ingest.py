@@ -29,7 +29,7 @@ stamp is missing, which is why `provenance()` refuses an empty model name.
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import config, db
+from . import config, db, validity
 
 #: Re-exported from config so this module's long-standing names keep working.
 #: These are NO LONGER a second copy — config.SCORE_WEIGHTS is the only
@@ -48,6 +48,20 @@ def provenance(model: str) -> str:
     if not model:
         raise ValueError("a model name is required so the row's origin stays traceable")
     return model if model.startswith(AGENT_BACKEND + ":") else "%s:%s" % (AGENT_BACKEND, model)
+
+
+def _refuse_invalid(conn: Any, video_id: str, what: str) -> None:
+    """Same refusal `scorer.score_video` makes, for the agent route.
+
+    A clip marked invalid has no real visual layer; an analysis or a score
+    written for it is a plausible-looking artifact made from nothing, which is
+    exactly what the mark exists to keep out of the corpus.
+    """
+    if validity.is_invalid(conn, video_id):
+        row = db.get_video(conn, video_id)
+        raise ValueError(
+            "refusing to ingest %s for %s: it is marked invalid (%s)"
+            % (what, video_id, row["error_message"] if row else ""))
 
 
 def normalize_weights(weights: Optional[Dict[str, float]]) -> Dict[str, float]:
@@ -257,6 +271,7 @@ def ingest_analysis(
 
     if not isinstance(payload, dict):
         raise ValueError("analysis payload must be a JSON object")
+    _refuse_invalid(conn, video_id, "an analysis")
     if not str(payload.get("summary") or "").strip():
         raise ValueError("missing required field: summary")
 
@@ -293,6 +308,7 @@ def ingest_score(
     """
     from .scorer import VideoScore
 
+    _refuse_invalid(conn, video_id, "a score")
     missing = [d for d in _DIMENSIONS if payload.get(d) is None]
     if missing:
         raise ValueError("missing required dimension(s): %s" % ", ".join(missing))
