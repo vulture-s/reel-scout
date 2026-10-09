@@ -1871,7 +1871,17 @@ def save_analysis(
          tags["style_format"], tags["style_pacing"], tags["emotion"],
          tags["content_structure"]),
     )
-    update_video_status(conn, video_id, "analyzed")
+    # Never over an invalid mark. That mark (validity.py) is the only thing
+    # keeping a clip whose media never processed out of every aggregate, and
+    # this used to clear it -- reason included -- for any writer, e.g. an agent
+    # going through `ingest analysis`. The mark is reversible by hand; it must
+    # not be reversible by accident.
+    conn.execute(
+        "UPDATE videos SET status='analyzed', error_message=NULL, "
+        "updated_at=datetime('now') WHERE id=? "
+        "AND COALESCE(status, '') <> 'invalid'",
+        (video_id,),
+    )
     conn.commit()
 
 
