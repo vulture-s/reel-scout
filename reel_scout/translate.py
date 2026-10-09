@@ -73,10 +73,35 @@ def cjk_ratio(text: Optional[str]) -> float:
     return n / max(1, len(text))
 
 
+#: Kana share (of kanji + kana) at which text is Japanese, not Chinese. Kanji
+#: alone cannot tell the two apart -- ordinary Japanese runs 18-45% kanji, well
+#: over :data:`CJK_ALREADY` -- so before this every Japanese line was taken for
+#: Chinese and skipped. Kana is the evidence that can: Chinese text carries none,
+#: bar the odd decorative の in Taiwan copy, which this share is set above.
+KANA_JAPANESE = 0.25
+
+
+def kana_count(text: Optional[str]) -> int:
+    """Hiragana + katakana characters (U+3040-U+30FF)."""
+    if not text:
+        return 0
+    return sum(1 for ch in text if "\u3040" <= ch <= "\u30ff")
+
+
 def needs_translation(text: Optional[str]) -> bool:
-    """False for empty text and for text that is already mostly Chinese."""
+    """False for empty text and for text that is already mostly Chinese.
+
+    Japanese is translated even when it is kanji-heavy: a kanji ratio says
+    "CJK", not "Chinese", and the Chinese UI cannot show Japanese as if it
+    were already translated.
+    """
     if not text or not text.strip():
         return False
+    kana = kana_count(text)
+    if kana >= 2:
+        kanji = sum(1 for ch in text if "一" <= ch <= "鿿")
+        if kana / float(kana + kanji) >= KANA_JAPANESE:
+            return True
     return cjk_ratio(text) <= CJK_ALREADY
 
 
