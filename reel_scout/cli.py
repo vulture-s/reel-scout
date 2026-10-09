@@ -47,6 +47,9 @@ def main(argv: List[str] = None) -> None:
     p_analyze.add_argument("urls", nargs="*", help="Video URLs or local file paths")
     p_analyze.add_argument("--file", "-f", help="File with URLs (one per line)")
     p_analyze.add_argument("--resume", action="store_true", help="Resume interrupted batch")
+    # Internal: `batch` passes a path here to learn which video row this run
+    # produced (see batch.reported_video_id). Not a user-facing option.
+    p_analyze.add_argument("--report-ids", default=None, help=argparse.SUPPRESS)
     p_analyze.add_argument("--skip-vision", action="store_true", help="Skip VLM analysis")
     p_analyze.add_argument("--skip-transcribe", action="store_true", help="Skip transcription")
     p_analyze.add_argument("--whisper-backend", help="Whisper backend (faster-whisper, whisper-cpp)")
@@ -653,7 +656,9 @@ def _cmd_analyze(args):
     # `batch` learned this already; `analyze` had the identical hole and kept
     # exiting 0 with every item errored, which is how a wrapper script can
     # cheerfully carry on with nothing analysed.
-    return 1 if run(urls, options) else 0
+    report = getattr(args, "report_ids", None)
+    extra = {"report_path": report} if report else {}
+    return 1 if run(urls, options, **extra) else 0
 
 
 def _cmd_transcribe(args) -> None:

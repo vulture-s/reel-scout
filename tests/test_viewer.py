@@ -469,10 +469,16 @@ def test_annotate_accepts_a_beacon_shaped_post(temp_db):
     A beacon sends a Blob, and the browser sets the Content-Type from it; the
     JS is free to pick one, but nothing stops that from drifting. The endpoint
     reads the body as JSON regardless, which is exactly why no separate beacon
-    route was needed. If someone later makes the handler require
-    `application/json`, notes typed in the last 600ms before a tab close start
-    disappearing again — silently, and only for that one case. This test is the
-    thing that would catch it.
+    route was needed. If the handler required `application/json` outright,
+    notes typed in the last 600ms before a tab close would start disappearing
+    again — silently, and only for that one case. This test is the thing that
+    would catch it.
+
+    Since the CSRF fix (audit E6, 2026-10-09) the non-JSON shapes are accepted
+    only with a same-origin `Origin` header -- which every browser attaches to
+    a beacon POST. The same body with no Origin is refused (see
+    test_inspector_csrf.py), because that is also what a cross-site page on an
+    Origin-less browser could send.
 
     Drives `make_inspect_server`, which is what `reel-scout view` actually
     serves — `viewer.make_server` is the read-only GET-only server kept for
@@ -498,6 +504,7 @@ def test_annotate_accepts_a_beacon_shaped_post(temp_db):
             req = urllib.request.Request(
                 "http://127.0.0.1:%d/api/annotate/%s" % (port, vid),
                 data=body, method="POST")
+            req.add_header("Origin", "http://127.0.0.1:%d" % port)
             if ctype:
                 req.add_header("Content-Type", ctype)
             assert urllib.request.urlopen(req, timeout=5).status == 200
