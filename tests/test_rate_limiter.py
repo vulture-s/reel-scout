@@ -78,7 +78,15 @@ def test_default_state_lives_in_data_dir(monkeypatch, tmp_path):
 def test_unwritable_state_degrades_loudly(tmp_path, capsys):
     blocker = tmp_path / "file"
     blocker.write_text("x")
-    lim = RateLimiter("instagram", rate_per_minute=120, path=str(blocker / "sub" / "rl.db"))
-    assert lim.wait() == 0.0
-    assert lim.wait() > 0.3  # still paced within the process
+    bad = str(blocker / "sub" / "rl.db")
+    rate_limiter._LOCAL_LAST.clear()
+    # Fresh objects per call, exactly like get_limiter(): the fallback must not
+    # live on the instance, or it would never pace anything.
+    first = RateLimiter("instagram", rate_per_minute=120, path=bad).wait()
+    second = RateLimiter("instagram", rate_per_minute=120, path=bad).wait()
+    # The first call in a degraded process cannot see siblings, so it waits a
+    # full interval (0.5s) instead of firing immediately.
+    assert first > 0.3
+    assert second > 0.3  # still paced within the process
     assert "shared state unavailable" in capsys.readouterr().err
+    rate_limiter._LOCAL_LAST.clear()

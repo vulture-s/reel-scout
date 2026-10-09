@@ -39,6 +39,11 @@ PLATFORM_RATES = {
 _DEFAULT_RATE = 10
 _STATE_FILE = "ratelimit.db"
 
+# Fallback pacing when the shared state file is unusable. Module-level (not per
+# RateLimiter) because get_limiter() hands out a fresh object on every call: a
+# per-object timestamp would start at zero each time and never pace anything.
+_LOCAL_LAST: dict = {}
+
 
 def effective_rate(platform: str) -> int:
     """Requests/minute for *platform*, read at call time (not import time)."""
@@ -99,7 +104,6 @@ class RateLimiter:
         self.platform = platform
         self._rate = rate_per_minute
         self._path = path
-        self._last_local = 0.0  # fallback when the shared state is unusable
 
     @property
     def interval(self) -> float:
@@ -117,8 +121,14 @@ class RateLimiter:
             # turn every crawl into an error. Pacing degrades to per-process.
             warn(f"[rate-limit] shared state unavailable ({path}: {e}); "
                  f"pacing {self.platform} within this process only")
-            slot = max(time.time(), self._last_local + interval)
-            self._last_local = slot
+            # Other processes are invisible here, so a fresh process cannot know
+            # whether a sibling (e.g. the previous batch child) just hit this
+            # platform. Be conservative: the first call in a process waits a
+            # full interval too, so a serial batch stays paced even degraded.
+            now = time.time()
+            last = _LOCAL_LAST.get(self.platform)
+            slot = now + interval if last is None else max(now, last + interval)
+            _LOCAL_LAST[self.platform] = slot
         delay = slot - time.time()
         if delay > 0:
             time.sleep(delay)
