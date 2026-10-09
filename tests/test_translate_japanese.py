@@ -39,3 +39,21 @@ def test_mostly_kanji_japanese_is_left_alone():
     # No kana at all reads as Chinese and is legible to a Chinese reader anyway;
     # this pins that the fix keys on kana, not on guessing.
     assert translate.needs_translation("東京都渋谷区") is False
+
+
+# Review follow-up (2026-10-09): the katakana middle dot and the long-vowel
+# mark are punctuation in Chinese copy, not evidence of Japanese.
+@pytest.mark.parametrize("text", [
+    "哈利・波特・妙麗",
+    "台北ー高雄ー台中",
+    "林・陳・王三位老師ー現場示範",
+])
+def test_chinese_using_japanese_punctuation_is_not_japanese(text):
+    from reel_scout.translate import needs_translation
+    assert needs_translation(text) is False
+
+
+def test_japanese_with_those_marks_is_still_japanese():
+    from reel_scout.translate import needs_translation
+    assert needs_translation("スーパー・マーケットで買いました") is True
+    assert needs_translation("ラーメン屋の店主") is True
