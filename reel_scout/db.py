@@ -171,19 +171,52 @@ CREATE INDEX IF NOT EXISTS idx_annotations_starred ON video_annotations(starred)
 # Low-cardinality analysis tags that are mirrored from full_json into indexed
 # columns on `analyses` so they can be filtered/aggregated without JSON scans.
 # (column name -> extractor) — full_json stays the source of truth.
+def _canonical_tag(value: Any, allowed: Tuple[str, ...]) -> Optional[str]:
+    """`value` mapped onto the closed vocabulary, or None when it is not in it.
+
+    These columns are what stats/patterns/compare GROUP BY. `ingest` rejects an
+    off-vocabulary value for that reason, but the local merge path stored the
+    model's own spelling, so "Question" / "talking head" / "Educational" each
+    became a one-member category in every aggregate. Case and spacing variants
+    are folded onto the canonical value; anything else is left out of the index
+    (full_json, the source of truth, still carries what the model said).
+    """
+    if not isinstance(value, str):
+        return None
+    v = value.strip().lower()
+    if not v:
+        return None
+    for cand in (v, v.replace(" ", "_"), v.replace(" ", "-"),
+                 v.replace("_", "-"), v.replace("-", "_")):
+        if cand in allowed:
+            return cand
+    return None
+
+
 def _extract_tag_columns(data: Dict[str, Any]) -> Dict[str, Any]:
-    hook = data.get("hook") or {}
-    style = data.get("style") or {}
-    eng = data.get("engagement_signals") or {}
-    return {
-        "content_type": data.get("content_type"),
-        "opening_type": hook.get("opening_type"),
-        "cta_type": hook.get("cta_type"),
-        "style_format": style.get("format"),
-        "style_pacing": style.get("pacing"),
-        "emotion": eng.get("emotion"),
-        "content_structure": data.get("content_structure"),
+    from .ingest import _ENUMS  # lazy: ingest imports db
+
+    if not isinstance(data, dict):
+        data = {}
+
+    def section(name: str) -> Dict[str, Any]:
+        v = data.get(name)
+        return v if isinstance(v, dict) else {}
+
+    hook = section("hook")
+    style = section("style")
+    eng = section("engagement_signals")
+    raw = {
+        "content_type": (data.get("content_type"), (None, "content_type")),
+        "opening_type": (hook.get("opening_type"), ("hook", "opening_type")),
+        "cta_type": (hook.get("cta_type"), ("hook", "cta_type")),
+        "style_format": (style.get("format"), ("style", "format")),
+        "style_pacing": (style.get("pacing"), ("style", "pacing")),
+        "emotion": (eng.get("emotion"), ("engagement_signals", "emotion")),
+        "content_structure": (data.get("content_structure"),
+                              (None, "content_structure")),
     }
+    return {col: _canonical_tag(val, _ENUMS[key]) for col, (val, key) in raw.items()}
 
 
 def _video_id(platform: str, platform_id: str) -> str:
