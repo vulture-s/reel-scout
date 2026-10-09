@@ -14,7 +14,7 @@ import time
 
 import pytest
 
-from reel_scout import batch, config
+from reel_scout import batch, config, db
 
 
 # --- capability -> mode ------------------------------------------------------
@@ -80,30 +80,96 @@ class _Cur:
 
 
 class _Conn:
+    """ids: every row id. urlmap: url -> [ids stored under that exact url]."""
+
     def __init__(self, ids, urlmap=None):
         self.ids, self.urlmap = ids, urlmap or {}
 
     def execute(self, sql, params=()):
         if "WHERE url" in sql:
-            vid = self.urlmap.get(params[0])
-            return _Cur({"id": vid} if vid else None)
+            return [(v,) for v in self.urlmap.get(params[0], [])]
         return [(i,) for i in self.ids]
 
 
-def test_exactly_one_new_row_is_the_one_we_just_made():
-    assert batch.resolve_video_id(_Conn({"a", "b"}), {"a"}, "u") == "b"
+def test_exactly_one_new_row_under_our_url_is_the_one_we_just_made():
+    assert batch.resolve_video_id(_Conn({"a", "b"}, {"u": ["b"]}), {"a"}, "u") == "b"
+
+
+def test_a_new_row_under_someone_elses_url_is_not_ours():
+    """Audit E6 MED: entry A was already in the library (no new row), while
+    another process added B in the same window. Set difference alone handed B's
+    analysis to A's label."""
+    conn = _Conn({"a", "b"}, {"u": ["a"], "other": ["b"]})
+    assert batch.resolve_video_id(conn, {"a"}, "u") == "a"
+    conn = _Conn({"a", "b"}, {"other": ["b"]})
+    assert batch.resolve_video_id(conn, {"a"}, "u") is None
 
 
 def test_two_new_rows_refuses_to_guess():
-    assert batch.resolve_video_id(_Conn({"a", "b", "c"}), {"a"}, "u") is None
+    assert batch.resolve_video_id(_Conn({"a", "b", "c"}, {"u": ["b", "c"]}), {"a"}, "u") is None
 
 
 def test_already_analyzed_falls_back_to_an_exact_url_match():
-    assert batch.resolve_video_id(_Conn({"a"}, {"u": "z"}), {"a"}, "u") == "z"
+    assert batch.resolve_video_id(_Conn({"a"}, {"u": ["z"]}), {"a"}, "u") == "z"
 
 
 def test_tracking_parameters_that_break_url_equality_refuse_to_guess():
     assert batch.resolve_video_id(_Conn({"a"}), {"a"}, "u") is None
+
+
+def test_the_childs_report_is_the_primary_answer(tmp_path):
+    p = tmp_path / "r.json"
+    p.write_text('{"items": [{"url": "u", "video_id": "v1"}]}')
+    assert batch.reported_video_id(str(p)) == "v1"
+    p.write_text('{"items": []}')
+    assert batch.reported_video_id(str(p)) is None
+    p.write_text('{"items": [{"video_id": "v1"}, {"video_id": "v2"}]}')
+    assert batch.reported_video_id(str(p)) is None
+    p.write_text("not json")
+    assert batch.reported_video_id(str(p)) is None
+    assert batch.reported_video_id(str(tmp_path / "missing.json")) is None
+
+
+def test_race_repro_against_a_real_database(temp_db):
+    """The audit's scratch repro, kept: re-analysing A adds no row while B lands."""
+    import sqlite3
+    conn = sqlite3.connect(temp_db)
+    conn.row_factory = sqlite3.Row
+    try:
+        url_a = "https://www.instagram.com/reel/AAAAAAAAAAA/"
+        a = db.upsert_video(conn, "instagram", "AAAAAAAAAAA", url_a)
+        before = batch._video_ids(conn)
+        db.upsert_video(conn, "instagram", "AAAAAAAAAAA", url_a)  # our child: no new row
+        b = db.upsert_video(conn, "tiktok", "BBBB", "https://www.tiktok.com/@u/video/1")
+        assert batch.resolve_video_id(conn, before, url_a) == a != b
+    finally:
+        conn.close()
+
+
+def test_batch_claims_what_the_child_reported(temp_db, tmp_path, monkeypatch):
+    """End to end through run_batch: the fake child writes its report, a
+    concurrent row appears, and the entry still gets the reported id."""
+    seen = []
+
+    def fake_run(cmd, verbose, timeout=None):
+        seen.append(cmd)
+        if "analyze" in cmd:
+            report = cmd[cmd.index("--report-ids") + 1]
+            with open(report, "w") as f:
+                f.write('{"items": [{"url": "x", "video_id": "from-child"}]}')
+        return 0
+
+    monkeypatch.setattr(batch, "_run", fake_run)
+    monkeypatch.setattr(batch, "_video_ids", lambda conn: set())
+    monkeypatch.setattr(batch, "resolve_video_id",
+                        lambda conn, before, url: "WRONG-from-set-difference")
+    monkeypatch.setattr(batch, "needs_completion", lambda conn, vid: False)
+    out = str(tmp_path / "out")
+    result = batch.run_batch([("A", "https://www.instagram.com/reel/AAAAAAAAAAA/")],
+                             out, "transcript")
+    assert [d["video_id"] for d in result["done"]] == ["from-child"]
+    assert not [f for f in os.listdir(out) if f.startswith(".analyze-ids")], \
+        "report files must be cleaned up"
 
 
 # --- parsing -----------------------------------------------------------------
