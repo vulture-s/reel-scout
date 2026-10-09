@@ -22,7 +22,6 @@ import math
 import wave
 from typing import Dict, List, Optional
 
-from .panns import _read_wav_samples
 
 #: Autocorrelation search window. A tempo outside this range is not reported.
 BPM_SEARCH_MIN = 60.0
@@ -53,6 +52,11 @@ def _blank_bpm() -> Dict[str, Optional[float]]:
     return {"bpm": None, "candidate_bpm": None, "peak_ratio": None}
 
 
+#: Envelope frame and hop, in samples. `frame == 2 * hop` is relied on by the
+#: streaming reader, which builds each frame's energy from two hop blocks.
+_FRAME, _HOP = 1024, 512
+
+
 def analyze_bpm(samples: List[float], sr: int) -> Dict[str, Optional[float]]:
     """Best-effort tempo via onset-envelope autocorrelation, with its evidence.
 
@@ -67,14 +71,22 @@ def analyze_bpm(samples: List[float], sr: int) -> Dict[str, Optional[float]]:
         return _blank_bpm()
     try:
         x = np.asarray(samples, dtype=np.float32)
-        frame, hop = 1024, 512
-        if x.size < frame * 4:
+        if x.size < _FRAME * 4:
             return _blank_bpm()
-        n_frames = 1 + (x.size - frame) // hop
+        n_frames = 1 + (x.size - _FRAME) // _HOP
         env = np.empty(n_frames, dtype=np.float32)
         for i in range(n_frames):
-            seg = x[i * hop: i * hop + frame]
+            seg = x[i * _HOP: i * _HOP + _FRAME]
             env[i] = math.sqrt(float(np.mean(seg * seg)))
+        return _bpm_from_envelope(env, sr)
+    except Exception:  # noqa: BLE001 — best-effort; any numeric hiccup → no BPM
+        return _blank_bpm()
+
+
+def _bpm_from_envelope(env, sr: int) -> Dict[str, Optional[float]]:
+    """The tempo verdict from an RMS envelope sampled every :data:`_HOP`."""
+    import numpy as np
+    try:
         # onset strength = positive first difference of the energy envelope
         onset = np.diff(env)
         onset[onset < 0] = 0.0
@@ -83,7 +95,7 @@ def analyze_bpm(samples: List[float], sr: int) -> Dict[str, Optional[float]]:
         onset = onset - onset.mean()
         ac = np.correlate(onset, onset, mode="full")
         ac = ac[ac.size // 2:]
-        fps = sr / hop  # envelope frames per second
+        fps = sr / _HOP  # envelope frames per second
         min_lag = int(fps * 60.0 / BPM_SEARCH_MAX)
         max_lag = int(fps * 60.0 / BPM_SEARCH_MIN)
         if min_lag < 1 or max_lag >= ac.size:
@@ -135,22 +147,96 @@ def near_miss_note(rhythm: Dict[str, Optional[float]]) -> Optional[str]:
     )
 
 
+#: Samples per read. A multiple of :data:`_HOP`, so every chunk but the last
+#: ends on a hop boundary and no partial block has to be carried across reads.
+_CHUNK = _HOP * 2048
+
+
+def _stream_wav(wav_path: str):
+    """``(sample_rate, total_samples, sum_of_squares, hop_block_energies)``.
+
+    Reads the first channel in chunks and keeps only one number per
+    :data:`_HOP` samples. 🔴 This replaced reading the whole file into a Python
+    list of floats, which cost ~70 MB per minute of audio: a four-hour clip
+    needed ~17 GB for a step that only wants an energy figure and a tempo.
+    ``hop_block_energies`` is None without numpy (energy is still measured).
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        np = None
+    with wave.open(wav_path, "rb") as wf:
+        n_channels = wf.getnchannels()
+        sampwidth = wf.getsampwidth()
+        sr = wf.getframerate()
+        if sampwidth == 2:
+            typecode, dtype, max_val = "h", "<i2", 32768.0
+        elif sampwidth == 4:
+            typecode, dtype, max_val = "i", "<i4", 2147483648.0
+        else:
+            raise ValueError("Unsupported sample width: %d" % sampwidth)
+        total = 0
+        sumsq = 0.0
+        blocks = [] if np is not None else None
+        while True:
+            raw = wf.readframes(_CHUNK)
+            if not raw:
+                break
+            if np is not None:
+                x = np.frombuffer(raw, dtype=dtype)
+                if n_channels > 1:
+                    x = x[: (x.size // n_channels) * n_channels:n_channels]
+                x = x.astype(np.float64) / max_val
+                sq = x * x
+                total += x.size
+                sumsq += float(sq.sum())
+                full = (x.size // _HOP) * _HOP
+                if full:
+                    blocks.append(sq[:full].reshape(-1, _HOP).sum(axis=1))
+            else:
+                import array
+                import sys
+                a = array.array(typecode)
+                a.frombytes(raw[: (len(raw) // sampwidth) * sampwidth])
+                if sys.byteorder != "little":
+                    a.byteswap()
+                vals = a[::n_channels] if n_channels > 1 else a
+                total += len(vals)
+                for v in vals:
+                    f = v / max_val
+                    sumsq += f * f
+    if blocks is None:
+        return sr, total, sumsq, None
+    return sr, total, sumsq, (np.concatenate(blocks) if blocks
+                              else np.empty(0, dtype=np.float64))
+
+
 def compute_rhythm(wav_path: str) -> Dict[str, Optional[float]]:
     """Read a mono WAV and return energy plus the BPM verdict and its evidence.
 
     Keys: ``energy``, ``bpm``, ``candidate_bpm``, ``peak_ratio``. The shape is
     the same on every path, so callers can read the evidence keys without
     checking which failure they got.
+
+    Streams the file (see :func:`_stream_wav`); the envelope it builds is the
+    one :func:`analyze_bpm` builds from a whole sample list -- frame energy is
+    the sum of its two hop blocks -- so the verdict does not depend on which
+    path produced it.
     """
     result = _blank_bpm()
     result["energy"] = None
     try:
-        samples, sr = _read_wav_samples(wav_path)
+        sr, total, sumsq, blocks = _stream_wav(wav_path)
     except (OSError, ValueError, EOFError, wave.Error):
         # wave.Error covers a text/corrupt file that isn't a real RIFF/WAV.
         return result
-    if not samples:
+    if not total:
         return result
-    result = analyze_bpm(samples, sr)
-    result["energy"] = round(_rms(samples), 4)
+    if blocks is not None and total >= _FRAME * 4 and blocks.size >= 2:
+        import numpy as np
+        env = np.sqrt((blocks[:-1] + blocks[1:]) / float(_FRAME)).astype(np.float32)
+        result = _bpm_from_envelope(env, sr)
+    else:
+        result = _blank_bpm()
+    result["energy"] = round(math.sqrt(sumsq / total), 4)
     return result

@@ -34,6 +34,12 @@ def detect_platform(url: str) -> Optional[str]:
 
 
 def get_crawler(url: str) -> BaseCrawler:
+    # Every crawler hands the URL to yt-dlp's argv. They also put "--" in
+    # front of it, but a "URL" that starts with "-" is never a URL -- it is an
+    # option smuggled in (e.g. by text an agent copied into an MCP call), and
+    # saying so is clearer than letting yt-dlp fail on it.
+    if url.lstrip().startswith("-"):
+        raise ValueError(f"Not a URL (starts with '-'): {url}")
     platform = detect_platform(url)
     if platform is None or platform not in _CRAWLERS:
         raise ValueError(f"Unsupported platform for URL: {url}")

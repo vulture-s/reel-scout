@@ -184,3 +184,35 @@ def test_aspect_resolves_a_relative_media_path(monkeypatch, tmp_path):
 def test_aspect_is_none_when_the_media_really_is_gone():
     assert storyboard._aspect("/definitely/not/here.mp4") is None
     assert storyboard._aspect(None) is None
+
+
+def test_a_persons_correction_outranks_the_model_in_the_export():
+    """`supplied` must win its frame, whatever order the rows come back in.
+
+    The export overwrote per row, and `get_shot_labels` orders by
+    `(t_sec, source)` -- a tie-break its docstring says is *not* a precedence.
+    'vlm' sorts after 'supplied', so the model's ECU covered the person's MS in
+    the very file that goes to a client. The inspector already ranks these;
+    the export did not. Found 2026-10-09.
+    """
+    conn, path = _temp_db()
+    out = tempfile.mkdtemp()
+    try:
+        vid = db.upsert_video(conn, "youtube", "x3", "https://y/x3", title="Corrected")
+        conn.execute("UPDATE videos SET status='analyzed' WHERE id=?", (vid,))
+        conn.execute("INSERT INTO shots (video_id, idx, start_sec, end_sec, dur_sec) "
+                     "VALUES (?,0,0,4,4)", (vid,))
+        conn.execute("INSERT INTO keyframes (video_id, timestamp_sec, file_path) "
+                     "VALUES (?,2.0,'x.jpg')", (vid,))
+        conn.commit()
+        db.save_shot_label(conn, vid, 2.0, "shot_size", "ECU", "vlm", "qwen",
+                           "h", supersedes=("vlm", "gate"))
+        db.save_shot_label(conn, vid, 2.0, "shot_size", "MS", "supplied", None,
+                           None, supersedes=())
+        assert export_storyboard(conn, out, video_id=vid) == 1
+        with open(os.path.join(out, "%s.project.json" % vid), encoding="utf-8") as f:
+            p = json.load(f)
+        assert p["cuts"][0]["shot"] == "MS"
+    finally:
+        conn.close()
+        os.unlink(path)
