@@ -344,6 +344,11 @@ OCR_ENABLED = os.getenv("OCR_ENABLED", "true").lower() in ("true", "1", "yes")
 #                  a tesseract binary; falls back to vlm if unavailable). Stronger
 #                  CJK, but violates minimal-deps, hence off by default.
 OCR_ENGINE = os.getenv("OCR_ENGINE", "vlm")
+# tesseract language models (`+`-joined). Without one tesseract reads English
+# only, and Chinese captions come back as Latin noise that, being non-empty,
+# replaces the VLM's correct reading. A model that is not installed makes
+# tesseract fail, which falls back to the VLM text rather than to noise.
+OCR_LANG = os.getenv("OCR_LANG", "chi_tra+eng")
 
 # --- Shot metrics (§4E evidence-based pacing) ---
 # Measure cut rhythm (cuts/min) + audio energy/BPM so the pacing score rests on

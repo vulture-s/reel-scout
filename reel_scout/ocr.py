@@ -39,8 +39,14 @@ def _ocr_image(image_path: str) -> str:
         from PIL import Image
     except ImportError:
         return ""
+    from .utils import paths as media_paths
     try:
-        return pytesseract.image_to_string(Image.open(image_path)).strip()
+        # Resolved, not opened as stored: most keyframe rows hold a path
+        # relative to the data root, and opening that from any other cwd read
+        # nothing -- silently, since an empty read falls back to the VLM.
+        path = media_paths.resolve_media_path(image_path)
+        return pytesseract.image_to_string(
+            Image.open(path), lang=getattr(config, "OCR_LANG", None) or None).strip()
     except Exception:  # noqa: BLE001 — OCR is best-effort, never fatal
         return ""
 

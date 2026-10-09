@@ -120,7 +120,17 @@ def export_csv(
     if not videos:
         return 0
 
-    with open(output_path, "w", encoding="utf-8", newline="") as f:
+    def cell(v):
+        # Titles, uploaders and summaries come from other people's posts. A
+        # leading = + - @ (or tab/CR) makes a spreadsheet run the cell as a
+        # formula, so it is prefixed with ' to keep it text.
+        if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r"):
+            return "'" + v
+        return v
+
+    # utf-8-sig: without the BOM, Excel opens a UTF-8 CSV as the local code
+    # page and every Chinese title is mojibake.
+    with open(output_path, "w", encoding="utf-8-sig", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
             "video_id", "platform", "url", "title", "uploader",
@@ -139,7 +149,7 @@ def export_csv(
             full = json.loads(analysis["full_json"]) if analysis["full_json"] else {}
             style = full.get("style", {})
 
-            writer.writerow([
+            writer.writerow([cell(v) for v in [
                 vid,
                 video["platform"],
                 video["url"],
@@ -153,7 +163,7 @@ def export_csv(
                 full.get("content_type", ""),
                 style.get("format", ""),
                 style.get("pacing", ""),
-            ])
+            ]])
             count += 1
 
     return count
