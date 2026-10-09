@@ -90,3 +90,14 @@ def test_unwritable_state_degrades_loudly(tmp_path, capsys):
     assert second > 0.3  # still paced within the process
     assert "shared state unavailable" in capsys.readouterr().err
     rate_limiter._LOCAL_LAST.clear()
+
+
+def test_non_integer_rate_env_does_not_break_startup():
+    """effective_rate() ignores a bad value, but config read it at import
+    with a bare int() first -- so `RATE_LIMIT_PER_MINUTE=bogus` crashed every
+    command before the limiter's own handling could run."""
+    env = dict(os.environ, RATE_LIMIT_PER_MINUTE="bogus")
+    r = subprocess.run([sys.executable, "-c", "import reel_scout.config as c; print(c.RATE_LIMIT_PER_MINUTE)"],
+                       env=env, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == "10"
