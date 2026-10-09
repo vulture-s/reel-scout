@@ -85,6 +85,14 @@ def test_sec_fetch_site_cross_site_is_refused(server):
     assert _post(server["port"], "/api/annotate/" + server["vid"], {"note": ""}, h) == 403
 
 
+def test_sec_fetch_site_same_site_is_refused(server):
+    """same-site != same-origin: another local server on 127.0.0.1 (a dev
+    server on a different port) is same-site with us and must not write."""
+    h = {"Content-Type": "application/json", "Sec-Fetch-Site": "same-site"}
+    assert _post(server["port"], "/api/annotate/" + server["vid"], {"note": ""}, h) == 403
+    assert _state(server["db"], server["vid"])[0] == "three weeks of notes"
+
+
 def test_dns_rebinding_is_refused(server):
     """A rebound page is same-origin with us by its own name -- Origin matches
     Host. The Host is the tell: it is not an address we answer to."""
