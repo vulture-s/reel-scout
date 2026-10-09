@@ -83,7 +83,9 @@ def _cookie_args() -> List[str]:
         warn("[instagram] IG_COOKIES_FILE does not exist, crawling without "
              "cookies: %s" % path)
         return []
-    return ["--cookies", path]
+    # A private copy, never the user's file: yt-dlp rewrites --cookies in place
+    # on exit, and concurrent runs racing on that rewrite destroy the jar.
+    return ["--cookies", ytdlp.private_cookie_copy(path)]
 
 class InstagramCrawler(BaseCrawler):
     platform = "instagram"
