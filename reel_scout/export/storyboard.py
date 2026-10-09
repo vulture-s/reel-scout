@@ -203,12 +203,20 @@ def export_storyboard(conn, output_dir: str, video_id: Optional[str] = None) -> 
         # UNKNOWN is stored so "asked, no answer" stays distinct from "never
         # asked" -- but it is not a shot size, so it does not reach the cut.
         sizes = {}
+        ranked = {}
         for lab in db.get_shot_labels(conn, vid, kind="shot_size"):
             if lab["value"] in (None, "UNKNOWN"):
                 continue
+            # Precedence stated, not read off the sort order (same rule as the
+            # inspector): a person's `supplied` call outranks the model's at
+            # the same frame. Overwriting per row let 'vlm', which sorts after
+            # 'supplied', cover the correction in the file a client sees.
+            rank = 2 if lab["source"] == "supplied" else 1
             for k in kfs:
                 if abs(k["timestamp_sec"] - lab["t_sec"]) < 1e-6:
-                    sizes[k["id"]] = lab["value"]
+                    if rank >= ranked.get(k["id"], 0):
+                        sizes[k["id"]] = lab["value"]
+                        ranked[k["id"]] = rank
                     break
         project = build_project(
             video, shots, kfs, segs, db.get_ocr_captions(conn, vid) or [],
