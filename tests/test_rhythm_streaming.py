@@ -88,3 +88,33 @@ def test_too_short_is_still_blank(tmp_path):
     r = rhythm.compute_rhythm(path)
     assert r["bpm"] is None and r["candidate_bpm"] is None
     assert r["energy"] == pytest.approx(round(1000 / 32768.0, 4), abs=1e-4)
+
+
+# Review follow-up (2026-10-09): the equivalence test above is 20 s, which is
+# inside one read (_CHUNK is ~65 s at 16 kHz), so the cross-chunk path was never
+# compared. Shrink the chunk so the same clip spans ~150 reads, with a length
+# that is not a whole number of hops, and require the same answer.
+@pytest.mark.parametrize("channels", [1, 2])
+def test_the_answer_is_the_same_across_many_chunk_boundaries(tmp_path, monkeypatch, channels):
+    path = str(tmp_path / "click.wav")
+    _click_track(path, 20, channels=channels)
+    with wave.open(path, "rb") as wf:                 # trim to a ragged length
+        params, frames = wf.getparams(), wf.readframes(wf.getnframes() - 333)
+    with wave.open(path, "wb") as wf:
+        wf.setparams(params)
+        wf.writeframes(frames)
+    whole = _whole_file_answer(path)
+    monkeypatch.setattr(rhythm, "_CHUNK", rhythm._HOP * 4)
+    streamed = rhythm.compute_rhythm(path)
+    assert streamed["energy"] == pytest.approx(whole["energy"], abs=1e-4)
+    assert streamed["candidate_bpm"] == whole["candidate_bpm"]
+    assert streamed["bpm"] == whole["bpm"]
+    assert streamed["peak_ratio"] == pytest.approx(whole["peak_ratio"], abs=2e-3)
+    _sr, _total, _sumsq, blocks = rhythm._stream_wav(path)
+    assert blocks.size == _total // rhythm._HOP       # no block lost or split
+
+
+def test_the_chunk_stays_a_whole_number_of_hops():
+    # The reader carries nothing across reads; that is only correct while
+    # every read but the last ends on a hop boundary.
+    assert rhythm._CHUNK % rhythm._HOP == 0
