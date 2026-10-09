@@ -154,17 +154,25 @@ def backfill_measured(conn: sqlite3.Connection, video_id: str) -> None:
 def _parse_merge_json(text: str) -> Dict[str, Any]:
     """The merge reply as a dict. Raises json.JSONDecodeError when it is broken.
 
-    Prose around the object is tolerated (the outermost {...} is used); a reply
-    with no object at all is kept as a summary, as before.
+    Prose around the object is tolerated (the outermost {...} is used). A reply
+    with no object in it, or whose JSON is not an object, is broken too -- it
+    used to be stored as ``{"summary": <raw reply>, "error": ...}``, and the
+    commonest way to get one is a reply cut off at MERGE_MAX_TOKENS before its
+    first closing brace: exactly the case the retry exists for, never retried,
+    and then skipped as "already done" on every later run.
     """
     try:
-        return json.loads(text)
+        data = json.loads(text)
     except json.JSONDecodeError:
         import re
         m = re.search(r"\{[\s\S]*\}", text)
         if not m:
-            return {"summary": text, "topics": [], "error": "failed to parse JSON"}
-        return json.loads(m.group())
+            raise json.JSONDecodeError("no JSON object in reply", text, 0)
+        data = json.loads(m.group())
+    if not isinstance(data, dict):
+        raise json.JSONDecodeError(
+            "expected a JSON object, got %s" % type(data).__name__, text, 0)
+    return data
 
 
 def merge_analysis(
