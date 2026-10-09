@@ -164,6 +164,38 @@ def _read_wav_samples(wav_path: str) -> Tuple[List[float], int]:
     return [s / max_val for s in samples], framerate
 
 
+def _read_wav_array(wav_path: str):
+    """The same samples as `_read_wav_samples`, as one float32 numpy array.
+
+    The analyzer used the list version, which costs ~40 bytes per sample (a
+    Python float plus its tuple slot). At 32 kHz that is ~75 MB per minute of
+    audio -- double what it was at 16 kHz -- so a 2-hour clip asked for ~9 GB
+    before the first window ran. float32 is 4 bytes per sample (~7.7 MB/min).
+    Values are bit-identical to the list version cast to float32 (the scale is
+    a power of two), which is what the model received anyway.
+    """
+    import numpy as np
+
+    with wave.open(wav_path, "rb") as wf:
+        n_channels = wf.getnchannels()
+        sampwidth = wf.getsampwidth()
+        framerate = wf.getframerate()
+        raw = wf.readframes(wf.getnframes())
+    if sampwidth == 2:
+        ints = np.frombuffer(raw, dtype="<i2")
+        max_val = 32768.0
+    elif sampwidth == 4:
+        ints = np.frombuffer(raw, dtype="<i4")
+        max_val = 2147483648.0
+    else:
+        raise ValueError("Unsupported sample width: %d" % sampwidth)
+    if n_channels == 2:
+        ints = ints[::2]
+    samples = ints.astype(np.float32)
+    samples /= np.float32(max_val)
+    return samples, framerate
+
+
 #: The rate Cnn14's mel front-end was trained on, and the only one it reads
 #: correctly. Fed 16 kHz (Whisper's rate, which the pipeline used to hand it)
 #: every 2-second window reaches the model as one second at double pitch, and
@@ -241,7 +273,7 @@ class PannsAnalyzer(BaseAudioAnalyzer):
 
     def analyze(self, audio_path: str) -> AudioTimeline:
         self._ensure_model()
-        samples, sr = _read_wav_samples(audio_path)
+        samples, sr = _read_wav_array(audio_path)
         if sr != self.sample_rate:
             # Refuse rather than infer: a wrong rate does not fail, it returns
             # confident nonsense that lands in the merge prompt.

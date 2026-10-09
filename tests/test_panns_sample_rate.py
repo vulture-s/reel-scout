@@ -130,3 +130,53 @@ def test_the_pipeline_extracts_audio_at_the_analyzers_rate(tmp_path, monkeypatch
     finally:
         conn.close()
     assert rates == [32000]
+
+
+# --- memory: 32 kHz doubled the per-minute cost of the Python-list reader -----
+# Review follow-up (2026-10-09). The analyzer now reads one float32 array; the
+# values must be exactly what the list reader produced (the model got them as
+# float32 anyway), and the peak must not scale at ~40 bytes per sample.
+
+def _wav_pattern(rate, seconds, width=2, channels=1):
+    import random
+    rnd = random.Random(7)
+    fd, path = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    n = int(rate * seconds) * channels
+    lim = 32767 if width == 2 else 2147483647
+    vals = [rnd.randint(-lim - 1, lim) for _ in range(n)]
+    with wave.open(path, "wb") as w:
+        w.setnchannels(channels)
+        w.setsampwidth(width)
+        w.setframerate(rate)
+        w.writeframes(struct.pack("<%d%s" % (n, "h" if width == 2 else "i"), *vals))
+    return path
+
+
+@pytest.mark.parametrize("width,channels", [(2, 1), (2, 2), (4, 1), (4, 2)])
+def test_the_array_reader_matches_the_list_reader_bit_for_bit(width, channels):
+    import numpy as np
+    path = _wav_pattern(8000, 0.5, width=width, channels=channels)
+    try:
+        listed, sr1 = panns._read_wav_samples(path)
+        arr, sr2 = panns._read_wav_array(path)
+    finally:
+        os.unlink(path)
+    assert sr1 == sr2 == 8000
+    assert arr.dtype == np.float32
+    assert np.array_equal(arr, np.array(listed, dtype=np.float32))
+
+
+def test_analyzing_a_minute_does_not_hold_a_python_float_per_sample():
+    import tracemalloc
+    path = _wav(32000, seconds=60.0)          # 1.92 M samples
+    try:
+        a = _analyzer()
+        tracemalloc.start()
+        a.analyze(path)
+        _cur, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+    finally:
+        os.unlink(path)
+    # list-of-floats: ~1.92 M x ~40 B = ~75 MB. float32 + raw bytes: ~12 MB.
+    assert peak < 30 * 1024 * 1024, "peak %.1f MB" % (peak / 1048576.0)
