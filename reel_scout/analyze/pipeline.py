@@ -555,6 +555,21 @@ def _process_single(
                         file=sys.stderr,
                     )
 
+    # Vision was attempted and not one frame came back described: the VLM is
+    # down, not the clip. Merging now would put "(no vision data)" into the
+    # prompt and score visual_storytelling on nothing -- and because merge and
+    # score are skipped as "already done" on every later run, the retry the
+    # message above promises would backfill the descriptions and change
+    # nothing else. Stop here instead; a re-run with the VLM up merges then.
+    # A partial layer (some frames described) is evidence and still merges.
+    if (not options.skip_vision and frames
+            and not db.get_described_keyframe_ids(conn, video_id)):
+        raise RuntimeError(
+            "no keyframe could be described (%d tried; is the VLM backend "
+            "running?) -- stopping before merge so the analysis and score are "
+            "not built on an empty visual layer. Re-run analyze once the VLM "
+            "is reachable." % len(frames))
+
     # Step 3.5: Shot & audio metrics (§4E measured pacing).
     # Measures cut rhythm (cuts/min) + audio energy/BPM so the pacing score rests
     # on evidence, not LLM vibes; merge_analysis folds these into full_json for the
