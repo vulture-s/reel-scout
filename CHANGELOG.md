@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.5.0 — 2026-10-12
 
 ### Added
 
@@ -163,6 +163,47 @@
   `--rule-soft` sits 36/255 away, so the dividers stay unambiguously louder.
 
 ### Fixed
+
+- **The 2026-10-09 audit batch (#181–#195).** Each of these failed silently or
+  wrote wrong data rather than erroring:
+  - `crawl --cookies`, `browse --cookies` and MCP `crawl.cookies` never reached
+    yt-dlp — the cookies path was frozen at import — so the failure then said
+    "need cookies?". It is now resolved at call time. (#181)
+  - `batch` claimed whichever video row appeared during the run, so a row added
+    by another process could be exported under this entry's label; it now claims
+    the id the child reports, and the heartbeat no longer depends on progress. (#182)
+  - The inspector/viewer write endpoints accepted cross-site and DNS-rebound
+    `text/plain` POSTs (delete group, overwrite note, request analysis); they now
+    check Origin, Host and Content-Type. (#183)
+  - Every yt-dlp argv puts `--` before the URL, and a "URL" starting with `-` is
+    refused; `.env` accepts `export ` and inline comments. (#184)
+  - Refused, truncated or out-of-range LLM scores were stored as `0.0` / `16.95`
+    / `NULL`; merge replies with no JSON object were stored as the summary. Both
+    now go through validation and retry, and raise instead of writing. (#185)
+  - PANNs was fed 16 kHz audio while its front end is 32 kHz — speech was heard
+    as animals. Now 32 kHz, and a wrong rate is refused. (#186)
+  - The ffprobe path was derived by replacing `ffmpeg` anywhere in `FFMPEG_BIN`,
+    breaking paths like `/opt/homebrew/Cellar/ffmpeg/…`; only the file name is
+    changed now, and `FFPROBE_BIN` overrides it. (#187)
+  - When every VLM call fails the pipeline stops before merge instead of scoring
+    an empty visual layer that a later retry would never revisit. (#189)
+  - `research` channel/niche averages now exclude `status=invalid`, like
+    `stats`/`patterns`/`health` already did. (#191)
+  - Japanese transcripts were classified as Chinese (kanji ratio) and skipped by
+    translation; kana now decides, and `・`/`ー` no longer count as kana. (#190)
+  - Re-saving a transcript demoted an analysed video to `transcribed`, dropping it
+    from every export; status now only moves forward. (#192)
+  - In storyboard export, hand-corrected shot sizes were overwritten by model
+    labels; supplied labels now win, as in the inspector. (#193)
+  - Rhythm analysis read the whole WAV into memory (~17 GB for a 4-hour file);
+    it streams in chunks with identical output. (#194)
+  - Motion timing honours a non-zero stream start; weights reject inf/overflow;
+    OCR uses `OCR_LANG` (default `chi_tra+eng`) with resolved paths; CSV export
+    neutralises leading `= + - @` and writes UTF-8 with BOM. (#195)
+- **Videos with no audio track no longer crash transcription.** The audio
+  streams are counted first; zero means an empty transcript (model
+  `none:no-audio-stream`) and vision/scoring still run. An unmeasurable count is
+  not treated as silent. (#165)
 
 - **Threads (and Doc-based `batch`) never worked on python.org macOS Python.**
   That installer ships without access to the system CA store until someone runs
