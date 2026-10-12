@@ -14,7 +14,7 @@ Short-form video analysis CLI tool.
 ## IG Cookies
 - Browse/crawl IG requires cookies: `cookies.txt` (Netscape format) in project root
 - Export from Chrome extension "Get cookies.txt LOCALLY" on instagram.com page
-- yt-dlp IG user extractor is broken as of 2026.4. There is **no instaloader fallback** — `InstagramCrawler.browse` is pure yt-dlp and raises `RuntimeError` on failure. The `instagram` optional extra in pyproject.toml is unused (verified 2026-07-15).
+- yt-dlp IG user extractor is broken as of 2026.4. **Profile browse** (`InstagramCrawler.browse`) falls back to instaloader when yt-dlp fails — that is what the optional `instagram` extra is for (added in roadmap 3A, 2026-07-18; `crawl/instagram.py` `_browse_instaloader`). Without the extra it raises the original yt-dlp error. Single-video download is yt-dlp only — no fallback there. (Corrected 2026-10-12: this line said "no instaloader fallback / extra unused", true on 07-15 and stale three days later.)
 - After analysis, ask user if downloaded videos should be kept or deleted
 
 ## Architecture
