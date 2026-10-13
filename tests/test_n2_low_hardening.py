@@ -91,7 +91,7 @@ def test_motion_and_ffmpeg_agree_on_a_real_offset_file(tmp_path):
     def ffmpeg_first(path):
         out = subprocess.run(["ffmpeg", "-hide_banner", "-i", path, "-vf",
                               "showinfo", "-f", "null", "-"], capture_output=True,
-                             text=True, timeout=60).stderr
+                             text=True, encoding="utf-8", errors="replace", timeout=60).stderr
         return float(out.split("pts_time:", 1)[1].split()[0])
 
     # The first yielded frame is the first P-frame (the I-frame carries no

@@ -34,7 +34,7 @@ class WhisperCppTranscriber(BaseTranscriber):
             result = subprocess.run(
                 [self._binary, "-m", self._model, "-f", wav_path,
                  "--output-json", "-l", "auto"],
-                capture_output=True, text=True, timeout=300,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
             )
             if result.returncode != 0:
                 raise RuntimeError(f"whisper.cpp failed: {tail_stderr(result.stderr)}")

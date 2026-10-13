@@ -340,7 +340,7 @@ def compute_shot_table(
         "-",
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180)
     except (OSError, subprocess.SubprocessError):
         return None
     # A nonzero exit (corrupt/unreadable video) means the scene pass never ran —
