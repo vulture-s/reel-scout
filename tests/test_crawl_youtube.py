@@ -618,3 +618,56 @@ def test_uploaded_same_language_is_deterministic_not_list_order():
     a = {"language": "en", "subtitles": {"en-US": [{}], "en-GB": [{}]}}
     b = {"language": "en", "subtitles": {"en-GB": [{}], "en-US": [{}]}}
     assert choose_caption_track(a) == choose_caption_track(b) == ("pick", "en-GB", False)
+
+
+# --- native Chinese preference + uploaded-vs-auto ---------------------------
+
+def test_uploaded_track_beats_an_exact_script_asr_original():
+    # Manual > auto is a separate, earlier axis than script preference: an
+    # uploaded zh-TW wins even though the auto `-orig` matches `language`
+    # exactly.
+    info = {"language": "zh-Hant", "subtitles": {"zh-TW": [{}]},
+            "automatic_captions": {"zh-Hant-orig": [{}], "zh-Hant": [{}]}}
+    assert choose_caption_track(info) == ("pick", "zh-TW", False)
+
+
+def test_bare_zh_language_prefers_traditional_not_alphabetical_hans():
+    # language="zh" is common for Taiwanese uploads; "zh-Hans" < "zh-Hant"
+    # alphabetically, so the old fallback picked Simplified.
+    info = {"language": "zh", "subtitles": {"zh-Hans": [{}], "zh-Hant": [{}]},
+            "automatic_captions": {}}
+    assert choose_caption_track(info) == ("pick", "zh-Hant", False)
+
+
+def test_uploaded_chinese_preference_order():
+    info = {"language": "zh-TW",
+            "subtitles": {k: [{}] for k in ("zh", "zh-HK", "zh-TW", "zh-Hant")}}
+    assert choose_caption_track(info) == ("pick", "zh-Hant", False)
+    info["subtitles"].pop("zh-Hant")
+    assert choose_caption_track(info) == ("pick", "zh-TW", False)
+    info["subtitles"].pop("zh-TW")
+    assert choose_caption_track(info) == ("pick", "zh-HK", False)
+
+
+def test_simplified_spoken_clip_keeps_its_simplified_track():
+    # Fidelity: for a Simplified-speaking creator the Simplified track is the
+    # faithful one -- no forcing Traditional (that would be a presentation
+    # choice, and needs opencc after the fact).
+    info = {"language": "zh-CN", "subtitles": {"zh-CN": [{}], "zh-Hant": [{}]},
+            "automatic_captions": {}}
+    assert choose_caption_track(info) == ("pick", "zh-CN", False)
+
+
+def test_unknown_language_with_zh_and_english_uploads_reads_the_chinese():
+    info = {"language": None, "subtitles": {"en-US": [{}], "zh-TW": [{}]},
+            "automatic_captions": {"en": [{}]}}
+    assert choose_caption_track(info) == ("pick", "zh-TW", False)
+
+
+def test_download_fetches_uploaded_subs_not_auto_for_an_uploaded_pick(
+        tmp_path, monkeypatch, no_rate_limit):
+    rec = _run(monkeypatch, _CaptionRecorder(str(tmp_path), _TW_UPLOADED))
+    YouTubeCrawler().download(URL, str(tmp_path))
+    subs = [c for c in rec.calls if "--skip-download" in c][0]
+    assert subs[subs.index("--sub-langs") + 1] == "zh\\-TW"
+    assert "--write-subs" in subs and "--write-auto-subs" not in subs
