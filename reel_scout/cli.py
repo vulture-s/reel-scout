@@ -2123,7 +2123,7 @@ def _db_check_llm_residue() -> None:
 
 def _probe_cmd(cmd, timeout=5):
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
         if r.returncode == 0:
             first = (r.stdout.strip().split("\n") or [""])[0]
             return True, first or "ok"

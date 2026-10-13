@@ -57,7 +57,7 @@ def probe_duration(path: str) -> Optional[float]:
         path,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
         return float(result.stdout.strip())
     except (ValueError, TypeError, OSError, subprocess.SubprocessError):
         return None
@@ -82,7 +82,7 @@ def probe_audio_stream_count(path: str) -> Optional[int]:
         path,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     except (OSError, subprocess.SubprocessError):
         return None
     if result.returncode != 0:
@@ -111,7 +111,7 @@ def probe_video_codec(path: str) -> Optional[str]:
         path,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     except (OSError, subprocess.SubprocessError):
         return None
     if result.returncode != 0:
@@ -139,7 +139,7 @@ def probe_dimensions(path: str) -> Optional[Tuple[int, int]]:
         path,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     except (OSError, subprocess.SubprocessError):
         return None
     if result.returncode != 0:

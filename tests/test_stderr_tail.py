@@ -241,7 +241,7 @@ def test_cjk_on_stdin_survives_a_non_utf8_locale(tmp_path):
          "c = db.init_db()\n"
          "rows = [(m['label'], m['note']) for m in marks.list_for(c, %r)]\n"
          "sys.stdout.write(json.dumps(rows, ensure_ascii=True))\n" % vid],
-        capture_output=True, text=True, env=env)
+        capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
     assert read_back.returncode == 0, read_back.stdout + read_back.stderr
     stored = json.loads(read_back.stdout)
     assert stored == [["語意轉場", "人眼特寫"]], stored
