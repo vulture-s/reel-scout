@@ -195,7 +195,7 @@ class YouTubeCrawler(BaseCrawler):
             "--", url,  # "--": a URL is never an option
         )
         try:
-            subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
         except Exception:
             pass
 
@@ -217,7 +217,7 @@ class YouTubeCrawler(BaseCrawler):
             "--", url,  # "--": a URL is never an option
         )
         result = subprocess.run(
-            meta_cmd, capture_output=True, text=True, timeout=60,
+            meta_cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
         )
         if result.returncode != 0:
             raise RuntimeError(f"yt-dlp metadata failed: {ytdlp.format_error(result.stderr)}")
@@ -268,7 +268,7 @@ class YouTubeCrawler(BaseCrawler):
             )
             try:
                 return subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=timeout,
+                    cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
                 )
             except subprocess.TimeoutExpired:
                 # A timeout is a failed attempt like any other: it should reach
@@ -388,7 +388,7 @@ class YouTubeCrawler(BaseCrawler):
         )
 
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=120,
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
         )
         if result.returncode != 0:
             raise RuntimeError(f"yt-dlp browse failed: {ytdlp.format_error(result.stderr)}")

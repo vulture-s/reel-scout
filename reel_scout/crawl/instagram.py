@@ -126,7 +126,7 @@ class InstagramCrawler(BaseCrawler):
         # Get metadata
         meta_cmd = base_cmd + ["--dump-json", "--no-download", "--", url]
         result = subprocess.run(
-            meta_cmd, capture_output=True, text=True, timeout=60,
+            meta_cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
         )
         entries = _video_entries(result.stdout)
         if result.returncode != 0 and not entries:
@@ -172,7 +172,7 @@ class InstagramCrawler(BaseCrawler):
             dl_cmd += ["--playlist-items", str(playlist_index)]
         dl_cmd += ["--", url]  # "--": a URL is never an option
         result = subprocess.run(
-            dl_cmd, capture_output=True, text=True, timeout=300,
+            dl_cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
         )
         if result.returncode != 0:
             raise RuntimeError(f"yt-dlp IG download failed: {ytdlp.format_error(result.stderr)}")
@@ -235,7 +235,7 @@ class InstagramCrawler(BaseCrawler):
         ]
 
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=120,
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
         )
         if result.returncode != 0:
             # yt-dlp's IG extractor breaks periodically (roadmap Non-goals #1). Try
