@@ -25,7 +25,7 @@ _INSPIRE_PROMPT = """You are a short-form video strategist. Below is the structu
 
 ## Requested angle / twist
 {angle}
-
+{language_rule}
 ## Output Format (JSON only, no markdown)
 {{
   "titles": ["title option 1", "title option 2", "title option 3"],
@@ -36,6 +36,42 @@ _INSPIRE_PROMPT = """You are a short-form video strategist. Below is the structu
 }}
 
 Return ONLY valid JSON."""
+
+
+_HAN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+_KANA = re.compile(r"[\u3040-\u30ff]")
+
+_ZH_TW_RULE = (
+    "\n## Output language\n"
+    "The requested angle is written in Chinese, so write every human-readable value "
+    "(titles, hook_script, structure_outline, rationale) in Traditional Chinese as used "
+    "in Taiwan (zh-TW) — never Simplified characters, never English. Keep the JSON keys "
+    "in English exactly as shown.\n"
+)
+_SAME_LANG_RULE = (
+    "\n## Output language\n"
+    "Write every human-readable value (titles, hook_script, structure_outline, rationale) "
+    "in the same language as the requested angle. Keep the JSON keys in English exactly "
+    "as shown.\n"
+)
+
+
+def _language_rule(angle: str) -> str:
+    """Prompt block that pins the output language to the angle's language.
+
+    Without it the English prompt template wins and a Chinese angle comes back
+    with English titles (2026-07-29: angle「拆結構套回自己的分鏡」→ three English
+    titles). A Chinese angle (Han characters, no kana — kana means Japanese)
+    gets an explicit zh-TW rule; any other non-empty angle gets "match the
+    angle's language", so an English angle is never pushed into Chinese. No
+    angle → no rule: behaviour unchanged.
+    """
+    angle = (angle or "").strip()
+    if not angle:
+        return ""
+    if _HAN.search(angle) and not _KANA.search(angle):
+        return _ZH_TW_RULE
+    return _SAME_LANG_RULE
 
 
 def generate_inspiration(
@@ -57,6 +93,7 @@ def generate_inspiration(
     prompt = _INSPIRE_PROMPT.format(
         analysis_json=analysis["full_json"],
         angle=angle.strip() if angle and angle.strip() else "(keep the same niche and audience)",
+        language_rule=_language_rule(angle),
     )
     llm = get_llm(llm_backend)
     text = llm.complete(prompt, max_tokens=600, temperature=0.7)

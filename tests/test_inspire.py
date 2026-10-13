@@ -107,3 +107,46 @@ def test_format_inspiration_renders():
         "recommended_length_sec": 30, "rationale": "r",
     })
     assert "Titles:" in out and "Hook:" in out and "Structure:" in out
+
+
+# --- output language follows the angle (2026-07-29: Chinese angle → English titles) ---
+
+def _prompt_for(angle):
+    conn, path = _temp_db()
+    try:
+        vid = _video_with_analysis(conn)
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = json.dumps({"titles": ["x"]})
+        with patch("reel_scout.inspire.get_llm", return_value=mock_llm):
+            inspire.generate_inspiration(conn, vid[:8], angle=angle)
+        return mock_llm.complete.call_args[0][0]
+    finally:
+        conn.close()
+        os.unlink(path)
+
+
+def test_chinese_angle_pins_traditional_chinese_output():
+    prompt = _prompt_for("拆結構套回自己的分鏡")
+    assert "## Output language" in prompt
+    assert "Traditional Chinese" in prompt and "zh-TW" in prompt
+    assert "never English" in prompt
+
+
+def test_english_angle_is_not_forced_into_chinese():
+    prompt = _prompt_for("for tea instead")
+    assert "## Output language" in prompt
+    assert "same language as the requested angle" in prompt
+    assert "Traditional Chinese" not in prompt
+
+
+def test_japanese_angle_is_not_forced_into_chinese():
+    # Han + kana = Japanese; must not get the zh-TW rule
+    prompt = _prompt_for("コーヒーの代わりに抹茶で")
+    assert "Traditional Chinese" not in prompt
+    assert "same language as the requested angle" in prompt
+
+
+def test_no_angle_adds_no_language_rule():
+    prompt = _prompt_for("")
+    assert "## Output language" not in prompt
+    assert "Traditional Chinese" not in prompt
