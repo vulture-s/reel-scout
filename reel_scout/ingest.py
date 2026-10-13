@@ -268,6 +268,15 @@ def ingest_analysis(
         raise ValueError("analysis payload must be a JSON object")
     if not str(payload.get("summary") or "").strip():
         raise ValueError("missing required field: summary")
+    # The merge stage's old parse-failure carcass was exactly this shape --
+    # ``{"summary": "{\\n", "topics": [], "error": "failed to parse JSON"}`` --
+    # and it has a non-empty summary, so the check above lets it through. A
+    # payload that says it failed is not an analysis; storing it would make
+    # the pipeline skip merge for this video forever.
+    if payload.get("error"):
+        raise ValueError(
+            "analysis payload carries error=%r; refusing to store a failed "
+            "analysis as if it were one" % (str(payload["error"])[:200],))
 
     problems = _check_enums(payload)
     if problems:

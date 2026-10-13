@@ -419,6 +419,12 @@ def main(argv: List[str] = None) -> None:
              "the media, transcript and any scores stay on disk.",
     )
 
+    p_db_sub.add_parser(
+        "check-llm-residue",
+        help="Report (read-only) analyses stored from an unparseable merge reply "
+             "and scores with NULL or all-0.0 dimensions. Writes nothing.",
+    )
+
     # --- config ---
     p_config = sub.add_parser("config", help="Configuration")
     p_cfg_sub = p_config.add_subparsers(dest="config_command")
@@ -1132,9 +1138,16 @@ def _cmd_show(args) -> None:
     if score:
         src = score["model_used"] or "(unknown)"
         print(f"\n--- Score ({src}) ---")
-        print(f"  Overall: {score['overall']:.2f}   Hook: {score['hook_strength']:.1f}   "
-              f"Visual: {score['visual_storytelling']:.1f}   "
-              f"Pacing: {score['pacing']:.1f}   Structure: {score['structure']:.1f}")
+        # A NULL dimension prints as "—", never as 0: rows written before the
+        # scorer refused partial replies can be missing a column, and this line
+        # used to raise TypeError on them (`format(None, ".2f")`).
+        def _s(v, spec):
+            return "—" if v is None else format(v, spec)
+        print(f"  Overall: {_s(score['overall'], '.2f')}   "
+              f"Hook: {_s(score['hook_strength'], '.1f')}   "
+              f"Visual: {_s(score['visual_storytelling'], '.1f')}   "
+              f"Pacing: {_s(score['pacing'], '.1f')}   "
+              f"Structure: {_s(score['structure'], '.1f')}")
         if score["reasoning"]:
             print(f"  {score['reasoning']}")
 
@@ -2038,9 +2051,74 @@ def _cmd_db(args):
         finally:
             conn.close()
 
+    elif args.db_command == "check-llm-residue":
+        _db_check_llm_residue()
+
     else:
         print("Use: reel-scout db "
-              "{stats|reset|migrate|normalize-paths|backfill-text|check-invalid|backfill-shots|health}")
+              "{stats|reset|migrate|normalize-paths|backfill-text|check-invalid|"
+              "check-llm-residue|backfill-shots|health}")
+
+
+def _db_check_llm_residue() -> None:
+    """Report rows the pre-#185 producers may have fabricated. Never writes.
+
+    The connection is opened ``mode=ro`` rather than through `db.init_db`, which
+    would run migrations and create a missing file -- an audit that can change
+    the thing it audits is not an audit.
+    """
+    import sqlite3
+
+    from . import validity
+
+    path = os.path.abspath(config.DB_PATH)
+    if not os.path.exists(path):
+        print("No database at %s (check the cwd or REEL_SCOUT_DATA)." % path,
+              file=sys.stderr)
+        sys.exit(2)
+    conn = sqlite3.connect("file:%s?mode=ro" % path, uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        r = validity.scan_llm_residue(conn)
+    finally:
+        conn.close()
+
+    def _fmt(v):
+        return "NULL" if v is None else "%g" % v
+
+    def _title(h):
+        return h["title"] or "—"
+
+    print("Database: %s (opened read-only)\n" % path)
+
+    bad = r["bad_analyses"]
+    print("[1] analyses stored from an unusable merge reply: %d" % len(bad))
+    for h in bad:
+        print("  %s  [%s]  status=%s  %d chars  %s"
+              % (h["id"], h["platform_id"], h["status"], h["full_json_chars"],
+                 h["reason"]))
+        print("      title: %s   scored: %s (overall %s)"
+              % (_title(h), "yes" if h["scored"] else "no", _fmt(h["overall"])))
+
+    nulls = r["null_scores"]
+    print("\n[2] scores with a NULL dimension: %d" % len(nulls))
+    for h in nulls:
+        print("  %s  [%s]  missing=%s  model=%s  title: %s"
+              % (h["id"], h["platform_id"], ",".join(h["missing"]),
+                 h["model_used"] or "—", _title(h)))
+
+    zeros = r["all_zero_scores"]
+    print("\n[3] scores with all four dimensions exactly 0.0 (suspect, "
+          "not proof): %d" % len(zeros))
+    for h in zeros:
+        print("  %s  [%s]  overall=%s  status=%s  model=%s  title: %s"
+              % (h["id"], h["platform_id"], _fmt(h["overall"]), h["status"],
+                 h["model_used"] or "—", _title(h)))
+
+    print("\nReported only; nothing was written. [1] is permanent until removed: "
+          "the pipeline skips merge for a video that already has an analysis row. "
+          "[3] can be a genuinely bad clip -- read the stored reasoning before "
+          "deciding.")
 
 
 def _probe_cmd(cmd, timeout=5):
