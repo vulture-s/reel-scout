@@ -173,3 +173,92 @@ def scan(conn: Any) -> List[Dict[str, Any]]:
             })
     hits.sort(key=lambda h: h["transcript_chars"], reverse=True)
     return hits
+
+
+# --- residue left by the pre-#185 producers ---------------------------------
+#
+# Before 2026-10-09 two producers turned an unusable LLM reply into a
+# real-looking row: `merge_analysis` stored ``{"summary": <raw>, "error":
+# "failed to parse JSON"}`` and `score_video` wrote ``data.get(dim, 0)``. Both
+# now raise and write nothing (tests/test_llm_reply_honesty.py), but the rows
+# they already wrote are still in every corpus that ran before the fix -- and
+# the pipeline skips a stage whose row exists, so a poisoned analysis is never
+# retried on its own.
+#
+# This only *reports*. Whether to delete, re-run or keep a row is a judgment
+# about someone's corpus, and the all-zero bucket in particular is a suspicion,
+# not a proof: a genuinely terrible clip can bottom out on every dimension.
+
+SCORE_DIMS = ("hook_strength", "visual_storytelling", "pacing", "structure")
+
+
+def _analysis_defect(full_json: Any) -> Optional[str]:
+    """Why a stored `analyses.full_json` is a carcass, or None when it is not."""
+    import json
+
+    if full_json is None or not str(full_json).strip():
+        return "full_json is empty"
+    try:
+        data = json.loads(full_json)
+    except (ValueError, TypeError):
+        return "full_json is not valid JSON"
+    if not isinstance(data, dict):
+        return "full_json is a %s, not an object" % type(data).__name__
+    if data.get("error"):
+        return "full_json carries error=%r" % (str(data["error"])[:80],)
+    return None
+
+
+def scan_llm_residue(conn: Any) -> Dict[str, List[Dict[str, Any]]]:
+    """Rows the pre-#185 producers may have fabricated. Read-only.
+
+    Returns three buckets, each a list of dicts keyed by video:
+
+    * ``bad_analyses`` -- an `analyses` row whose blob is the parse-failure
+      carcass (an ``error`` key, unparseable, or not an object). Certain.
+    * ``null_scores`` -- a `scores` row with any dimension or `overall` NULL.
+      Not fabricated, but incomplete: aggregates skip it per column.
+    * ``all_zero_scores`` -- all four dimensions exactly 0.0, the signature of
+      ``data.get(dim, 0)`` on a refusal. A *suspect*, see the section comment.
+    """
+    def _video_cols(r: Any) -> Dict[str, Any]:
+        return {"id": r["id"], "platform_id": r["platform_id"],
+                "title": r["title"], "status": r["status"]}
+
+    bad: List[Dict[str, Any]] = []
+    for r in conn.execute(
+            "SELECT v.id AS id, v.platform_id AS platform_id, v.title AS title, "
+            "v.status AS status, a.full_json AS full_json, "
+            "(SELECT s.overall FROM scores s WHERE s.video_id = v.id) AS overall, "
+            "(SELECT COUNT(*) FROM scores s WHERE s.video_id = v.id) AS scored "
+            "FROM analyses a JOIN videos v ON v.id = a.video_id "
+            "ORDER BY v.id").fetchall():
+        why = _analysis_defect(r["full_json"])
+        if why is None:
+            continue
+        item = _video_cols(r)
+        item.update({"reason": why,
+                     "full_json_chars": len(r["full_json"] or ""),
+                     "scored": bool(r["scored"]), "overall": r["overall"]})
+        bad.append(item)
+
+    cols = ", ".join("s.%s AS %s" % (c, c) for c in SCORE_DIMS + ("overall",))
+    nulls: List[Dict[str, Any]] = []
+    zeros: List[Dict[str, Any]] = []
+    for r in conn.execute(
+            "SELECT v.id AS id, v.platform_id AS platform_id, v.title AS title, "
+            "v.status AS status, s.model_used AS model_used, %s "
+            "FROM scores s JOIN videos v ON v.id = s.video_id "
+            "ORDER BY v.id" % cols).fetchall():
+        item = _video_cols(r)
+        item["model_used"] = r["model_used"]
+        item.update({c: r[c] for c in SCORE_DIMS + ("overall",)})
+        missing = [c for c in SCORE_DIMS + ("overall",) if r[c] is None]
+        if missing:
+            entry = dict(item)
+            entry["missing"] = missing
+            nulls.append(entry)
+        if all(r[c] is not None and float(r[c]) == 0.0 for c in SCORE_DIMS):
+            zeros.append(item)
+
+    return {"bad_analyses": bad, "null_scores": nulls, "all_zero_scores": zeros}
