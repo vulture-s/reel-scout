@@ -23,6 +23,7 @@ see [`../prompts/signal-reliability-cheatsheet.md`](../prompts/signal-reliabilit
 | `ingest {vision,analysis,score} <id> --from-json <path\|->` | Write **agent-produced** frame descriptions / structured analysis / craft scores back into the DB, for machines with no local model. `--model` required; stored as `agent:<model>`. Analysis enums are validated. |
 | `compare <id…>` | Side-by-side comparison table. |
 | `stats [--channel] [--csv]` | Corpus tag distributions + score aggregates. |
+| `coverage [--channel] [--limit N] [--json]` | Per-clip transcript + keyframe coverage with the **max gap** (longest stretch with no subtitle segment / no sampled frame, head and tail included), worst first. |
 | `patterns --channel <c>` | Per-channel patterns: length, hook/CTA/structure mix, high-vs-low contrast, cadence. |
 | `inspire --based-on <ref> [--angle]` | Generate a fresh variant (titles/hook/structure/length) from a high scorer. |
 | `track --my-video <ref> --views --likes [--comments --notes]` | Record real performance + structural iteration hints vs the top corpus. |
@@ -50,7 +51,9 @@ existing DB by default; pass `analyze: true` to crawl+analyze first (slow).
 - **LLM** (merger/scorer/inspire/research, `LLM_BACKEND`): `omlx` / `ollama` /
   `openclaw` (proxy to a subscription, no local GPU).
 - **Whisper** (`WHISPER_BACKEND`): `faster-whisper` (default) / whisper.cpp;
-  subtitle-first when a native subtitle is present. `WHISPER_MULTILINGUAL=1` for
+  subtitle-first when a native subtitle is present (uploaded track in the
+  spoken language > its auto `-orig` ASR > Whisper; among Chinese tracks
+  `zh-Hant` > `zh-TW` > `zh-HK` > `zh` > Simplified). `WHISPER_MULTILINGUAL=1` for
   code-switching interviews.
 
 All inference defaults to localhost — no cloud API keys required.
