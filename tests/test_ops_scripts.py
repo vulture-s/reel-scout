@@ -70,7 +70,7 @@ def _resolve(script: Path) -> str:
     probe.write_text(f'{_repo_assignment(script.read_text())}\nprintf %s "$REPO"\n')
     try:
         done = subprocess.run(
-            ["bash", str(probe)], capture_output=True, text=True, cwd="/", check=True
+            ["bash", str(probe)], capture_output=True, text=True, encoding="utf-8", errors="replace", cwd="/", check=True
         )
     finally:
         probe.unlink(missing_ok=True)
@@ -91,7 +91,7 @@ def test_script_is_present_and_executable(name: str) -> None:
 @pytest.mark.parametrize("name", SCRIPTS)
 def test_script_parses(name: str) -> None:
     path = REPO_ROOT / "scripts" / name
-    done = subprocess.run(["bash", "-n", str(path)], capture_output=True, text=True)
+    done = subprocess.run(["bash", "-n", str(path)], capture_output=True, text=True, encoding="utf-8", errors="replace")
     assert done.returncode == 0, done.stderr
 
 

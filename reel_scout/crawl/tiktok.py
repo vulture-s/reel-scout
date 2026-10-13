@@ -43,7 +43,7 @@ class TikTokCrawler(BaseCrawler):
         # Get metadata
         meta_cmd = ytdlp.cmd("--dump-json", "--no-download", "--", url)
         result = subprocess.run(
-            meta_cmd, capture_output=True, text=True, timeout=60,
+            meta_cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
         )
         if result.returncode != 0:
             raise RuntimeError(f"yt-dlp TikTok metadata failed: {ytdlp.format_error(result.stderr)}")
@@ -66,7 +66,7 @@ class TikTokCrawler(BaseCrawler):
             "--", url,  # "--": a URL is never an option
         )
         result = subprocess.run(
-            dl_cmd, capture_output=True, text=True, timeout=300,
+            dl_cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
         )
         if result.returncode != 0:
             raise RuntimeError(f"yt-dlp TikTok download failed: {ytdlp.format_error(result.stderr)}")
