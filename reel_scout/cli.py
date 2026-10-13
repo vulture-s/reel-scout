@@ -283,6 +283,14 @@ def main(argv: List[str] = None) -> None:
     p_stats.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
     p_stats.add_argument("--csv", help="Write long-format CSV to this path")
 
+    p_cov = sub.add_parser(
+        "coverage",
+        help="Per-clip transcript + keyframe coverage, with the largest gap in each")
+    p_cov.add_argument("--channel", help="Scope to one channel (matches videos.uploader substring)")
+    p_cov.add_argument("--limit", type=int, default=20,
+                       help="Show the N worst clips by max gap (0 = all; default 20)")
+    p_cov.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
+
     p_patterns = sub.add_parser(
         "patterns",
         help="Per-channel patterns (length, hook/CTA/structure mix, high-vs-low, cadence)")
@@ -449,6 +457,7 @@ def main(argv: List[str] = None) -> None:
         "mcp": _cmd_mcp,
         "compare": _cmd_compare,
         "stats": _cmd_stats,
+        "coverage": _cmd_coverage,
         "patterns": _cmd_patterns,
         "inspire": _cmd_inspire,
         "track": _cmd_track,
@@ -1637,6 +1646,22 @@ def _cmd_stats(args) -> None:
             print(json.dumps(result, ensure_ascii=False, indent=2))
         else:
             print(stats_mod.format_stats(result))
+    finally:
+        conn.close()
+
+
+def _cmd_coverage(args) -> None:
+    from . import coverage as coverage_mod, db
+
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        rows = coverage_mod.compute(conn, channel=args.channel,
+                                    limit=args.limit or None)
+        if args.json:
+            print(json.dumps(rows, ensure_ascii=False, indent=2))
+        else:
+            print(coverage_mod.format_rows(rows))
     finally:
         conn.close()
 

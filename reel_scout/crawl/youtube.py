@@ -12,6 +12,7 @@ from . import ytdlp
 from .. import config
 from .. import ffprobe
 from ..utils.stderr import warn
+from ..transcribe import zh_track_rank
 
 
 def _landed(result, expected: str) -> bool:
@@ -71,6 +72,14 @@ def _best_match(candidates: List[str], lang: str) -> Optional[str]:
     """
     if not candidates:
         return None
+    # Chinese that is not spoken-as-Simplified: the fixed preference order
+    # (zh-Hant > zh-TW > zh-HK > zh > ...) decides, not the exact code. YouTube
+    # reports `language` as bare ``zh`` for plenty of Taiwanese uploads, and the
+    # alphabetical fallback below then handed ``zh-Hans`` the win over
+    # ``zh-Hant`` ("Hans" < "Hant"). A Simplified-spoken clip keeps the
+    # exact/family match, so its own Simplified track stays the one we read.
+    if _primary(lang) == "zh" and _script_family(lang) != "hans":
+        return min(candidates, key=lambda c: (zh_track_rank(c), c))
 
     def bare(code: str) -> str:
         return code[:-5] if code.endswith("-orig") else code
@@ -137,6 +146,15 @@ def choose_caption_track(info: Dict[str, Any]) -> Tuple[str, Optional[str], bool
 
     if len(uploaded) == 1:
         return "pick", uploaded[0], False
+    zh_uploaded = [k for k in uploaded if _primary(k) == "zh"]
+    if zh_uploaded:
+        # No spoken-language field and several uploaded tracks: the old answer
+        # was "legacy", which fetched en.*,zh.* and let English win on disk --
+        # and a creator's own English *translation* (plain ``en-US``, nothing
+        # in the name says translation) is exactly what came back. Read the
+        # Chinese one. Uploaded still beats auto: this branch never looks at
+        # automatic_captions.
+        return "pick", min(zh_uploaded, key=lambda c: (zh_track_rank(c), c)), False
     if not uploaded and len(origs) == 1:
         return "pick", origs[0], True
     if not uploaded and len(auto) == 1:

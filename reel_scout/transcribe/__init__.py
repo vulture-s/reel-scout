@@ -8,9 +8,47 @@ from .base import BaseTranscriber, TranscriptResult
 from .. import config
 
 # Preferred subtitle languages, in priority order, for 招① (subtitle-first).
-# Only consulted as a tie-break between *original* tracks; a video normally has
-# exactly one, so this rarely decides anything.
-_SUB_LANG_PREFIXES = ("en", "zh")
+# Only consulted as a tie-break between *original* tracks. It used to be
+# ("en", "zh"), and that is how three 2026-10-02 clips (壽司／紅眼／Snaplab)
+# ended up with English transcripts: the creator had uploaded an English
+# *translation* under a plain ``en``/``en-US`` code -- a shape
+# `is_translated_track` cannot see -- next to the ``zh``/``zh-TW`` original, and
+# English won the tie-break. Chinese first now; within Chinese see
+# `zh_track_rank`.
+_SUB_LANG_PREFIXES = ("zh", "en")
+
+#: Chinese caption codes in preference order. Traditional first, because that is
+#: what this corpus is read in -- and a native Traditional track is the cheapest
+#: way to get there: the conversion happens at the source (the creator or the
+#: platform wrote it), so nothing downstream needs opencc. Simplified codes rank
+#: last but are *kept* as a candidate: for a Simplified-language creator the
+#: Simplified track is the faithful one, and turning it into Traditional would be
+#: a presentation choice, not a correction.
+_ZH_PREFERENCE = ("zh-hant", "zh-tw", "zh-hk", "zh")
+_ZH_HANS_TAGS = {"hans", "cn", "sg", "my"}
+
+
+def zh_track_rank(code: str) -> int:
+    """Sort key for Chinese caption codes; lower is better.
+
+    ``zh-Hant`` < ``zh-TW`` < ``zh-HK`` < bare ``zh`` < any other Chinese code
+    (``zh-MO``, ``zh-Hant-TW``) < Simplified (``zh-Hans``, ``zh-CN``) <
+    non-Chinese. yt-dlp's ``-orig`` marker is ignored: ``zh-Hant-orig`` ranks as
+    ``zh-Hant``. Whether a track is uploaded or auto-generated is *not* decided
+    here -- that is a separate, earlier axis (see
+    `reel_scout.crawl.youtube.choose_caption_track`).
+    """
+    c = code.lower()
+    if c.endswith("-orig"):
+        c = c[:-5]
+    if c in _ZH_PREFERENCE:
+        return _ZH_PREFERENCE.index(c)
+    parts = c.split("-")
+    if parts[0] != "zh":
+        return len(_ZH_PREFERENCE) + 2
+    if set(parts[1:]) & _ZH_HANS_TAGS:
+        return len(_ZH_PREFERENCE) + 1
+    return len(_ZH_PREFERENCE)
 
 
 def _subtag_is_language(subtag: str) -> bool:
@@ -91,9 +129,13 @@ def find_subtitle(video_path: str) -> Optional[str]:
         )
         return None
 
+    zh = [(zh_track_rank(lang), lang, c) for lang, c in originals
+          if lang.lower().split("-")[0] == "zh"]
+    if zh:
+        return min(zh)[2]
     for prefix in _SUB_LANG_PREFIXES:
         for lang, c in originals:
-            if lang.lower().startswith(prefix):
+            if lang.lower().split("-")[0] == prefix:
                 return c
     return originals[0][1]
 

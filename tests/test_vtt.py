@@ -201,14 +201,39 @@ use &lt;div&gt; for that
 
 
 class TestFindSubtitle:
-    def test_prefers_english(self, workdir) -> None:
+    def test_prefers_chinese_original_over_a_plain_english_track(self, workdir) -> None:
+        # 壽司／紅眼／Snaplab (2026-10-02): the creator's own English
+        # translation sits under a plain `en`/`en-US` code next to the `zh`
+        # original. Nothing in the name says "translation", so English used to
+        # win the tie-break and the transcript came back in English.
         video = os.path.join(workdir, "yt_abc.mp4")
         _write(video, "")
         _write(os.path.join(workdir, "yt_abc.zh.vtt"), "WEBVTT\n")
-        _write(os.path.join(workdir, "yt_abc.en.vtt"), "WEBVTT\n")
+        _write(os.path.join(workdir, "yt_abc.en-US.vtt"), "WEBVTT\n")
         found = find_subtitle(video)
         assert found is not None
-        assert found.endswith(".en.vtt")
+        assert found.endswith(".zh.vtt")
+
+    def test_english_alone_is_still_used(self, workdir) -> None:
+        video = os.path.join(workdir, "yt_abc.mp4")
+        _write(video, "")
+        _write(os.path.join(workdir, "yt_abc.fr.vtt"), "WEBVTT\n")
+        _write(os.path.join(workdir, "yt_abc.en.vtt"), "WEBVTT\n")
+        assert find_subtitle(video).endswith(".en.vtt")
+
+    @pytest.mark.parametrize("present,expected", [
+        (("zh-Hans", "zh", "zh-HK", "zh-TW", "zh-Hant"), "zh-Hant"),
+        (("zh-Hans", "zh", "zh-HK", "zh-TW"), "zh-TW"),
+        (("zh-Hans", "zh", "zh-HK"), "zh-HK"),
+        (("zh-Hans", "zh", "en"), "zh"),
+        (("zh-CN", "en"), "zh-CN"),  # Simplified original still beats English
+    ])
+    def test_chinese_preference_order(self, workdir, present, expected) -> None:
+        video = os.path.join(workdir, "yt_abc.mp4")
+        _write(video, "")
+        for lang in present:
+            _write(os.path.join(workdir, "yt_abc.%s.vtt" % lang), "WEBVTT\n")
+        assert find_subtitle(video).endswith(".%s.vtt" % expected)
 
     def test_none_when_absent(self, workdir) -> None:
         video = os.path.join(workdir, "yt_abc.mp4")
