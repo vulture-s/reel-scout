@@ -188,3 +188,141 @@ def test_language_rule_appears_exactly_once():
 
 def test_language_rule_is_angle_independent():
     assert inspire._language_rule("") == inspire._language_rule("拆結構") == inspire._language_rule("for tea")
+
+
+# --- (b) source-side Traditional conversion + real-names rule (2026-10-14) ---
+
+_SIMPLIFIED_ANALYSIS = {
+    "summary": "视频揭示了使用GEV和Sony FX3通关的案例，软件是DaVinci Resolve 18",
+    "topics": ["AI模型", "游戏作弊"],
+    "timeline": [{"timestamp": "0.1-37.3s", "event": "展示ASTRA和JEV在游戏中的互动"}],
+    "hook": {"opening_type": "statement", "opening_text": "最近网上有很多酷炫案例", "cta_text": ""},
+    "engagement_signals": {"spoken_language": "zh", "face_count": 0},
+    "measured": {"cuts_per_minute": 11.36},
+}
+
+
+def _video_with_simplified_analysis(conn):
+    vid = db.upsert_video(
+        conn, platform="youtube", platform_id="simp",
+        url="https://youtube.com/shorts/simp", title="Simplified", duration_sec=60.0,
+    )
+    raw = json.dumps(_SIMPLIFIED_ANALYSIS, ensure_ascii=False)
+    db.save_analysis(
+        conn, vid, summary=_SIMPLIFIED_ANALYSIS["summary"], topics_json="[]",
+        hooks_json="{}", style_json="{}", engagement_signals_json="{}", full_json=raw,
+    )
+    return vid, raw
+
+
+def _prompt_from_db(conn, vid, angle=""):
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = json.dumps({"titles": ["t"]})
+    with patch("reel_scout.inspire.get_llm", return_value=mock_llm):
+        inspire.generate_inspiration(conn, vid, angle=angle)
+    return mock_llm.complete.call_args[0][0]
+
+
+def _analysis_block(prompt):
+    start = prompt.index("## Proven video analysis\n") + len("## Proven video analysis\n")
+    end = prompt.index("\n\n## Requested angle")
+    return json.loads(prompt[start:end])
+
+
+def test_simplified_analysis_reaches_prompt_as_traditional():
+    conn, path = _temp_db()
+    try:
+        vid, _raw = _video_with_simplified_analysis(conn)
+        sent = _analysis_block(_prompt_from_db(conn, vid, angle="for a photography channel instead"))
+        # values are Traditional (Taiwan phrasing: 视频 -> 影片, 软件 -> 軟體)
+        assert sent["summary"].startswith("影片揭示了")
+        assert "軟體" in sent["summary"] and "通關" in sent["summary"]
+        assert sent["topics"] == ["AI模型", "遊戲作弊"]
+        assert sent["timeline"][0]["event"] == "展示ASTRA和JEV在遊戲中的互動"
+        assert sent["hook"]["opening_text"] == "最近網上有很多酷炫案例"
+        # no Simplified form survives anywhere in the analysis block
+        blob = json.dumps(sent, ensure_ascii=False)
+        for simp in ("视频", "软件", "游戏", "网上", "互动", "关"):
+            assert simp not in blob
+    finally:
+        conn.close()
+        os.unlink(path)
+
+
+def test_conversion_keeps_keys_latin_and_non_strings():
+    conn, path = _temp_db()
+    try:
+        vid, _raw = _video_with_simplified_analysis(conn)
+        sent = _analysis_block(_prompt_from_db(conn, vid))
+        # keys untouched, structure identical
+        assert sent.keys() == _SIMPLIFIED_ANALYSIS.keys()
+        assert sent["hook"].keys() == _SIMPLIFIED_ANALYSIS["hook"].keys()
+        # brands / model numbers / Latin tokens unchanged
+        for latin in ("GEV", "Sony FX3", "DaVinci Resolve 18", "ASTRA", "JEV"):
+            assert latin in sent["summary"] + sent["timeline"][0]["event"]
+        assert sent["engagement_signals"] == {"spoken_language": "zh", "face_count": 0}
+        assert sent["measured"] == {"cuts_per_minute": 11.36}
+        assert sent["timeline"][0]["timestamp"] == "0.1-37.3s"
+        assert sent["hook"]["cta_text"] == ""
+    finally:
+        conn.close()
+        os.unlink(path)
+
+
+def test_conversion_does_not_touch_the_db_row():
+    conn, path = _temp_db()
+    try:
+        vid, raw = _video_with_simplified_analysis(conn)
+        _prompt_from_db(conn, vid)
+        assert db.get_analysis(conn, vid)["full_json"] == raw
+        assert "视频" in db.get_analysis(conn, vid)["full_json"]
+    finally:
+        conn.close()
+        os.unlink(path)
+
+
+def test_model_output_is_not_converted():
+    # The fix is at the source only: Simplified in the model's answer is
+    # reported as-is, never rewritten after the fact.
+    conn, path = _temp_db()
+    try:
+        vid, _raw = _video_with_simplified_analysis(conn)
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = json.dumps({"titles": ["视频标题"], "rationale": "这个结构"})
+        with patch("reel_scout.inspire.get_llm", return_value=mock_llm):
+            data = inspire.generate_inspiration(conn, vid)
+        assert data["titles"] == ["视频标题"]
+        assert data["rationale"] == "这个结构"
+    finally:
+        conn.close()
+        os.unlink(path)
+
+
+def test_non_json_analysis_is_still_converted():
+    out = inspire._analysis_for_prompt("not json: 视频软件 Sony FX3")
+    assert out == "not json: 影片軟體 Sony FX3"
+
+
+def test_missing_opencc_warns_and_passes_through(monkeypatch, capsys):
+    monkeypatch.setattr(inspire, "_get_converter", lambda: None)
+    raw = json.dumps({"summary": "视频"}, ensure_ascii=False)
+    assert inspire._analysis_for_prompt(raw) == raw
+    assert "opencc not installed" in capsys.readouterr().err
+
+
+def test_prompt_requires_real_names_kept():
+    conn, path = _temp_db()
+    try:
+        vid = _video_with_analysis(conn)
+        prompt = _prompt_from_db(conn, vid)
+        assert "## Real names stay real (mandatory)" in prompt
+        assert prompt.count("## Real names stay real") == 1
+        for needle in ("tool, app", "brand", "product model", "person's name", "channel name",
+                       "exactly as it appears", "do not rename", "invent a substitute",
+                       "transliterate", "never swapping out a real entity"):
+            assert needle in prompt, needle
+        # rule sits before the output format, i.e. it is part of the instructions
+        assert prompt.index("## Real names stay real") < prompt.index("## Output Format")
+    finally:
+        conn.close()
+        os.unlink(path)

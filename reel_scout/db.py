@@ -1290,9 +1290,10 @@ def save_transcript(
     duration_sec: float,
 ) -> None:
     # Detect, do not convert. Normalising would mean picking traditional or
-    # simplified for every downstream consumer — a product decision, and one that
-    # needs opencc, which core install deliberately does not carry. Reporting the
-    # mix costs nothing and removes the part that actually hurts: not knowing.
+    # simplified for every downstream consumer — a product decision. (opencc is a
+    # core dependency now, but only for inspire's in-memory prompt copy; stored
+    # text is never rewritten.) Reporting the mix costs nothing and removes the
+    # part that actually hurts: not knowing.
     #
     # Not gated on `language`: that field is wrong often enough to matter (one
     # library clip is tagged zh with an English transcript), and gating on it
