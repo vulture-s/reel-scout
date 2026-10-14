@@ -38,40 +38,38 @@ _INSPIRE_PROMPT = """You are a short-form video strategist. Below is the structu
 Return ONLY valid JSON."""
 
 
-_HAN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
-_KANA = re.compile(r"[\u3040-\u30ff]")
-
-_ZH_TW_RULE = (
-    "\n## Output language\n"
-    "The requested angle is written in Chinese, so write every human-readable value "
-    "(titles, hook_script, structure_outline, rationale) in Traditional Chinese as used "
-    "in Taiwan (zh-TW) — never Simplified characters, never English. Keep the JSON keys "
-    "in English exactly as shown.\n"
-)
-_SAME_LANG_RULE = (
-    "\n## Output language\n"
+_OUTPUT_LANGUAGE_RULE = (
+    "\n## Output language (mandatory)\n"
     "Write every human-readable value (titles, hook_script, structure_outline, rationale) "
-    "in the same language as the requested angle. Keep the JSON keys in English exactly "
-    "as shown.\n"
+    "in Traditional Chinese as used in Taiwan (zh-TW, 繁體中文). This applies no matter "
+    "what language the requested angle or the proven video analysis above is written in.\n"
+    "- NEVER use Simplified Chinese characters (简体字). Use Taiwan-standard forms, e.g. "
+    "「影片」not「视频」,「內容」not「内容」,「結構」not「结构」,「這」not「这」.\n"
+    "- Bilingual gloss for English domain terms: when a professional term, technique or "
+    "concept comes from English, write the Traditional Chinese term followed by the English "
+    "original in full-width parentheses on its first use, e.g. 「動態範圍（Dynamic Range）」, "
+    "「跳切（Jump Cut）」. Gloss only individual terms of a few words — never append an "
+    "English translation to a whole title, sentence or beat.\n"
+    "- Keep brand names, product model numbers and proper nouns in their original form "
+    "(e.g. Sony FX3, DaVinci Resolve) — do not translate or transliterate them.\n"
+    "- Keep the JSON keys in English exactly as shown.\n"
 )
 
 
-def _language_rule(angle: str) -> str:
-    """Prompt block that pins the output language to the angle's language.
+def _language_rule(angle: str = "") -> str:
+    """Prompt block that pins the output language — always zh-TW + bilingual gloss.
 
-    Without it the English prompt template wins and a Chinese angle comes back
-    with English titles (2026-07-29: angle「拆結構套回自己的分鏡」→ three English
-    titles). A Chinese angle (Han characters, no kana — kana means Japanese)
-    gets an explicit zh-TW rule; any other non-empty angle gets "match the
-    angle's language", so an English angle is never pushed into Chinese. No
-    angle → no rule: behaviour unchanged.
+    History: the English template + an English analysis JSON pulled a Chinese
+    angle into English titles (2026-07-29); #208 then made the output follow
+    the angle's language, but qwen2.5:14b ignored "same language" and answered
+    an English angle on a Chinese-analysed video in *Simplified* Chinese.
+    2026-10-14 Hevin's decision: inspire output is ALWAYS Traditional Chinese
+    (zh-TW), never Simplified, with English domain terms glossed bilingually
+    and brands / model numbers kept verbatim — regardless of the angle's or
+    the analysis's language. ``angle`` is accepted only for call-site
+    compatibility; it no longer changes the rule.
     """
-    angle = (angle or "").strip()
-    if not angle:
-        return ""
-    if _HAN.search(angle) and not _KANA.search(angle):
-        return _ZH_TW_RULE
-    return _SAME_LANG_RULE
+    return _OUTPUT_LANGUAGE_RULE
 
 
 def generate_inspiration(

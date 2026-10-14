@@ -109,12 +109,34 @@ def test_format_inspiration_renders():
     assert "Titles:" in out and "Hook:" in out and "Structure:" in out
 
 
-# --- output language follows the angle (2026-07-29: Chinese angle → English titles) ---
+# --- output language: always zh-TW + bilingual gloss (2026-10-14 Hevin 拍板，取代 #208 的「跟隨 angle」) ---
 
-def _prompt_for(angle):
+_EN_ANALYSIS = {"summary": "a snappy coffee tutorial", "content_structure": "hook-body-cta",
+                "style": {"editing": "fast jump cuts, high dynamic range grade"}}
+_ZH_ANALYSIS = {"summary": "快節奏的咖啡教學", "content_structure": "開場鉤子-主體-行動呼籲",
+                "style": {"editing": "快速跳切、高動態範圍調色"}}
+
+_ANGLES = {
+    "zh_angle": "拆結構套回自己的分鏡",
+    "en_angle": "for a tea shop instead",
+    "no_angle": "",
+}
+_ANALYSES = {"zh_analysis": _ZH_ANALYSIS, "en_analysis": _EN_ANALYSIS}
+
+
+def _prompt_for(angle, analysis=None):
     conn, path = _temp_db()
     try:
-        vid = _video_with_analysis(conn)
+        vid = db.upsert_video(
+            conn, platform="youtube", platform_id="lang",
+            url="https://youtube.com/shorts/lang", title="Proven", duration_sec=25.0,
+        )
+        full = analysis if analysis is not None else _EN_ANALYSIS
+        db.save_analysis(
+            conn, vid, summary=full["summary"], topics_json="[]",
+            hooks_json="{}", style_json="{}", engagement_signals_json="{}",
+            full_json=json.dumps(full, ensure_ascii=False),
+        )
         mock_llm = MagicMock()
         mock_llm.complete.return_value = json.dumps({"titles": ["x"]})
         with patch("reel_scout.inspire.get_llm", return_value=mock_llm):
@@ -125,28 +147,44 @@ def _prompt_for(angle):
         os.unlink(path)
 
 
-def test_chinese_angle_pins_traditional_chinese_output():
-    prompt = _prompt_for("拆結構套回自己的分鏡")
+def _assert_zh_tw_bilingual_rule(prompt):
     assert "## Output language" in prompt
+    # Traditional Chinese, Taiwan
     assert "Traditional Chinese" in prompt and "zh-TW" in prompt
-    assert "never English" in prompt
+    # Simplified explicitly forbidden
+    assert "NEVER use Simplified Chinese" in prompt
+    # bilingual gloss for English domain terms, with the canonical example
+    assert "Bilingual gloss" in prompt
+    assert "動態範圍（Dynamic Range）" in prompt
+    # gloss is scoped to terms — whole titles must not get an English translation tacked on
+    assert "never append an English translation to a whole title" in prompt
+    # brands / model numbers stay verbatim
+    assert "brand names, product model numbers" in prompt
+    # the rule must not be conditional on the angle's language any more
+    assert "same language as the requested angle" not in prompt
 
 
-def test_english_angle_is_not_forced_into_chinese():
-    prompt = _prompt_for("for tea instead")
-    assert "## Output language" in prompt
-    assert "same language as the requested angle" in prompt
-    assert "Traditional Chinese" not in prompt
+@pytest.mark.parametrize("analysis_key", sorted(_ANALYSES))
+@pytest.mark.parametrize("angle_key", sorted(_ANGLES))
+def test_every_angle_and_analysis_language_gets_zh_tw_bilingual_rule(angle_key, analysis_key):
+    """中文 angle／英文 angle／無 angle × 中文底片／英文底片 → 全部都釘繁中＋雙語對照。"""
+    prompt = _prompt_for(_ANGLES[angle_key], _ANALYSES[analysis_key])
+    _assert_zh_tw_bilingual_rule(prompt)
+    # the analysis and the angle still reach the prompt untouched
+    assert _ANALYSES[analysis_key]["summary"] in prompt
+    if _ANGLES[angle_key]:
+        assert _ANGLES[angle_key] in prompt
 
 
-def test_japanese_angle_is_not_forced_into_chinese():
-    # Han + kana = Japanese; must not get the zh-TW rule
-    prompt = _prompt_for("コーヒーの代わりに抹茶で")
-    assert "Traditional Chinese" not in prompt
-    assert "same language as the requested angle" in prompt
+def test_japanese_angle_also_gets_zh_tw_rule():
+    # #208 exempted kana angles; under the 2026-10-14 rule output is zh-TW regardless
+    _assert_zh_tw_bilingual_rule(_prompt_for("コーヒーの代わりに抹茶で"))
 
 
-def test_no_angle_adds_no_language_rule():
-    prompt = _prompt_for("")
-    assert "## Output language" not in prompt
-    assert "Traditional Chinese" not in prompt
+def test_language_rule_appears_exactly_once():
+    prompt = _prompt_for("for a tea shop instead", _ZH_ANALYSIS)
+    assert prompt.count("## Output language") == 1
+
+
+def test_language_rule_is_angle_independent():
+    assert inspire._language_rule("") == inspire._language_rule("拆結構") == inspire._language_rule("for tea")
