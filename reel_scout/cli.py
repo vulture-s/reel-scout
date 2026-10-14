@@ -52,7 +52,10 @@ def main(argv: List[str] = None) -> None:
     p_analyze.add_argument("--report-ids", default=None, help=argparse.SUPPRESS)
     p_analyze.add_argument("--skip-vision", action="store_true", help="Skip VLM analysis")
     p_analyze.add_argument("--skip-transcribe", action="store_true", help="Skip transcription")
-    p_analyze.add_argument("--whisper-backend", help="Whisper backend (faster-whisper, whisper-cpp)")
+    p_analyze.add_argument(
+        "--whisper-backend", default=None, choices=config.WHISPER_BACKENDS,
+        help="Whisper backend (default: WHISPER_BACKEND or faster-whisper; "
+             "mlx = Metal on Apple Silicon, needs the mlx extra)")
     p_analyze.add_argument("--vlm-backend", help="VLM backend (omlx, ollama)")
     p_analyze.add_argument("--vlm-model", help="VLM model name")
     p_analyze.add_argument("--keyframe-strategy", help="Keyframe strategy (scene, interval, hybrid)")
@@ -77,7 +80,10 @@ def main(argv: List[str] = None) -> None:
     p_transcribe = sub.add_parser("transcribe", help="Transcribe a local video/audio")
     p_transcribe.add_argument("path", nargs="?", help="Path to video/audio file")
     p_transcribe.add_argument("--pending", action="store_true", help="Transcribe all pending videos")
-    p_transcribe.add_argument("--backend", help="Whisper backend")
+    p_transcribe.add_argument(
+        "--backend", default=None, choices=config.WHISPER_BACKENDS,
+        help="Whisper backend (default: WHISPER_BACKEND or faster-whisper; "
+             "mlx = Metal on Apple Silicon, needs the mlx extra)")
 
     # --- vision ---
     p_vision = sub.add_parser("vision", help="Extract keyframes and describe with VLM")
@@ -2207,7 +2213,17 @@ def _run_config_checks():
     # yt-dlp: probe the SAME binary the crawlers use, not a hardcoded "yt-dlp".
     checks.append(("yt-dlp", *_probe_cmd(list(ytdlp.base_cmd()) + ["--version"])))
 
-    if config.WHISPER_BACKEND == "faster-whisper":
+    if config.WHISPER_BACKEND == "mlx":
+        from .transcribe import mlx_unavailable_reason
+        reason = mlx_unavailable_reason()
+        if reason is None:
+            checks.append(("whisper", True, "mlx-whisper installed (Metal)"))
+        else:
+            # get_transcriber falls back to faster-whisper here, so report that path too.
+            fw = _probe_import("faster_whisper")
+            checks.append(("whisper", fw, "mlx unavailable (%s); fallback faster-whisper %s"
+                           % (reason, "installed" if fw else "NOT installed")))
+    elif config.WHISPER_BACKEND == "faster-whisper":
         ok = _probe_import("faster_whisper")
         checks.append(("whisper", ok, "faster-whisper %s" % ("installed" if ok else "NOT installed")))
     else:

@@ -201,6 +201,11 @@ OPENCLAW_BASE_URL = os.getenv("OPENCLAW_BASE_URL", "http://localhost:18789/v1")
 OPENCLAW_MODEL = os.getenv("OPENCLAW_MODEL", "")
 
 # --- Whisper ---
+# faster-whisper (default) / whisper-cpp / mlx. `mlx` = mlx-whisper on Metal
+# (Apple Silicon only, `mlx` extra; issue #113) -- faster-whisper is CPU-only on
+# macOS. Unavailable mlx falls back to faster-whisper with a one-line notice.
+# With mlx, WHISPER_MODEL is large-v3 / large-v3-turbo or an HF repo id.
+WHISPER_BACKENDS = ("faster-whisper", "whisper-cpp", "mlx")
 WHISPER_BACKEND = os.getenv("WHISPER_BACKEND", "faster-whisper")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "large-v3")
 # Language handling. Defaults reproduce prior behavior (detect-once, transcribe).

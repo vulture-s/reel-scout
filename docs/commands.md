@@ -50,7 +50,10 @@ existing DB by default; pass `analyze: true` to crawl+analyze first (slow).
   (default `qwen2.5vl:7b`), fallback `VLM_FALLBACK_MODEL`.
 - **LLM** (merger/scorer/inspire/research, `LLM_BACKEND`): `omlx` / `ollama` /
   `openclaw` (proxy to a subscription, no local GPU).
-- **Whisper** (`WHISPER_BACKEND`): `faster-whisper` (default) / whisper.cpp;
+- **Whisper** (`WHISPER_BACKEND`): `faster-whisper` (default) / whisper.cpp /
+  `mlx` (opt-in: mlx-whisper on Metal, Apple Silicon, `mlx` extra; `WHISPER_MODEL`
+  `large-v3` / `large-v3-turbo` or an HF repo id; no beam search, falls back to
+  faster-whisper with a notice when unavailable);
   subtitle-first when a native subtitle is present (uploaded track in the
   spoken language > its auto `-orig` ASR > Whisper; among Chinese tracks
   `zh-Hant` > `zh-TW` > `zh-HK` > `zh` > Simplified). `WHISPER_MULTILINGUAL=1` for

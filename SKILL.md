@@ -124,7 +124,7 @@ invent flags beyond these):
 - `--resume` — resume an interrupted batch
 - `--skip-vision` — skip the VLM visual analysis (transcript-only; faster, no local VLM needed)
 - `--skip-transcribe` — skip transcription (visuals-only)
-- `--whisper-backend NAME` — Whisper backend (`faster-whisper`, `whisper-cpp`)
+- `--whisper-backend NAME` — Whisper backend (`faster-whisper`, `whisper-cpp`, `mlx` = Metal on Apple Silicon, opt-in, needs the `mlx` extra)
 - `--vlm-backend NAME` — VLM backend (`omlx`, `ollama`)
 - `--vlm-model NAME` — VLM model name
 - `--keyframe-strategy NAME` — keyframe strategy (`scene`, `interval`, `hybrid`)

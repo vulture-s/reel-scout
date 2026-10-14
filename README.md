@@ -37,8 +37,16 @@ reel-scout skill install       # only if you drive it from Claude — see below
 ```
 
 `ffmpeg` must be on PATH (macOS: `brew install ffmpeg`). `yt-dlp` comes with the
-package. Extras: `whisper` (faster-whisper transcription), `audio` (audio events
+package. Extras: `whisper` (faster-whisper transcription), `mlx` (Metal
+transcription on Apple Silicon — see below), `audio` (audio events
 + BPM), `ocr`, `diarize`, `instagram`, `zh` — e.g. `pip install "reel-scout[whisper]"`.
+`mlx` exists because faster-whisper is CPU-only on macOS: on an M2 Max it ran a
+3h39m video at 1.22× real time, where mlx-whisper `large-v3-turbo` runs ~0.04×.
+It is opt-in — `pip install "reel-scout[whisper,mlx]"`, then
+`WHISPER_BACKEND=mlx WHISPER_MODEL=large-v3-turbo` (or `--whisper-backend mlx`);
+the model (~1.5 GB for turbo, ~2.9 GB for large-v3) downloads from Hugging Face on
+first use. Off Apple Silicon or without the package it falls back to
+faster-whisper and says so on stderr.
 `zh` (OpenCC) converts Simplified Chinese to Traditional at the source, in two
 places: (1) **`inspire`** — the analysis it sends the LLM; (2) **transcripts /
 subtitles** — when a transcript is saved and it contains Simplified characters

@@ -140,8 +140,37 @@ def find_subtitle(video_path: str) -> Optional[str]:
     return originals[0][1]
 
 
+def mlx_unavailable_reason() -> Optional[str]:
+    """Why the mlx backend cannot run here, or None when it can.
+
+    Apple Silicon (Darwin/arm64) *and* an importable ``mlx_whisper``. The import
+    is real, not `find_spec`: a half-installed mlx (wheel present, Metal library
+    missing) passes `find_spec` and then dies at the first transcription.
+    """
+    import platform
+
+    if platform.system() != "Darwin" or platform.machine() != "arm64":
+        return "not Apple Silicon (%s/%s)" % (platform.system(), platform.machine())
+    try:
+        import mlx_whisper  # noqa: F401
+    except Exception as exc:                                   # noqa: BLE001
+        return "mlx-whisper not importable (%s: %s)" % (type(exc).__name__, exc)
+    return None
+
+
 def get_transcriber(backend: Optional[str] = None) -> BaseTranscriber:
     backend = backend or config.WHISPER_BACKEND
+    if backend == "mlx":
+        reason = mlx_unavailable_reason()
+        if reason is None:
+            from .mlx_whisper import MlxWhisperTranscriber
+            return MlxWhisperTranscriber(model=config.WHISPER_MODEL)
+        # Opt-in that cannot be honored falls back -- loudly, one line -- to the
+        # default engine, so a config shared between a Mac and the PC keeps working.
+        from ..utils.stderr import warn
+        warn("  note: WHISPER_BACKEND=mlx unavailable — %s; falling back to "
+             "faster-whisper (pip install 'reel-scout[mlx]' on Apple Silicon)" % reason)
+        backend = "faster-whisper"
     if backend == "faster-whisper":
         from .faster_whisper import FasterWhisperTranscriber
         return FasterWhisperTranscriber(model=config.WHISPER_MODEL)
