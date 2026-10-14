@@ -16,6 +16,22 @@
 
 ### Added
 
+- **`mlx` Whisper backend (opt-in, issue #113).** `WHISPER_BACKEND=mlx` /
+  `--whisper-backend mlx` / `transcribe --backend mlx` transcribes with
+  mlx-whisper on Metal (Apple Silicon; `pip install "reel-scout[mlx]"`).
+  faster-whisper is CPU-only on macOS — on an M2 Max a 3h39m video ran at RTF
+  1.22 there vs ~0.04 for mlx `large-v3-turbo`. `WHISPER_MODEL` takes
+  `large-v3` / `large-v3-turbo` or an HF repo id; an unknown short name is an
+  error, not a guessed repo. Same `TranscriptResult` shape, the same
+  whisper-guard probabilities and Traditional seed (now shared as
+  `ZhSeedMixin`), so `save_transcript`'s s2twp conversion applies unchanged;
+  `whisper_model` is stored as `mlx:<repo>` for A/B provenance. Differences:
+  no beam search (greedy + temperature fallback), `vad_filter` approximated by
+  `hallucination_silence_threshold`, `WHISPER_MULTILINGUAL` ignored with a
+  notice. Off Apple Silicon or without the package it falls back to
+  faster-whisper with a one-line stderr notice. The default is unchanged.
+  `--whisper-backend` / `transcribe --backend` now reject unknown names.
+
 - **Simplified transcripts / subtitles are stored as Traditional, original
   kept (schema v21).** When `save_transcript` receives text with Simplified
   characters (`scan_script_mix`) or from a `zh-Hans` / `zh-CN` / `zh-SG` caption

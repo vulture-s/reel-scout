@@ -47,7 +47,14 @@ pip install "reel-scout[whisper]"   # faster-whisper 轉錄（建議一起裝）
 ```
 
 需要 `ffmpeg` 與 `yt-dlp`（Mac：`brew install ffmpeg yt-dlp`）。
-其他 extras：`audio`（音訊事件 + BPM）、`ocr`、`diarize`、`instagram`、`zh`。
+其他 extras：`mlx`（見下）、`audio`（音訊事件 + BPM）、`ocr`、`diarize`、`instagram`、`zh`。
+
+`mlx` 用途＝**Apple Silicon 上的 Metal 轉錄**（opt-in，預設仍是 faster-whisper）。
+faster-whisper 在 macOS 只能跑 CPU：M2 Max 上一支 3h39m 的片 RTF 1.22，mlx-whisper
+`large-v3-turbo` 約 0.04。啟用：`pip install "reel-scout[whisper,mlx]"`，再設
+`WHISPER_BACKEND=mlx WHISPER_MODEL=large-v3-turbo`（或 `--whisper-backend mlx`）；
+模型首次使用時從 Hugging Face 下載（turbo ~1.5 GB、large-v3 ~2.9 GB）。
+非 Apple Silicon 或沒裝套件時會在 stderr 印一行說明並退回 faster-whisper。
 
 `zh`（OpenCC）用途＝**簡轉繁（源頭轉換，非事後修輸出）**，兩處：
 1. **inspire**：送給 LLM 的分析先轉繁。
