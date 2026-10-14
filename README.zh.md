@@ -47,7 +47,12 @@ pip install "reel-scout[whisper]"   # faster-whisper 轉錄（建議一起裝）
 ```
 
 需要 `ffmpeg` 與 `yt-dlp`（Mac：`brew install ffmpeg yt-dlp`）。
-其他 extras：`audio`（音訊事件 + BPM）、`ocr`、`diarize`、`instagram`。
+其他 extras：`audio`（音訊事件 + BPM）、`ocr`、`diarize`、`instagram`、`zh`。
+
+`zh`（OpenCC）用途：`inspire` 送給 LLM 的分析先做**簡轉繁（源頭轉換，非事後修輸出）**，預設 `s2twp`（台灣用詞）；
+可用 `REEL_SCOUT_ZH_CONVERT=s2tw|off` 或 `--zh-convert` 改，並用熱詞表修正個別錯換
+（`REEL_SCOUT_ZH_HOTWORDS` / `--zh-hotwords`，範例見 `docs/zh-hotwords.example.yaml`，在 OpenCC **之後**套用、最長匹配優先）。
+模型輸出與資料庫裡的逐字稿／字幕都不會被改寫。沒裝時 inspire 會在 stderr 警告並附安裝指令，分析原樣送出。
 
 從 clone 開發用：
 

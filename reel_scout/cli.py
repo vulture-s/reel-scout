@@ -306,6 +306,18 @@ def main(argv: List[str] = None) -> None:
         help="Video id or unique prefix to base the variant on")
     p_inspire.add_argument("--angle", default="", help="Optional twist/angle for the variant")
     p_inspire.add_argument("--json", action="store_true", help="Emit JSON instead of a table")
+    p_inspire.add_argument(
+        "--name-retries", type=int, default=None, metavar="N",
+        help="Re-ask the LLM up to N times when its answer drops/renames a real name "
+             "from the analysis (default: INSPIRE_NAME_RETRIES or 2; 0 = check only)")
+    p_inspire.add_argument(
+        "--zh-convert", default=None, choices=["s2twp", "s2tw", "off"],
+        help="Simplified->Traditional conversion of the analysis sent to the LLM "
+             "(default: REEL_SCOUT_ZH_CONVERT or s2twp; needs the zh extra)")
+    p_inspire.add_argument(
+        "--zh-hotwords", default=None, metavar="FILE",
+        help="YAML/JSON 'source: replacement' table applied after OpenCC, longest match "
+             "first (default: REEL_SCOUT_ZH_HOTWORDS)")
 
     p_track = sub.add_parser(
         "track", help="Record your video's real metrics + structural diff vs the top corpus")
@@ -1899,19 +1911,27 @@ def _cmd_mark(args) -> Optional[int]:
         conn.close()
 
 
-def _cmd_inspire(args) -> None:
+def _cmd_inspire(args) -> Optional[int]:
     from . import db, inspire as inspire_mod
 
     config.ensure_dirs()
     conn = db.init_db()
     try:
-        result = inspire_mod.generate_inspiration(conn, args.based_on, angle=args.angle)
+        result = inspire_mod.generate_inspiration(
+            conn, args.based_on, angle=args.angle, name_retries=args.name_retries,
+            zh_mode=args.zh_convert, zh_hotwords=args.zh_hotwords)
         if args.json:
             print(json.dumps(result, ensure_ascii=False, indent=2))
         else:
             print(inspire_mod.format_inspiration(result))
     finally:
         conn.close()
+    # Third state: the answer is printed, but a failed real-name check is not
+    # success -- say so on stderr and in the exit code.
+    if (result.get("name_check") or {}).get("status") == "failed":
+        print("warning: %s" % result.get("warning", "real-name check failed"), file=sys.stderr)
+        return 3
+    return None
 
 
 def _cmd_patterns(args) -> None:

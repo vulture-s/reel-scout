@@ -229,7 +229,7 @@ def _analysis_block(prompt):
     return json.loads(prompt[start:end])
 
 
-def test_simplified_analysis_reaches_prompt_as_traditional():
+def test_simplified_analysis_reaches_prompt_as_traditional(need_opencc):
     conn, path = _temp_db()
     try:
         vid, _raw = _video_with_simplified_analysis(conn)
@@ -298,16 +298,19 @@ def test_model_output_is_not_converted():
         os.unlink(path)
 
 
-def test_non_json_analysis_is_still_converted():
+def test_non_json_analysis_is_still_converted(need_opencc):
     out = inspire._analysis_for_prompt("not json: 视频软件 Sony FX3")
     assert out == "not json: 影片軟體 Sony FX3"
 
 
-def test_missing_opencc_warns_and_passes_through(monkeypatch, capsys):
-    monkeypatch.setattr(inspire, "_get_converter", lambda: None)
+def test_missing_opencc_warns_and_passes_through(no_opencc, monkeypatch, capsys):
+    monkeypatch.setattr(inspire.config, "ZH_HOTWORDS", "")
     raw = json.dumps({"summary": "视频"}, ensure_ascii=False)
     assert inspire._analysis_for_prompt(raw) == raw
-    assert "opencc not installed" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "opencc not installed" in err
+    # the warning tells you how to fix it
+    assert 'pip install "reel-scout[zh]"' in err
 
 
 def test_prompt_requires_real_names_kept():

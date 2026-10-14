@@ -32,10 +32,6 @@ dependencies = [
     # urllib HTTPS on python.org macOS builds has no CA store until
     # "Install Certificates.command" runs; see reel_scout/utils/https.py
     "certifi>=2023.7.22",
-    # inspire feeds the analysis to the LLM as zh-TW Traditional (s2twp) so a
-    # Simplified-Chinese analysis stops leaking Simplified into the output.
-    # Pure python, no compiled parts — installs the same on Windows / py3.9.
-    "opencc-python-reimplemented>=0.1.7",
 ]
 
 [project.urls]
@@ -55,6 +51,11 @@ vector = ["lancedb>=0.4.0", "chromadb>=0.4.0"]
 # PyPI — install it editable on M2 (`pip install -e speaker-align[pyannote]`).
 diarize = ["speaker-align[pyannote]"]
 instagram = ["instaloader>=4.10"]
+# Simplified -> Traditional (OpenCC s2twp / s2tw) for the analysis copy that
+# `inspire` feeds the LLM -- conversion at the source, never a rewrite of the
+# model's output or of stored transcripts / subtitles. Pure python, no compiled
+# parts. Without it inspire warns on stderr and sends the analysis unconverted.
+zh = ["opencc-python-reimplemented>=0.1.7"]
 ocr = ["pytesseract>=0.3.10", "Pillow>=9.0"]
 # Camera movement (§6C) reads H.264 motion vectors, which only the decoder can
 # hand over -- ffprobe reports that the side data exists but never its values.

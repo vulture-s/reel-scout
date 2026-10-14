@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`inspire` checks real names and re-asks.** After the model answers, the
+  real names in the analysis (name-shaped Latin words such as `What'Sub`,
+  `DaVinci`, `FX3`, `GEV`, and 《書名號》 titles) are compared with the output.
+  A name that went missing, or a name-shaped word the analysis never mentions
+  (`SubEase`), triggers a re-ask that lists exactly what was wrong — at most
+  `INSPIRE_NAME_RETRIES` times (default 2; `--name-retries`, MCP `name_retries`).
+  The result always carries `name_check.status`: `passed` or `failed`. A failed
+  check is never passed off as success: the JSON says so, the text view prints
+  `!! real-name check FAILED`, and the CLI exits 3 with a stderr warning.
+  Not detected, by design of the shape rule: Title-case-only names (`Subly`)
+  and Chinese personal names.
+- **Configurable source conversion + hotwords.** `REEL_SCOUT_ZH_CONVERT` /
+  `--zh-convert` picks `s2twp` (default), `s2tw` (per character) or `off`.
+  `REEL_SCOUT_ZH_HOTWORDS` / `--zh-hotwords` points at a YAML/JSON
+  `source: replacement` table applied after OpenCC, longest match first, to fix
+  s2twp's phrase swaps (`类型 → 型別`). Example: `docs/zh-hotwords.example.yaml`.
+
+### Changed
+
+- **OpenCC is now the optional `zh` extra** (`pip install "reel-scout[zh]"`),
+  not a core dependency. Its only use is the Simplified → Traditional
+  conversion of the analysis copy `inspire` sends to the LLM. Without it,
+  inspire warns on stderr (with the install command) and sends the analysis
+  unconverted. CI runs the suite both with and without the extra.
+
 ## 1.5.0 — 2026-10-12
 
 ### Added

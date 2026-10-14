@@ -391,12 +391,16 @@ def list_tools() -> List[Dict[str, Any]]:
         },
         {
             "name": "inspire",
-            "description": "Generate a fresh content variant (titles/hook/structure) from a high-scoring video",
+            "description": "Generate a fresh content variant (titles/hook/structure) from a high-scoring video. The result's name_check.status is 'passed' or 'failed': failed means the model still dropped or invented a real name after the re-asks -- report it, do not present the variant as clean.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "based_on": {"type": "string"},
                     "angle": {"type": "string"},
+                    "name_retries": {"type": "integer", "minimum": 0,
+                                     "description": "Max re-asks on a real-name miss (default INSPIRE_NAME_RETRIES, 2)"},
+                    "zh_convert": {"type": "string", "enum": ["s2twp", "s2tw", "off"],
+                                   "description": "Simplified->Traditional mode for the analysis sent to the LLM"},
                 },
                 "required": ["based_on"],
             },
@@ -845,7 +849,9 @@ def _tool_inspire(args: Dict[str, Any]) -> Dict[str, Any]:
     conn = db.init_db()
     try:
         with contextlib.redirect_stdout(sys.stderr):
-            data = inspire_mod.generate_inspiration(conn, based_on, angle=args.get("angle", ""))
+            data = inspire_mod.generate_inspiration(
+                conn, based_on, angle=args.get("angle", ""),
+                name_retries=args.get("name_retries"), zh_mode=args.get("zh_convert"))
         return _text_result(data)
     finally:
         conn.close()

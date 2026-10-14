@@ -38,7 +38,12 @@ reel-scout skill install       # only if you drive it from Claude — see below
 
 `ffmpeg` must be on PATH (macOS: `brew install ffmpeg`). `yt-dlp` comes with the
 package. Extras: `whisper` (faster-whisper transcription), `audio` (audio events
-+ BPM), `ocr`, `diarize`, `instagram` — e.g. `pip install "reel-scout[whisper]"`.
++ BPM), `ocr`, `diarize`, `instagram`, `zh` — e.g. `pip install "reel-scout[whisper]"`.
+`zh` (OpenCC) is for `inspire`: it converts the analysis it sends the LLM from
+Simplified to Traditional Chinese at the source (`s2twp` by default; set
+`REEL_SCOUT_ZH_CONVERT=s2tw|off`, and fix individual words with a hotword file —
+see `docs/zh-hotwords.example.yaml`). It never rewrites the model's output or
+stored transcripts. Without it, inspire warns and sends the analysis as-is.
 
 ### Using it from Claude
 

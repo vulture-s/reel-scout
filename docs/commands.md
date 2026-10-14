@@ -25,7 +25,7 @@ see [`../prompts/signal-reliability-cheatsheet.md`](../prompts/signal-reliabilit
 | `stats [--channel] [--csv]` | Corpus tag distributions + score aggregates. |
 | `coverage [--channel] [--limit N] [--json]` | Per-clip transcript + keyframe coverage with the **max gap** (longest stretch with no subtitle segment / no sampled frame, head and tail included), worst first. |
 | `patterns --channel <c>` | Per-channel patterns: length, hook/CTA/structure mix, high-vs-low contrast, cadence. |
-| `inspire --based-on <ref> [--angle]` | Generate a fresh variant (titles/hook/structure/length) from a high scorer. |
+| `inspire --based-on <ref> [--angle] [--name-retries N] [--zh-convert s2twp\|s2tw\|off] [--zh-hotwords FILE]` | Generate a fresh variant (titles/hook/structure/length) from a high scorer. Real names in the analysis are checked against the answer; a miss is re-asked up to N times (default 2). `name_check.status` is `passed` or `failed`; failed exits 3 with a stderr warning. |
 | `track --my-video <ref> --views --likes [--comments --notes]` | Record real performance + structural iteration hints vs the top corpus. |
 | `research --niche <n> --channels <url…> [--depth --out --no-analyze]` | Competitor research report. |
 | `batch --stdin` / `--file <path>` / `--doc <url>` | Analyze every reel in a list, one bundle each. `--dry-run`, `--limit`, `--out`, `--mode`. Prefer `--stdin`/`--file` for someone's own list — it stays on their machine. `--doc` rewrites Google `/edit` links to no-auth export endpoints, which needs sharing set to "anyone with the link", i.e. it makes that document public to anyone holding the URL. |
@@ -111,13 +111,16 @@ download modest, or rely on subtitle-first when the source has native subtitles.
 | `OCR_ENABLED` / `OCR_ENGINE` | `true` / `vlm` | §4F on-screen text; `tesseract` opt-in (needs the `ocr` extra). |
 | `IG_COOKIES_FILE` | — | Instagram cookies for gated content. |
 | `LLM_BACKEND` / `VLM_BACKEND` / `WHISPER_BACKEND` | `omlx`/`omlx`/`faster-whisper` | Inference backends. |
+| `REEL_SCOUT_ZH_CONVERT` / `REEL_SCOUT_ZH_HOTWORDS` | `s2twp` / — | inspire's source conversion (`s2twp`/`s2tw`/`off`, needs the `zh` extra) and a YAML/JSON hotword table applied after OpenCC. |
+| `INSPIRE_NAME_RETRIES` | `2` | inspire re-asks on a real-name miss at most this many times (0 = check only). |
 
 `reel-scout config show` prints the resolved config; `config check` probes backend reachability.
 
 ## Optional extras (`pip install reel-scout[<extra>]`)
 
 `whisper`, `audio` (onnxruntime+numpy — PANNs events + BPM), `diarize`,
-`instagram` (instaloader browse fallback), `ocr` (pytesseract+Pillow), `vector`.
+`instagram` (instaloader browse fallback), `ocr` (pytesseract+Pillow), `vector`,
+`zh` (OpenCC — inspire's Simplified→Traditional conversion of the analysis it sends the LLM).
 
 ## Take-home bundle
 
