@@ -391,7 +391,7 @@ def list_tools() -> List[Dict[str, Any]]:
         },
         {
             "name": "inspire",
-            "description": "Generate a fresh content variant (titles/hook/structure) from a high-scoring video. The result's name_check.status is 'passed' or 'failed': failed means the model still dropped or invented a real name after the re-asks -- report it, do not present the variant as clean.",
+            "description": "Generate a fresh content variant (titles/hook/structure) from a high-scoring video. The result's name_check.status is 'passed' or 'failed': failed means the model still dropped or invented a real name after the re-asks -- report it, do not present the variant as clean. name_check.mode is 'strict' when no angle is given (dropped and invented names both fail) or 'angle' when one is (only invented names fail; source names the variant leaves out are listed in name_check.dropped).",
             "inputSchema": {
                 "type": "object",
                 "properties": {

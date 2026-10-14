@@ -11,6 +11,10 @@ it to 0. This module checks the answer instead:
 * **invented** -- a name-shaped word / 書名號 title in the output that appears
   nowhere in the analysis or the requested angle (``SubEase``, ``Let'Sub``).
 
+Which of the two fails an answer depends on the mode (``mode_for``): with no
+angle both do (``strict``); with an angle only *invented* does (``angle``) --
+an angle asks for a different video, so the source's names may drop out.
+
 "Name-shaped" is deliberately a *shape*, not a dictionary: CamelCase inside a
 word, an apostrophe between letters, letters mixed with digits, or ALL-CAPS of
 3+ letters. Plain Title-case words (``Sony``, ``Jump Cut``) are not counted:
@@ -118,14 +122,37 @@ def _key(name: str) -> str:
     return norm(name.strip("《》〈〉"))
 
 
-def check(entities: List[str], known_text: str, data: Dict[str, Any]) -> Dict[str, List[str]]:
+#: Check modes. ``strict`` (no angle): a dropped real name and a name the
+#: analysis never mentions both fail the answer. ``angle``: the angle asks for a
+#: *different* video, so a real name from the source may legitimately go away
+#: (a variant for photographers need not mention the subtitle tool) -- only a
+#: name that comes from nowhere (not in the analysis, not in the angle) fails.
+MODE_STRICT = "strict"
+MODE_ANGLE = "angle"
+
+
+def mode_for(angle: str) -> str:
+    """``angle`` when an angle was given (non-blank), else ``strict``."""
+    return MODE_ANGLE if angle and angle.strip() else MODE_STRICT
+
+
+def check(entities: List[str], known_text: str, data: Dict[str, Any],
+          mode: str = MODE_STRICT) -> Dict[str, List[str]]:
     """``{"missing": [...], "invented": [...]}`` for one model answer.
 
     *known_text* is everything a name may legitimately come from (the analysis
     as sent, the raw analysis, the angle). Empty lists mean the answer passes.
+
+    In ``angle`` mode a dropped real name is not a problem: ``missing`` is
+    always empty and the dropped names are reported, for information only,
+    under ``dropped``.
     """
+    if mode not in (MODE_STRICT, MODE_ANGLE):
+        raise ValueError("unknown name-check mode: %r" % (mode,))
     out = norm(output_text(data))
     known = norm(known_text)
     missing = [e for e in entities if _key(e) and _key(e) not in out]
     invented = [n for n in names_in_text(output_text(data)) if _key(n) not in known]
+    if mode == MODE_ANGLE:
+        return {"missing": [], "invented": invented, "dropped": missing}
     return {"missing": missing, "invented": invented}
