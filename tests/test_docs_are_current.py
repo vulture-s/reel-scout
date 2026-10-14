@@ -189,3 +189,16 @@ def test_the_roadmap_states_both_numbers_on_one_checked_line():
     assert m, "the current-state line should give a version and a schema: %r" % line[0]
     assert m.group(1) == reel_scout.__version__
     assert int(m.group(2)) == db.SCHEMA_VERSION
+
+
+def test_agents_md_bug_class_tests_exist():
+    """AGENTS.md's bug-class list points at test files; a renamed or deleted
+    test must not leave the pointer dangling (it is the only map of them)."""
+    import re as _re
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "AGENTS.md"), encoding="utf-8") as f:
+        text = f.read()
+    refs = set(_re.findall(r"`(tests/test_[\w]+\.py)`", text))
+    assert len(refs) >= 8, refs
+    missing = sorted(r for r in refs if not os.path.exists(os.path.join(root, r)))
+    assert not missing, "AGENTS.md points at missing tests: %s" % missing
