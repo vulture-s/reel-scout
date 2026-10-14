@@ -320,14 +320,24 @@ def compute_shot_table(
     video_path: str,
     scene_threshold: Optional[float] = None,
     duration_sec: Optional[float] = None,
+    on_skip: Optional[Callable[[str], None]] = None,
 ) -> Optional[Tuple[ShotMetrics, List[Shot]]]:
     """One ffmpeg pass, both outputs: the aggregate and the per-shot spans.
 
     Returns None on the same conditions the aggregate alone returned None for —
     unknown duration or a failed pass — because a shot table built on a
-    fabricated duration would be worse than no table."""
+    fabricated duration would be worse than no table.
+
+    `on_skip`, if given, is called once with a one-line reason right before a
+    None return. The return contract is unchanged; this only lets a caller say
+    *why* there is no table instead of skipping the measurement silently."""
+    def _skip(reason: str) -> None:
+        if on_skip is not None:
+            on_skip(reason)
+
     duration = duration_sec if (duration_sec and duration_sec > 0) else _probe_duration(video_path)
     if not duration or duration <= 0:
+        _skip("duration unknown (ffprobe returned none) -- cuts/min needs it")
         return None
 
     threshold = config.SHOT_SCENE_THRESHOLD if scene_threshold is None else scene_threshold
@@ -341,11 +351,15 @@ def compute_shot_table(
     ]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180)
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as e:
+        _skip("ffmpeg scene pass could not run: %s" % e)
         return None
     # A nonzero exit (corrupt/unreadable video) means the scene pass never ran —
     # returning it as a 0-cut clip would fabricate shot_count=1. Emit None instead.
     if result.returncode != 0:
+        tail = [ln.strip() for ln in (result.stderr or "").splitlines() if ln.strip()]
+        _skip("ffmpeg scene pass exited %s%s" % (
+            result.returncode, (": %s" % tail[-1]) if tail else ""))
         return None
 
     cut_times = parse_cut_times(result.stderr)

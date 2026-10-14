@@ -583,8 +583,18 @@ def _process_single(
             try:
                 from ..shots import compute_shot_table
                 print("  Measuring shot rhythm...")
-                table = compute_shot_table(file_path, duration_sec=video["duration_sec"])
+                skip_reasons = []
+                table = compute_shot_table(file_path, duration_sec=video["duration_sec"],
+                                           on_skip=skip_reasons.append)
                 sm, shot_spans = table if table else (None, [])
+                if table is None:
+                    # Used to fall through silently: no cuts/min and no word on
+                    # why, so "never ran" and "ran and failed" looked the same.
+                    # Mirrors the audio half's "Audio rhythm skipped" line.
+                    print("  Shot rhythm skipped: %s" % (
+                        skip_reasons[-1] if skip_reasons
+                        else "no shot table (reason not reported)"),
+                        file=sys.stderr)
                 bpm = energy = None
                 # Audio energy/BPM needs only a decoded WAV (no PANNs model): pure-
                 # stdlib energy + numpy-gated best-effort BPM. Skipped cleanly if
