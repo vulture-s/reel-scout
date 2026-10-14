@@ -318,3 +318,42 @@ def test_custom_span_accessor():
     per, _ = shots.bind_spans_to_shots(
         sh, [(1.0, 2.0)], span_of=lambda x: (x[0], x[1]))
     assert per[0] == [(1.0, 2.0)]
+
+
+# --- on_skip: the reason behind a None, without changing the return contract ---
+
+def test_compute_shot_table_reports_unknown_duration():
+    seen = []
+    with patch("reel_scout.shots._probe_duration", return_value=None):
+        assert shots.compute_shot_table("/fake.mp4", on_skip=seen.append) is None
+    assert len(seen) == 1 and "duration unknown" in seen[0]
+
+
+def test_compute_shot_table_reports_ffmpeg_not_runnable():
+    seen = []
+    with patch("reel_scout.shots._probe_duration", return_value=30.0), \
+         patch("reel_scout.shots.subprocess.run", side_effect=OSError("no ffmpeg")):
+        assert shots.compute_shot_table("/fake.mp4", on_skip=seen.append) is None
+    assert len(seen) == 1 and "could not run" in seen[0] and "no ffmpeg" in seen[0]
+
+
+def test_compute_shot_table_reports_nonzero_exit_with_last_stderr_line():
+    fake = MagicMock()
+    fake.returncode = 1
+    fake.stderr = "noise\nmoov atom not found\n\n"
+    seen = []
+    with patch("reel_scout.shots._probe_duration", return_value=30.0), \
+         patch("reel_scout.shots.subprocess.run", return_value=fake):
+        assert shots.compute_shot_table("/corrupt.mp4", on_skip=seen.append) is None
+    assert seen == ["ffmpeg scene pass exited 1: moov atom not found"]
+
+
+def test_compute_shot_table_success_does_not_call_on_skip():
+    fake = MagicMock()
+    fake.returncode = 0
+    fake.stderr = "pts_time:1.0\n"
+    seen = []
+    with patch("reel_scout.shots._probe_duration", return_value=60.0), \
+         patch("reel_scout.shots.subprocess.run", return_value=fake):
+        assert shots.compute_shot_table("/fake.mp4", on_skip=seen.append) is not None
+    assert seen == []
