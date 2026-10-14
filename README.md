@@ -39,11 +39,17 @@ reel-scout skill install       # only if you drive it from Claude — see below
 `ffmpeg` must be on PATH (macOS: `brew install ffmpeg`). `yt-dlp` comes with the
 package. Extras: `whisper` (faster-whisper transcription), `audio` (audio events
 + BPM), `ocr`, `diarize`, `instagram`, `zh` — e.g. `pip install "reel-scout[whisper]"`.
-`zh` (OpenCC) is for `inspire`: it converts the analysis it sends the LLM from
-Simplified to Traditional Chinese at the source (`s2twp` by default; set
-`REEL_SCOUT_ZH_CONVERT=s2tw|off`, and fix individual words with a hotword file —
-see `docs/zh-hotwords.example.yaml`). It never rewrites the model's output or
-stored transcripts. Without it, inspire warns and sends the analysis as-is.
+`zh` (OpenCC) converts Simplified Chinese to Traditional at the source, in two
+places: (1) **`inspire`** — the analysis it sends the LLM; (2) **transcripts /
+subtitles** — when a transcript is saved and it contains Simplified characters
+(or its caption track is `zh-Hans` / `zh-CN`), the Traditional version is stored
+and the received text is kept in `transcripts.text_full_original` /
+`segments_json_original` (`zh_conversion` says what was applied;
+`db.restore_transcript_originals` undoes it). `s2twp` by default; set
+`REEL_SCOUT_ZH_CONVERT=s2tw|off` (`off` stores Simplified transcripts as received —
+the right choice for a Simplified-language corpus), and fix individual words with a
+hotword file — see `docs/zh-hotwords.example.yaml`. It never rewrites the model's
+output. Without it, both places warn on stderr and keep the text as-is.
 
 ### Using it from Claude
 

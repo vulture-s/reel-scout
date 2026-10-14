@@ -111,7 +111,7 @@ download modest, or rely on subtitle-first when the source has native subtitles.
 | `OCR_ENABLED` / `OCR_ENGINE` | `true` / `vlm` | §4F on-screen text; `tesseract` opt-in (needs the `ocr` extra). |
 | `IG_COOKIES_FILE` | — | Instagram cookies for gated content. |
 | `LLM_BACKEND` / `VLM_BACKEND` / `WHISPER_BACKEND` | `omlx`/`omlx`/`faster-whisper` | Inference backends. |
-| `REEL_SCOUT_ZH_CONVERT` / `REEL_SCOUT_ZH_HOTWORDS` | `s2twp` / — | inspire's source conversion (`s2twp`/`s2tw`/`off`, needs the `zh` extra) and a YAML/JSON hotword table applied after OpenCC. |
+| `REEL_SCOUT_ZH_CONVERT` / `REEL_SCOUT_ZH_HOTWORDS` | `s2twp` / — | Source Simplified→Traditional conversion (`s2twp`/`s2tw`/`off`, needs the `zh` extra) for inspire's analysis copy and for Simplified transcripts / subtitles as they are saved (original kept in `transcripts.text_full_original`), plus a YAML/JSON hotword table applied after OpenCC. |
 | `INSPIRE_NAME_RETRIES` | `2` | inspire re-asks on a real-name miss at most this many times (0 = check only). |
 
 `reel-scout config show` prints the resolved config; `config check` probes backend reachability.
@@ -120,7 +120,7 @@ download modest, or rely on subtitle-first when the source has native subtitles.
 
 `whisper`, `audio` (onnxruntime+numpy — PANNs events + BPM), `diarize`,
 `instagram` (instaloader browse fallback), `ocr` (pytesseract+Pillow), `vector`,
-`zh` (OpenCC — inspire's Simplified→Traditional conversion of the analysis it sends the LLM).
+`zh` (OpenCC — Simplified→Traditional at the source: inspire's analysis copy, and Simplified transcripts / subtitles on save, original kept).
 
 ## Take-home bundle
 
