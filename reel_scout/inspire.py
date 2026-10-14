@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from . import compare, db
+from . import compare, config, db, name_guard, zh_convert
 from .llm import get_llm
 from .utils.stderr import warn
 
@@ -67,31 +67,9 @@ _ENTITY_RULE = (
 )
 
 
-#: OpenCC config for the analysis copy fed into the prompt: Simplified ->
-#: Traditional with Taiwan phrasing (视频 -> 影片, 软件 -> 軟體).
-_S2T_CONFIG = "s2twp"
-_converter: Any = None
-
-
-def _get_converter() -> Any:
-    """Return a cached OpenCC s2twp converter, or None if OpenCC is missing.
-
-    Two packages install as ``import opencc``: the pure-python
-    ``opencc-python-reimplemented`` (our dependency; takes ``"s2twp"``) and
-    the official binding (older releases want ``"s2twp.json"``). Try both
-    spellings so whichever one is present works.
-    """
-    global _converter
-    if _converter is None:
-        try:
-            import opencc  # type: ignore
-        except ImportError:
-            return None
-        try:
-            _converter = opencc.OpenCC(_S2T_CONFIG)
-        except Exception:  # official binding < 1.1.x only accepts the .json name
-            _converter = opencc.OpenCC(_S2T_CONFIG + ".json")
-    return _converter
+def _get_converter(mode: Optional[str] = None, hotwords_path: Optional[str] = None) -> Any:
+    """The source converter (OpenCC per mode, then hotwords) -- see zh_convert."""
+    return zh_convert.build_converter(mode, hotwords_path)
 
 
 def _to_traditional(value: Any, convert: Any) -> Any:
@@ -105,28 +83,34 @@ def _to_traditional(value: Any, convert: Any) -> Any:
     return value
 
 
-def _analysis_for_prompt(full_json: str) -> str:
+def _analysis_for_prompt(full_json: str, zh_mode: Optional[str] = None,
+                         zh_hotwords: Optional[str] = None) -> str:
     """The analysis JSON as fed to the prompt, with values in zh-TW Traditional.
 
     2026-10-14 Hevin's decision (b): a Simplified-Chinese analysis pulled
     qwen2.5:14b into echoing Simplified sentences (~3/23 runs) despite the
     output-language rule. Fix it at the source: the copy that goes into the
-    prompt is already Traditional. Only this in-memory copy changes — the DB
-    row is never written back — and the model's *output* is not converted.
+    prompt is already Traditional. Only this in-memory copy changes -- the DB
+    row is never written back -- and the model's *output* is not converted.
     s2twp leaves Latin letters alone, so brands / model numbers survive.
+
+    Mode (s2twp / s2tw / off) and the hotword table come from the arguments,
+    else REEL_SCOUT_ZH_CONVERT / REEL_SCOUT_ZH_HOTWORDS. Hotwords run after
+    OpenCC, so they also apply when OpenCC is missing or turned off.
     """
-    converter = _get_converter()
-    if converter is None:
+    converter = _get_converter(zh_mode, zh_hotwords)
+    if converter.opencc_missing:
         warn("inspire: opencc not installed — analysis sent to the LLM unconverted "
-             "(Simplified text in it may leak into the output). pip install opencc-python-reimplemented")
+             "(Simplified text in it may leak into the output). %s" % zh_convert.INSTALL_HINT)
+    if converter.opencc is None and not converter.table:
         return full_json
     try:
         tree = json.loads(full_json)
     except (TypeError, ValueError):
         # Not JSON: convert the text as a whole. s2twp touches only Han
         # characters, so any English keys in it are unaffected.
-        return converter.convert(full_json)
-    return json.dumps(_to_traditional(tree, converter.convert), ensure_ascii=False)
+        return converter(full_json)
+    return json.dumps(_to_traditional(tree, converter), ensure_ascii=False)
 
 
 def _language_rule(angle: str = "") -> str:
@@ -145,31 +129,28 @@ def _language_rule(angle: str = "") -> str:
     return _OUTPUT_LANGUAGE_RULE
 
 
-def generate_inspiration(
-    conn: db.sqlite3.Connection,
-    ref: str,
-    angle: str = "",
-    llm_backend: Optional[str] = None,
-) -> Dict[str, Any]:
-    video_id, matches = compare.resolve_ref(conn, ref)
-    if video_id is None:
-        if matches:
-            raise ValueError("Ambiguous video ref '%s' matches: %s" % (ref, ", ".join(matches)))
-        raise ValueError("No video found for ref: %s" % ref)
+_RETRY_BLOCK = (
+    "\n## Your previous answer was rejected (real names)\n"
+    "Previous answer:\n{previous}\n\n"
+    "Problems found by comparing it with the analysis above:\n{problems}\n"
+    "Write the variant again. Keep every real name exactly as the analysis spells it, "
+    "and do not introduce any tool, app, website, brand, model or person name that the "
+    "analysis does not contain. Return ONLY valid JSON in the format above."
+)
 
-    analysis = db.get_analysis(conn, video_id)
-    if not analysis or not analysis["full_json"]:
-        raise ValueError("No analysis found for video: %s (run analyze first)" % video_id)
 
-    prompt = _INSPIRE_PROMPT.format(
-        analysis_json=_analysis_for_prompt(analysis["full_json"]),
-        angle=angle.strip() if angle and angle.strip() else "(keep the same niche and audience)",
-        language_rule=_language_rule(angle),
-        entity_rule=_ENTITY_RULE,
-    )
-    llm = get_llm(llm_backend)
-    text = llm.complete(prompt, max_tokens=600, temperature=0.7)
+def _retry_prompt(prompt: str, previous: str, missing: List[str], invented: List[str]) -> str:
+    problems = []
+    if missing:
+        problems.append("- Real names from the analysis that are missing or were replaced "
+                        "(each must appear, spelled exactly): " + ", ".join(missing))
+    if invented:
+        problems.append("- Names that do not exist in the analysis (invented or substituted "
+                        "-- remove them): " + ", ".join(invented))
+    return prompt + _RETRY_BLOCK.format(previous=previous.strip()[:2000], problems="\n".join(problems))
 
+
+def _parse_reply(text: str) -> Dict[str, Any]:
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
@@ -180,7 +161,96 @@ def generate_inspiration(
                 data = json.loads(m.group())
             except json.JSONDecodeError:
                 data = {"raw": text}  # braced text that still isn't valid JSON
+    if not isinstance(data, dict):
+        data = {"raw": text}
+    return data
 
+
+def generate_inspiration(
+    conn: db.sqlite3.Connection,
+    ref: str,
+    angle: str = "",
+    llm_backend: Optional[str] = None,
+    name_retries: Optional[int] = None,
+    zh_mode: Optional[str] = None,
+    zh_hotwords: Optional[str] = None,
+) -> Dict[str, Any]:
+    """One variant, checked against the analysis for real names.
+
+    After the model answers, ``name_guard.check`` compares its real names with
+    the analysis. On a miss (a name dropped / replaced, or a name the analysis
+    never mentions) the model is re-asked with the list of what was wrong, at
+    most ``name_retries`` times (default ``INSPIRE_NAME_RETRIES``, 2). The
+    result always carries ``name_check``: ``status`` is ``passed`` or
+    ``failed`` -- a failed check is reported, never passed off as success; the
+    answer returned is the attempt with the fewest problems (latest on a tie),
+    and ``warning`` says in words what is still wrong.
+    """
+    video_id, matches = compare.resolve_ref(conn, ref)
+    if video_id is None:
+        if matches:
+            raise ValueError("Ambiguous video ref '%s' matches: %s" % (ref, ", ".join(matches)))
+        raise ValueError("No video found for ref: %s" % ref)
+
+    analysis = db.get_analysis(conn, video_id)
+    if not analysis or not analysis["full_json"]:
+        raise ValueError("No analysis found for video: %s (run analyze first)" % video_id)
+
+    retries = config.INSPIRE_NAME_RETRIES if name_retries is None else int(name_retries)
+    if retries < 0:
+        raise ValueError("name_retries must be >= 0")
+
+    sent_analysis = _analysis_for_prompt(analysis["full_json"], zh_mode, zh_hotwords)
+    prompt = _INSPIRE_PROMPT.format(
+        analysis_json=sent_analysis,
+        angle=angle.strip() if angle and angle.strip() else "(keep the same niche and audience)",
+        language_rule=_language_rule(angle),
+        entity_rule=_ENTITY_RULE,
+    )
+    try:
+        entities = name_guard.extract_entities(json.loads(sent_analysis))
+    except (TypeError, ValueError):
+        entities = name_guard.extract_entities(sent_analysis)
+    known_text = "\n".join((sent_analysis, analysis["full_json"], angle or ""))
+
+    llm = get_llm(llm_backend)
+    history: List[Dict[str, Any]] = []
+    best: Optional[Dict[str, Any]] = None
+    best_problems = None
+    best_found: Dict[str, List[str]] = {"missing": [], "invented": []}
+    ask = prompt
+    for attempt in range(1, retries + 2):
+        text = llm.complete(ask, max_tokens=600, temperature=0.7)
+        data = _parse_reply(text)
+        found = name_guard.check(entities, known_text, data)
+        history.append({"attempt": attempt, "missing": found["missing"], "invented": found["invented"]})
+        problems = len(found["missing"]) + len(found["invented"])
+        if best_problems is None or problems <= best_problems:
+            best, best_problems = data, problems
+            best_found = found
+        if problems == 0:
+            break
+        ask = _retry_prompt(prompt, text, found["missing"], found["invented"])
+
+    data = best if best is not None else {}
+    passed = best_problems == 0
+    data["name_check"] = {
+        "status": "passed" if passed else "failed",
+        "attempts": len(history),
+        "max_retries": retries,
+        "entities": entities,
+        "missing": best_found["missing"],
+        "invented": best_found["invented"],
+        "history": history,
+    }
+    if not passed:
+        bits = []
+        if best_found["missing"]:
+            bits.append("missing/replaced: " + ", ".join(best_found["missing"]))
+        if best_found["invented"]:
+            bits.append("not in the analysis: " + ", ".join(best_found["invented"]))
+        data["warning"] = ("real-name check FAILED after %d attempt(s) — %s"
+                           % (len(history), "; ".join(bits)))
     data["based_on"] = video_id
     data["angle"] = angle or ""
     return data
@@ -210,4 +280,9 @@ def format_inspiration(data: Dict[str, Any]) -> str:
         lines.append("Why: %s" % data["rationale"])
     if data.get("raw"):
         lines.append("\n(LLM did not return JSON)\n%s" % data["raw"])
+    check = data.get("name_check") or {}
+    if check.get("status") == "failed":
+        lines.append("\n!! %s" % data.get("warning", "real-name check FAILED"))
+    elif check.get("status") == "passed" and check.get("attempts", 1) > 1:
+        lines.append("\n(real-name check passed on attempt %d)" % check["attempts"])
     return "\n".join(lines)

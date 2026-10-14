@@ -38,3 +38,38 @@ def temp_db(monkeypatch, request):
         yield db_path
     finally:
         shutil.rmtree(data_dir, ignore_errors=True)
+
+
+def _opencc_importable() -> bool:
+    try:
+        import opencc  # noqa: F401  # type: ignore
+    except ImportError:
+        return False
+    return True
+
+
+@pytest.fixture
+def need_opencc():
+    """Skip when the optional `zh` extra is absent -- unless CI says it must be there.
+
+    CI runs the suite twice: once without the extra (these tests skip, the
+    no-opencc fallback is exercised for real) and once with
+    REEL_SCOUT_REQUIRE_OPENCC=1, where a missing opencc is a failure rather
+    than a quiet skip -- otherwise the "with zh" job could pass having tested
+    nothing.
+    """
+    if not _opencc_importable():
+        if os.environ.get("REEL_SCOUT_REQUIRE_OPENCC") == "1":
+            pytest.fail("REEL_SCOUT_REQUIRE_OPENCC=1 but opencc is not importable")
+        pytest.skip("optional zh extra (opencc) not installed")
+
+
+@pytest.fixture
+def no_opencc(monkeypatch):
+    """Make `import opencc` fail, as on an install without the zh extra."""
+    import sys
+
+    from reel_scout import zh_convert
+
+    monkeypatch.setitem(sys.modules, "opencc", None)
+    monkeypatch.setattr(zh_convert, "_opencc_cache", {})

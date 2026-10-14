@@ -186,6 +186,15 @@ def batch_score_timeout() -> float:
     return float(os.getenv("BATCH_SCORE_TIMEOUT", "0")) or (LLM_TIMEOUT * 2 + 60)
 
 
+# Simplified -> Traditional for text inspire feeds the LLM (needs the `zh`
+# extra). s2twp = Taiwan phrasing (视频 -> 影片), s2tw = per character, off.
+ZH_CONVERT = os.getenv("REEL_SCOUT_ZH_CONVERT", "s2twp")
+# Optional YAML/JSON `source: replacement` table applied after OpenCC.
+ZH_HOTWORDS = os.getenv("REEL_SCOUT_ZH_HOTWORDS", "")
+# inspire re-asks the LLM at most this many times when its answer drops or
+# renames a real name from the analysis (0 = check once, never re-ask).
+INSPIRE_NAME_RETRIES = int(os.getenv("INSPIRE_NAME_RETRIES", "2"))
+
 OPENCLAW_BASE_URL = os.getenv("OPENCLAW_BASE_URL", "http://localhost:18789/v1")
 OPENCLAW_MODEL = os.getenv("OPENCLAW_MODEL", "")
 
@@ -429,6 +438,9 @@ def show() -> str:
         f" (retries={LLM_MAX_RETRIES}, backoff={LLM_RETRY_BACKOFF:g}s)",
         f"OPENCLAW_BASE_URL:    {OPENCLAW_BASE_URL}",
         f"OPENCLAW_MODEL:       {OPENCLAW_MODEL or '(auto)'}",
+        f"ZH_CONVERT:           {ZH_CONVERT}",
+        f"ZH_HOTWORDS:          {ZH_HOTWORDS or '(none)'}",
+        f"INSPIRE_NAME_RETRIES: {INSPIRE_NAME_RETRIES}",
         f"WHISPER_BACKEND:      {WHISPER_BACKEND}",
         f"WHISPER_MODEL:        {WHISPER_MODEL}",
         f"WHISPER_LANGUAGE:     {WHISPER_LANGUAGE or '(auto)'}",

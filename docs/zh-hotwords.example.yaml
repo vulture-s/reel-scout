@@ -1,0 +1,16 @@
+# reel-scout zh hotwords — fixes for words OpenCC s2twp swaps wrongly in your domain.
+#
+# Applied AFTER OpenCC, longest match first, to the analysis copy `inspire`
+# sends to the LLM (never to the model's output, never to the DB).
+# Write the key in its Simplified source form (类型) or in the form OpenCC
+# produced (型別) — both match. Flat `source: replacement` lines only.
+#
+# Use:  REEL_SCOUT_ZH_HOTWORDS=/path/to/zh-hotwords.yaml reel-scout inspire --based-on <id>
+#   or: reel-scout inspire --based-on <id> --zh-hotwords /path/to/zh-hotwords.yaml
+#
+# JSON works too: {"类型": "類型", "视频游戏": "電玩"}
+
+# s2twp turns 类型 into the programming term 型別
+类型: 類型
+# s2twp turns 视频游戏 into 影片遊戲 (video -> 影片 applied inside a compound)
+视频游戏: 電玩

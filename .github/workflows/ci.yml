@@ -23,4 +23,32 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Run tests
+        # Base install has no `zh` extra: opencc-only tests skip, and
+        # test_no_opencc_in_this_environment_for_real proves the fallback path
+        # (stderr warning + install hint) runs against a real ImportError.
+        env:
+          REEL_SCOUT_EXPECT_NO_OPENCC: "1"
+        run: pytest
+
+  test-zh:
+    # Same suite with the optional `zh` extra (OpenCC). REEL_SCOUT_REQUIRE_OPENCC
+    # turns the opencc-only tests' skip into a failure, so this job cannot go
+    # green having tested nothing.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install (base + dev + zh)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,zh]"
+      - name: Run tests
+        env:
+          REEL_SCOUT_REQUIRE_OPENCC: "1"
         run: pytest
