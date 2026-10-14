@@ -16,6 +16,23 @@
 
 ### Added
 
+- **Simplified transcripts / subtitles are stored as Traditional, original
+  kept (schema v21).** When `save_transcript` receives text with Simplified
+  characters (`scan_script_mix`) or from a `zh-Hans` / `zh-CN` / `zh-SG` caption
+  track, it stores the `zh_convert` result — the same `REEL_SCOUT_ZH_CONVERT`
+  (`s2twp` default / `s2tw`) and `REEL_SCOUT_ZH_HOTWORDS` inspire uses — in
+  `text_full` / `segments_json` (segment `text` only), and the received text in
+  the new `text_full_original` / `segments_json_original`; `zh_conversion`
+  records what was applied (`s2twp`, `s2tw+hotwords`). `off` stores Simplified as
+  received (hotwords included). Without the `zh` extra the text is stored as
+  received with a once-per-run stderr warning; a bad mode / hotword file costs
+  the conversion, never the transcript. Upgrading a v20 database adds the three
+  columns and converts nothing; `db.restore_transcript_originals(conn,
+  video_id=None)` puts received text back. Native Traditional caption tracks are
+  still preferred (`zh_track_rank`); this only handles "what we got was
+  Simplified". Whisper's own Traditional seed prompt (`WHISPER_ZH_SCRIPT`) is
+  unchanged and still the first line of defence for the `faster-whisper` path.
+
 - **`inspire` checks real names and re-asks.** After the model answers, the
   real names in the analysis (name-shaped Latin words such as `What'Sub`,
   `DaVinci`, `FX3`, `GEV`, and 《書名號》 titles) are compared with the output.

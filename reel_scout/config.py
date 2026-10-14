@@ -186,8 +186,10 @@ def batch_score_timeout() -> float:
     return float(os.getenv("BATCH_SCORE_TIMEOUT", "0")) or (LLM_TIMEOUT * 2 + 60)
 
 
-# Simplified -> Traditional for text inspire feeds the LLM (needs the `zh`
-# extra). s2twp = Taiwan phrasing (视频 -> 影片), s2tw = per character, off.
+# Simplified -> Traditional at the source (needs the `zh` extra): the analysis
+# inspire feeds the LLM, and Simplified transcripts / subtitles on save (the
+# received text is kept in transcripts.*_original). s2twp = Taiwan phrasing
+# (视频 -> 影片), s2tw = per character, off = store / send as received.
 ZH_CONVERT = os.getenv("REEL_SCOUT_ZH_CONVERT", "s2twp")
 # Optional YAML/JSON `source: replacement` table applied after OpenCC.
 ZH_HOTWORDS = os.getenv("REEL_SCOUT_ZH_HOTWORDS", "")

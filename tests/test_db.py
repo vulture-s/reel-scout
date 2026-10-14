@@ -8,7 +8,7 @@ import tempfile
 
 import pytest
 
-from reel_scout import db
+from reel_scout import config, db
 
 
 def _temp_db():
@@ -426,7 +426,10 @@ def test_scan_script_mix_ignores_chars_that_exist_in_both():
     assert trad > 0
 
 
-def test_save_transcript_warns_on_mixed_script(temp_db, capsys):
+def test_save_transcript_warns_on_mixed_script(temp_db, capsys, monkeypatch):
+    # The detector is what is under test: with the zh extra installed the
+    # mixed text would be converted before it is stored (test_transcript_zh).
+    monkeypatch.setattr(config, "ZH_CONVERT", "off")
     conn = sqlite3.connect(temp_db)
     conn.row_factory = sqlite3.Row
     try:
@@ -440,7 +443,10 @@ def test_save_transcript_warns_on_mixed_script(temp_db, capsys):
         conn.close()
 
 
-def test_save_transcript_is_quiet_on_single_script_and_on_non_chinese(temp_db, capsys):
+def test_save_transcript_is_quiet_on_single_script_and_on_non_chinese(temp_db, capsys, monkeypatch):
+    # The detector is what is under test: with the zh extra installed the
+    # mixed text would be converted before it is stored (test_transcript_zh).
+    monkeypatch.setattr(config, "ZH_CONVERT", "off")
     conn = sqlite3.connect(temp_db)
     conn.row_factory = sqlite3.Row
     try:
@@ -469,6 +475,7 @@ def test_save_transcript_is_quiet_on_single_script_and_on_non_chinese(temp_db, c
 def test_a_console_that_cannot_print_the_warning_does_not_cost_the_transcript(
     temp_db, monkeypatch
 ):
+    monkeypatch.setattr(config, "ZH_CONVERT", "off")  # store as received (see above)
     # The warning carries an emoji and an em dash, and printing it used to happen
     # *before* the INSERT — so on a console that could not encode it, a detector
     # whose whole job was to report a problem instead deleted the row it was

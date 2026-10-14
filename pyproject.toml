@@ -51,10 +51,11 @@ vector = ["lancedb>=0.4.0", "chromadb>=0.4.0"]
 # PyPI — install it editable on M2 (`pip install -e speaker-align[pyannote]`).
 diarize = ["speaker-align[pyannote]"]
 instagram = ["instaloader>=4.10"]
-# Simplified -> Traditional (OpenCC s2twp / s2tw) for the analysis copy that
-# `inspire` feeds the LLM -- conversion at the source, never a rewrite of the
-# model's output or of stored transcripts / subtitles. Pure python, no compiled
-# parts. Without it inspire warns on stderr and sends the analysis unconverted.
+# Simplified -> Traditional (OpenCC s2twp / s2tw) at the source: the analysis
+# copy `inspire` feeds the LLM, and transcripts / subtitles as they are saved
+# (the received text is kept in transcripts.*_original). Never a rewrite of the
+# model's output. Pure python, no compiled parts. Without it both warn on
+# stderr and keep the text unconverted.
 zh = ["opencc-python-reimplemented>=0.1.7"]
 ocr = ["pytesseract>=0.3.10", "Pillow>=9.0"]
 # Camera movement (§6C) reads H.264 motion vectors, which only the decoder can

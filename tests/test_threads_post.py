@@ -112,12 +112,12 @@ def test_crawler_without_post_data_is_a_no_op(temp_db):
 
 def test_fresh_and_migrated_databases_both_have_the_tables(temp_db):
     conn = _conn(temp_db)
-    assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == db.SCHEMA_VERSION == 20
+    assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == db.SCHEMA_VERSION == 21
     conn.execute("UPDATE schema_version SET version = 19")
     conn.execute("DROP TABLE post_meta")
     conn.commit()
     db.init_db(conn)
-    assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == 20
+    assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == db.SCHEMA_VERSION  # the whole ladder ran
     conn.execute("SELECT * FROM post_meta")
 
 

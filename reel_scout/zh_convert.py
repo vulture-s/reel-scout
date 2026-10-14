@@ -1,7 +1,10 @@
 """Simplified -> Traditional conversion at the source, plus user hotwords.
 
-Used by ``inspire`` for the analysis copy it feeds the LLM (never for the
-model's output, never written back to the DB). Two user-facing knobs:
+Used in two places, both at the source and never on a model's output:
+``inspire``'s in-memory analysis copy for the LLM (never written back), and
+``db.save_transcript`` for Simplified transcripts / subtitles (stored
+converted, the received text kept in ``transcripts.*_original``). Two
+user-facing knobs:
 
 * **mode** -- ``s2twp`` (default: Traditional with Taiwan phrasing, e.g.
   视频 -> 影片, 软件 -> 軟體), ``s2tw`` (character-by-character, no phrase

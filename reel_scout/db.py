@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from . import config
 from .utils.stderr import warn
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -42,7 +42,10 @@ CREATE TABLE IF NOT EXISTS transcripts (
     segments_json   TEXT,
     whisper_model   TEXT,
     duration_sec    REAL,
-    created_at      TEXT DEFAULT (datetime('now'))
+    created_at      TEXT DEFAULT (datetime('now')),
+    text_full_original     TEXT,
+    segments_json_original TEXT,
+    zh_conversion          TEXT
 );
 
 CREATE TABLE IF NOT EXISTS keyframe_runs (
@@ -806,6 +809,39 @@ def _migrate_v19_to_v20(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+#: Columns v21 adds to `transcripts` (see `_migrate_v20_to_v21`).
+_TRANSCRIPT_ORIGINAL_COLUMNS = (
+    ("text_full_original", "TEXT"),
+    ("segments_json_original", "TEXT"),
+    ("zh_conversion", "TEXT"),
+)
+
+
+def _migrate_v20_to_v21(conn: sqlite3.Connection) -> None:
+    """A converted transcript keeps what it was converted from (v20 -> v21).
+
+    Hevin 2026-10-14: a Simplified transcript (a ``zh-Hans`` caption track, or
+    Whisper normalising to Simplified despite the seed prompt) is stored
+    converted to Traditional -- but the received text is the source of truth
+    and is not thrown away. Three nullable columns:
+
+      * ``text_full_original`` / ``segments_json_original`` -- the text exactly
+        as received, set only when the conversion changed something;
+      * ``zh_conversion`` -- what was applied (``s2twp``, ``s2tw``, with
+        ``+hotwords`` when a hotword table was used).
+
+    NULL in all three reads correctly as "stored as received", which is what
+    every pre-v21 row is. Additive only: older code ignores the columns, and
+    `restore_transcript_originals` puts the received text back.
+    """
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(transcripts)")]
+    for name, decl in _TRANSCRIPT_ORIGINAL_COLUMNS:
+        if name not in cols:
+            conn.execute("ALTER TABLE transcripts ADD COLUMN %s %s" % (name, decl))
+    conn.execute("UPDATE schema_version SET version = 21")
+    conn.commit()
+
+
 def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
     if conn is None:
         # `REEL_SCOUT_DATA` defaults to "./data", i.e. relative to wherever the
@@ -894,6 +930,9 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
             current_ver = 19
         if current_ver < 20:
             _migrate_v19_to_v20(conn)
+            current_ver = 20
+        if current_ver < 21:
+            _migrate_v20_to_v21(conn)
     # Fresh installs never run the ladder, so every table added by a migration
     # also needs a CREATE IF NOT EXISTS here -- the same reason audio_events
     # below is repeated.
@@ -1280,6 +1319,117 @@ def warn_script_mix(text: str, where: str) -> None:
              % (where, trad, simp))
 
 
+#: Script / region subtags that mark a Chinese code as Simplified.
+_HANS_SUBTAGS = {"hans", "cn", "sg", "my"}
+
+
+def is_simplified_tag(language: Optional[str]) -> bool:
+    """True for ``zh-Hans`` / ``zh-CN`` / ``zh-SG`` / ``zh-MY`` (``-orig`` ignored)."""
+    if not language:
+        return False
+    parts = language.strip().lower().replace("_", "-").split("-")
+    if parts and parts[-1] == "orig":
+        parts = parts[:-1]
+    return bool(parts) and parts[0] == "zh" and bool(set(parts[1:]) & _HANS_SUBTAGS)
+
+
+_zh_missing_warned = False
+
+
+@dataclass
+class _ZhSourceResult:
+    text_full: str
+    segments_json: str
+    original_text: Optional[str] = None
+    original_segments: Optional[str] = None
+    applied: Optional[str] = None
+    notice: Optional[str] = None
+
+
+def _zh_to_traditional(language: Optional[str], text_full: str,
+                       segments_json: str) -> _ZhSourceResult:
+    """Convert a Simplified transcript to Traditional, keeping the original.
+
+    Runs when the text has Simplified-only characters (`scan_script_mix`) or
+    the source says it is Simplified (`is_simplified_tag`). Uses the same
+    converter as inspire (`zh_convert.build_converter`: REEL_SCOUT_ZH_CONVERT,
+    s2twp by default, then REEL_SCOUT_ZH_HOTWORDS). ``off`` stores the text as
+    received. Without the ``zh`` extra the text is stored as received and a
+    notice says so (once per process) -- never silently.
+
+    Nothing here may raise: a bad hotword file or mode costs the conversion,
+    not the transcript.
+    """
+    global _zh_missing_warned
+    out = _ZhSourceResult(text_full=text_full, segments_json=segments_json)
+    if not text_full:
+        return out
+    if not (scan_script_mix(text_full)[1] or is_simplified_tag(language)):
+        return out
+    from . import zh_convert
+    try:
+        conv = zh_convert.build_converter()
+    except (ValueError, OSError) as exc:
+        out.notice = ("  ⚠️  transcript is Simplified but the zh conversion settings are "
+                      "unusable (%s) — stored as received" % exc)
+        return out
+    if conv.mode == "off":
+        return out
+    if conv.opencc_missing:
+        if not _zh_missing_warned:
+            _zh_missing_warned = True
+            out.notice = ("  ⚠️  transcript is Simplified but opencc is not installed — "
+                          "stored as received, not converted to Traditional. %s"
+                          % zh_convert.INSTALL_HINT)
+        return out
+    new_text = conv(text_full)
+    new_segments = segments_json
+    try:
+        segs = json.loads(segments_json) if segments_json else None
+    except (TypeError, ValueError):
+        segs = None
+    if isinstance(segs, list):
+        changed = False
+        for seg in segs:
+            if isinstance(seg, dict) and isinstance(seg.get("text"), str):
+                converted = conv(seg["text"])
+                if converted != seg["text"]:
+                    seg["text"] = converted
+                    changed = True
+        if changed:
+            new_segments = json.dumps(segs, ensure_ascii=False)
+    if new_text == text_full and new_segments == segments_json:
+        return out
+    out.original_text = text_full
+    out.original_segments = segments_json
+    out.text_full = new_text
+    out.segments_json = new_segments
+    out.applied = conv.mode + ("+hotwords" if conv.table else "")
+    return out
+
+
+def restore_transcript_originals(conn: sqlite3.Connection,
+                                 video_id: Optional[str] = None) -> int:
+    """Put received text back where a zh conversion replaced it; returns rows.
+
+    The rollback for v21's source conversion: ``text_full`` / ``segments_json``
+    get their ``*_original`` values back and the three v21 columns are cleared,
+    so the row is exactly what a pre-v21 save would have stored. ``video_id``
+    limits it to one transcript.
+    """
+    sql = ("UPDATE transcripts SET text_full = text_full_original, "
+           "segments_json = COALESCE(segments_json_original, segments_json), "
+           "text_full_original = NULL, segments_json_original = NULL, zh_conversion = NULL "
+           "WHERE text_full_original IS NOT NULL")
+    params: Tuple[Any, ...] = ()
+    if video_id is not None:
+        sql += " AND video_id = ?"
+        params = (video_id,)
+    n = conn.execute(sql, params).rowcount
+    conn.commit()
+    return n
+
+
 def save_transcript(
     conn: sqlite3.Connection,
     video_id: str,
@@ -1289,11 +1439,11 @@ def save_transcript(
     whisper_model: str,
     duration_sec: float,
 ) -> None:
-    # Detect, do not convert. Normalising would mean picking traditional or
-    # simplified for every downstream consumer — a product decision. (opencc is a
-    # core dependency now, but only for inspire's in-memory prompt copy; stored
-    # text is never rewritten.) Reporting the mix costs nothing and removes the
-    # part that actually hurts: not knowing.
+    # Simplified is converted to Traditional at the source, original kept
+    # (Hevin 2026-10-14 -- the product decision this comment used to defer):
+    # see `_zh_to_traditional`. The mix detector below still runs on what is
+    # actually stored, so a transcript that could not be converted (no zh
+    # extra, mode off) is reported exactly as before.
     #
     # Not gated on `language`: that field is wrong often enough to matter (one
     # library clip is tagged zh with an English transcript), and gating on it
@@ -1318,6 +1468,9 @@ def save_transcript(
     if not (text_full or "").strip():
         language = None
 
+    zh = _zh_to_traditional(language, text_full, segments_json)
+    text_full, segments_json = zh.text_full, zh.segments_json
+
     notice = None
     if text_full:
         trad, simp = scan_script_mix(text_full)
@@ -1331,9 +1484,11 @@ def save_transcript(
             )
     conn.execute(
         """INSERT OR REPLACE INTO transcripts
-           (video_id, language, text_full, segments_json, whisper_model, duration_sec)
-           VALUES (?,?,?,?,?,?)""",
-        (video_id, language, text_full, segments_json, whisper_model, duration_sec),
+           (video_id, language, text_full, segments_json, whisper_model, duration_sec,
+            text_full_original, segments_json_original, zh_conversion)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        (video_id, language, text_full, segments_json, whisper_model, duration_sec,
+         zh.original_text, zh.original_segments, zh.applied),
     )
     # Advance to 'transcribed', never back to it. An analysed clip whose
     # transcript is re-saved keeps its analysis, and every export listing
@@ -1348,6 +1503,11 @@ def save_transcript(
         (video_id,),
     )
     conn.commit()
+    if zh.notice:
+        warn(zh.notice)
+    if zh.applied:
+        warn("  zh: Simplified transcript stored as Traditional (%s); the received "
+             "text is kept in text_full_original" % zh.applied)
     if notice:
         warn(notice)
     if overrun:

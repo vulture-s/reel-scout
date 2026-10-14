@@ -49,10 +49,16 @@ pip install "reel-scout[whisper]"   # faster-whisper 轉錄（建議一起裝）
 需要 `ffmpeg` 與 `yt-dlp`（Mac：`brew install ffmpeg yt-dlp`）。
 其他 extras：`audio`（音訊事件 + BPM）、`ocr`、`diarize`、`instagram`、`zh`。
 
-`zh`（OpenCC）用途：`inspire` 送給 LLM 的分析先做**簡轉繁（源頭轉換，非事後修輸出）**，預設 `s2twp`（台灣用詞）；
-可用 `REEL_SCOUT_ZH_CONVERT=s2tw|off` 或 `--zh-convert` 改，並用熱詞表修正個別錯換
+`zh`（OpenCC）用途＝**簡轉繁（源頭轉換，非事後修輸出）**，兩處：
+1. **inspire**：送給 LLM 的分析先轉繁。
+2. **字幕／逐字稿**：寫入 transcript 時，若內容含簡體字（或字幕軌標 `zh-Hans`／`zh-CN`），存入繁體版；
+   **收到的原文保留**在 `transcripts.text_full_original`／`segments_json_original`，`zh_conversion` 記錄套了什麼
+   （`db.restore_transcript_originals` 可還原）。繁中原生字幕本來就優先選（`zh_track_rank`），這裡只處理「最後拿到的是簡體」。
+
+預設 `s2twp`（台灣用詞）；可用 `REEL_SCOUT_ZH_CONVERT=s2tw|off` 或 inspire 的 `--zh-convert` 改（`off` ＝ 簡體逐字稿原樣存，
+簡體語料該用這個），並用熱詞表修正個別錯換
 （`REEL_SCOUT_ZH_HOTWORDS` / `--zh-hotwords`，範例見 `docs/zh-hotwords.example.yaml`，在 OpenCC **之後**套用、最長匹配優先）。
-模型輸出與資料庫裡的逐字稿／字幕都不會被改寫。沒裝時 inspire 會在 stderr 警告並附安裝指令，分析原樣送出。
+模型輸出不會被改寫。沒裝時兩處都會在 stderr 警告並附安裝指令，文字原樣保留。
 
 從 clone 開發用：
 
