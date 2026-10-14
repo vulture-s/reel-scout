@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Changed
+
+- **`inspire`'s real-name check now depends on the angle.** With an angle the
+  variant is a different video, so a real name from the source may drop out
+  (a photography-angle variant need not mention the source's GEV / ASTRA):
+  only a name-shaped word found in neither the analysis nor the angle fails
+  the answer. Without an angle the check stays strict — a missing name and an
+  invented one both fail. `name_check.mode` says which ran (`angle` /
+  `strict`), `name_check.checks` lists what counted, and in `angle` mode the
+  source names left out are listed under `name_check.dropped` for
+  information only. The re-ask in `angle` mode only mentions invented names.
+
 ### Added
 
 - **Simplified transcripts / subtitles are stored as Traditional, original

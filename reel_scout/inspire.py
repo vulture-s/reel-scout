@@ -185,6 +185,11 @@ def generate_inspiration(
     ``failed`` -- a failed check is reported, never passed off as success; the
     answer returned is the attempt with the fewest problems (latest on a tie),
     and ``warning`` says in words what is still wrong.
+
+    ``name_check.mode`` says which check ran (``name_guard.mode_for``): with an
+    angle, ``angle`` -- only names absent from the analysis and the angle fail
+    (a source name the variant leaves out is listed under ``dropped`` for
+    information); with no angle, ``strict`` -- missing and invented both fail.
     """
     video_id, matches = compare.resolve_ref(conn, ref)
     if video_id is None:
@@ -212,18 +217,22 @@ def generate_inspiration(
     except (TypeError, ValueError):
         entities = name_guard.extract_entities(sent_analysis)
     known_text = "\n".join((sent_analysis, analysis["full_json"], angle or ""))
+    mode = name_guard.mode_for(angle)
 
     llm = get_llm(llm_backend)
     history: List[Dict[str, Any]] = []
     best: Optional[Dict[str, Any]] = None
     best_problems = None
-    best_found: Dict[str, List[str]] = {"missing": [], "invented": []}
+    best_found: Dict[str, List[str]] = {"missing": [], "invented": [], "dropped": []}
     ask = prompt
     for attempt in range(1, retries + 2):
         text = llm.complete(ask, max_tokens=600, temperature=0.7)
         data = _parse_reply(text)
-        found = name_guard.check(entities, known_text, data)
-        history.append({"attempt": attempt, "missing": found["missing"], "invented": found["invented"]})
+        found = name_guard.check(entities, known_text, data, mode)
+        entry = {"attempt": attempt, "missing": found["missing"], "invented": found["invented"]}
+        if mode == name_guard.MODE_ANGLE:
+            entry["dropped"] = found["dropped"]
+        history.append(entry)
         problems = len(found["missing"]) + len(found["invented"])
         if best_problems is None or problems <= best_problems:
             best, best_problems = data, problems
@@ -236,6 +245,8 @@ def generate_inspiration(
     passed = best_problems == 0
     data["name_check"] = {
         "status": "passed" if passed else "failed",
+        "mode": mode,
+        "checks": (["invented"] if mode == name_guard.MODE_ANGLE else ["missing", "invented"]),
         "attempts": len(history),
         "max_retries": retries,
         "entities": entities,
@@ -243,6 +254,10 @@ def generate_inspiration(
         "invented": best_found["invented"],
         "history": history,
     }
+    if mode == name_guard.MODE_ANGLE:
+        # Information only: the angle asked for a different video, so names
+        # from the source may legitimately drop out (Hevin 2026-10-14).
+        data["name_check"]["dropped"] = best_found.get("dropped", [])
     if not passed:
         bits = []
         if best_found["missing"]:
