@@ -32,6 +32,10 @@ dependencies = [
     # urllib HTTPS on python.org macOS builds has no CA store until
     # "Install Certificates.command" runs; see reel_scout/utils/https.py
     "certifi>=2023.7.22",
+    # inspire feeds the analysis to the LLM as zh-TW Traditional (s2twp) so a
+    # Simplified-Chinese analysis stops leaking Simplified into the output.
+    # Pure python, no compiled parts — installs the same on Windows / py3.9.
+    "opencc-python-reimplemented>=0.1.7",
 ]
 
 [project.urls]

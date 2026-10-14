@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional
 
 from . import compare, db
 from .llm import get_llm
+from .utils.stderr import warn
 
 _INSPIRE_PROMPT = """You are a short-form video strategist. Below is the structured analysis of a video that already performs well. Propose ONE fresh variant that reuses its winning structure — do not copy its exact content.
 
@@ -25,7 +26,7 @@ _INSPIRE_PROMPT = """You are a short-form video strategist. Below is the structu
 
 ## Requested angle / twist
 {angle}
-{language_rule}
+{language_rule}{entity_rule}
 ## Output Format (JSON only, no markdown)
 {{
   "titles": ["title option 1", "title option 2", "title option 3"],
@@ -54,6 +55,78 @@ _OUTPUT_LANGUAGE_RULE = (
     "(e.g. Sony FX3, DaVinci Resolve) — do not translate or transliterate them.\n"
     "- Keep the JSON keys in English exactly as shown.\n"
 )
+
+
+_ENTITY_RULE = (
+    "\n## Real names stay real (mandatory)\n"
+    "The analysis above is the source of truth about which real things appear in the video. "
+    "Every tool, app, website, brand, product model, person's name and channel name it mentions "
+    "MUST be written exactly as it appears there — do not rename it, do not invent a substitute "
+    "or fictional name, and do not transliterate it. \"Fresh variant\" means changing the "
+    "structure, angle and copy — never swapping out a real entity for a made-up one.\n"
+)
+
+
+#: OpenCC config for the analysis copy fed into the prompt: Simplified ->
+#: Traditional with Taiwan phrasing (视频 -> 影片, 软件 -> 軟體).
+_S2T_CONFIG = "s2twp"
+_converter: Any = None
+
+
+def _get_converter() -> Any:
+    """Return a cached OpenCC s2twp converter, or None if OpenCC is missing.
+
+    Two packages install as ``import opencc``: the pure-python
+    ``opencc-python-reimplemented`` (our dependency; takes ``"s2twp"``) and
+    the official binding (older releases want ``"s2twp.json"``). Try both
+    spellings so whichever one is present works.
+    """
+    global _converter
+    if _converter is None:
+        try:
+            import opencc  # type: ignore
+        except ImportError:
+            return None
+        try:
+            _converter = opencc.OpenCC(_S2T_CONFIG)
+        except Exception:  # official binding < 1.1.x only accepts the .json name
+            _converter = opencc.OpenCC(_S2T_CONFIG + ".json")
+    return _converter
+
+
+def _to_traditional(value: Any, convert: Any) -> Any:
+    """Convert every string *value* in a JSON tree; keys are left untouched."""
+    if isinstance(value, str):
+        return convert(value)
+    if isinstance(value, list):
+        return [_to_traditional(v, convert) for v in value]
+    if isinstance(value, dict):
+        return {k: _to_traditional(v, convert) for k, v in value.items()}
+    return value
+
+
+def _analysis_for_prompt(full_json: str) -> str:
+    """The analysis JSON as fed to the prompt, with values in zh-TW Traditional.
+
+    2026-10-14 Hevin's decision (b): a Simplified-Chinese analysis pulled
+    qwen2.5:14b into echoing Simplified sentences (~3/23 runs) despite the
+    output-language rule. Fix it at the source: the copy that goes into the
+    prompt is already Traditional. Only this in-memory copy changes — the DB
+    row is never written back — and the model's *output* is not converted.
+    s2twp leaves Latin letters alone, so brands / model numbers survive.
+    """
+    converter = _get_converter()
+    if converter is None:
+        warn("inspire: opencc not installed — analysis sent to the LLM unconverted "
+             "(Simplified text in it may leak into the output). pip install opencc-python-reimplemented")
+        return full_json
+    try:
+        tree = json.loads(full_json)
+    except (TypeError, ValueError):
+        # Not JSON: convert the text as a whole. s2twp touches only Han
+        # characters, so any English keys in it are unaffected.
+        return converter.convert(full_json)
+    return json.dumps(_to_traditional(tree, converter.convert), ensure_ascii=False)
 
 
 def _language_rule(angle: str = "") -> str:
@@ -89,9 +162,10 @@ def generate_inspiration(
         raise ValueError("No analysis found for video: %s (run analyze first)" % video_id)
 
     prompt = _INSPIRE_PROMPT.format(
-        analysis_json=analysis["full_json"],
+        analysis_json=_analysis_for_prompt(analysis["full_json"]),
         angle=angle.strip() if angle and angle.strip() else "(keep the same niche and audience)",
         language_rule=_language_rule(angle),
+        entity_rule=_ENTITY_RULE,
     )
     llm = get_llm(llm_backend)
     text = llm.complete(prompt, max_tokens=600, temperature=0.7)
