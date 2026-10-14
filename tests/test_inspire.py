@@ -156,6 +156,8 @@ def _assert_zh_tw_bilingual_rule(prompt):
     # bilingual gloss for English domain terms, with the canonical example
     assert "Bilingual gloss" in prompt
     assert "動態範圍（Dynamic Range）" in prompt
+    # gloss is scoped to terms — whole titles must not get an English translation tacked on
+    assert "never append an English translation to a whole title" in prompt
     # brands / model numbers stay verbatim
     assert "brand names, product model numbers" in prompt
     # the rule must not be conditional on the angle's language any more
