@@ -132,6 +132,7 @@ def test_angle_may_introduce_names(whatsub_db):
     reply = _good().replace("CTA 快去試試", "CTA 改用 FX3 拍")
     data, llm = _run(conn, vid, [reply], angle="for Sony FX3 owners")
     assert data["name_check"]["status"] == "passed"
+    assert data["name_check"]["mode"] == "angle"
     assert len(llm.prompts) == 1
 
 
@@ -230,3 +231,81 @@ def test_cli_exit_code_and_stderr_on_failure(temp_db, capsys):
         except SystemExit as e:  # main may exit 0 explicitly
             rc = e.code
     assert rc in (None, 0)
+
+
+# ---------------------------------------------------------------- mode by angle
+# Hevin 2026-10-14 (after #211's D group): with an angle the variant is a
+# different video, so a source name may drop out -- only a name from nowhere
+# fails. With no angle the check stays strict (missing + invented).
+
+_NO_NAME = json.dumps({
+    "titles": ["攝影師的字幕流程", "拍完就上字幕", "三步出片"],
+    "hook_script": "拍完素材，字幕怎麼辦？",
+    "structure_outline": ["beat 1: 痛點", "beat 2: 示範", "beat 3: CTA"],
+    "recommended_length_sec": 45,
+    "rationale": "跳切（Jump Cut）節奏",
+}, ensure_ascii=False)
+
+
+def test_mode_for():
+    assert name_guard.mode_for("") == name_guard.MODE_STRICT
+    assert name_guard.mode_for("   ") == name_guard.MODE_STRICT
+    assert name_guard.mode_for("photography") == name_guard.MODE_ANGLE
+
+
+def test_check_in_angle_mode_ignores_missing_but_reports_it():
+    known = json.dumps(_WHATSUB, ensure_ascii=False)
+    got = name_guard.check(["What'Sub"], known, json.loads(_NO_NAME), name_guard.MODE_ANGLE)
+    assert got == {"missing": [], "invented": [], "dropped": ["What'Sub"]}
+    got = name_guard.check(["What'Sub"], known, json.loads(_RENAMED), name_guard.MODE_ANGLE)
+    assert got == {"missing": [], "invented": ["SubEase"], "dropped": ["What'Sub"]}
+    # strict is the default and unchanged
+    assert name_guard.check(["What'Sub"], known, json.loads(_NO_NAME))["missing"] == ["What'Sub"]
+    with pytest.raises(ValueError):
+        name_guard.check([], "", {}, "lenient")
+
+
+def test_angle_missing_name_passes(whatsub_db):
+    conn, vid = whatsub_db
+    data, llm = _run(conn, vid, [_NO_NAME, _good()], angle="photography")
+    assert len(llm.prompts) == 1                      # no re-ask for a dropped name
+    check = data["name_check"]
+    assert check["status"] == "passed"
+    assert check["mode"] == "angle" and check["checks"] == ["invented"]
+    assert check["missing"] == [] and check["dropped"] == ["What'Sub"]
+    assert "warning" not in data
+
+
+def test_angle_invented_name_is_reasked(whatsub_db):
+    conn, vid = whatsub_db
+    data, llm = _run(conn, vid, [_RENAMED, _NO_NAME], angle="photography")
+    assert len(llm.prompts) == 2
+    tail = llm.prompts[1][len(llm.prompts[0]):]
+    assert "SubEase" in tail and "do not exist in the analysis" in tail
+    assert "missing or were replaced" not in tail     # angle mode never asks for the dropped name
+    check = data["name_check"]
+    assert check["status"] == "passed" and check["mode"] == "angle" and check["attempts"] == 2
+    assert check["history"][0]["invented"] == ["SubEase"]
+
+
+def test_angle_invented_name_still_fails_when_never_fixed(whatsub_db):
+    conn, vid = whatsub_db
+    data, llm = _run(conn, vid, [_RENAMED], angle="photography")
+    assert len(llm.prompts) == 3
+    check = data["name_check"]
+    assert check["status"] == "failed" and check["mode"] == "angle"
+    assert check["invented"] == ["SubEase"] and check["missing"] == []
+    assert "SubEase" in data["warning"] and "missing/replaced" not in data["warning"]
+
+
+def test_no_angle_missing_name_is_reasked(whatsub_db):
+    conn, vid = whatsub_db
+    data, llm = _run(conn, vid, [_NO_NAME, _good()])
+    assert len(llm.prompts) == 2
+    tail = llm.prompts[1][len(llm.prompts[0]):]
+    assert "missing or were replaced" in tail and "What'Sub" in tail
+    check = data["name_check"]
+    assert check["status"] == "passed" and check["attempts"] == 2
+    assert check["mode"] == "strict" and check["checks"] == ["missing", "invented"]
+    assert "dropped" not in check
+    assert check["history"][0]["missing"] == ["What'Sub"]
