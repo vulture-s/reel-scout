@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`[mlx]` extra pins `scipy<1.15` on Python 3.10 / Apple Silicon.** On macOS 27
+  every scipy 1.15.x cp310 wheel fails to load (dyld rejects `_spropack`'s
+  `__thread_bss` section), and mlx-whisper imports `scipy.signal`, so
+  `WHISPER_BACKEND=mlx` crashed at import. 1.13.1 and 1.14.1 load fine.
+
 ### Changed
 
 - **`inspire`'s real-name check now depends on the angle.** With an angle the

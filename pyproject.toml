@@ -49,8 +49,17 @@ whisper = ["faster-whisper>=1.1.0", "whisper-guard>=0.3.0"]
 # there vs 0.04 for mlx large-v3-turbo. Opt-in, not the default; elsewhere the
 # marker makes this extra install nothing and the backend falls back to
 # faster-whisper with a notice -- so pair it with [whisper].
+#
+# scipy pin (macOS 27, Python 3.10): mlx-whisper imports scipy.signal, and every
+# scipy 1.15.x wheel for cp310 fails to load there -- dyld rejects
+# `_spropack.cpython-310-darwin.so` ("section '__DATA/__thread_bss' has a
+# zero-fill section type, but offset field is not zero"), so the mlx backend
+# dies at import. Measured 2026-10-19 on an M2 Max, clean venv per version:
+# 1.13.1 ok, 1.14.1 ok, 1.15.0 / 1.15.2 / 1.15.3 fail. Scoped to cp310 because
+# that is all that was measured; >=3.11 resolves to 1.16+ (untested).
 mlx = [
     "mlx-whisper>=0.4.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "scipy<1.15; sys_platform == 'darwin' and platform_machine == 'arm64' and python_version < '3.11'",
     "whisper-guard>=0.3.0",
 ]
 audio = ["onnxruntime>=1.15.0", "numpy>=1.21.0"]
