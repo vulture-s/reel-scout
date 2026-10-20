@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import io
 import os
 import stat
 import subprocess
 import sys
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -19,6 +21,55 @@ from reel_scout.vision.keyframe import (
     select_spread,
 )
 from reel_scout import config
+
+
+class FakePopen:
+    """Stand-in for the detection pass's ``subprocess.Popen``.
+
+    Serves ``stderr_text`` line by line the way a real pipe would. With
+    ``hang=True`` it emits one line and then blocks like an ffmpeg that never
+    finishes, until ``kill()`` closes the pipe.
+    """
+
+    instances = []
+
+    def __init__(self, cmd, stderr_text="", hang=False, **kwargs):
+        self.args = cmd
+        self.kwargs = kwargs
+        self.killed = False
+        self.reaped = False
+        self.returncode = None
+        self._dead = threading.Event()
+        self._hang = hang
+        self._text = stderr_text
+        self.stderr = self._lines()
+        FakePopen.instances.append(self)
+
+    def _lines(self):
+        if self._hang:
+            yield "[Parsed_showinfo] n:0 pts_time:1.00\n"
+            self._dead.wait(10)
+            return
+        for line in io.StringIO(self._text):
+            yield line
+
+    def poll(self):
+        return self.returncode
+
+    def kill(self):
+        self.killed = True
+        self._dead.set()
+
+    def wait(self, timeout=None):
+        self.reaped = True
+        self.returncode = -9 if self.killed else 0
+        return self.returncode
+
+
+def _popen_serving(stderr_text="", hang=False):
+    """side_effect for a patched Popen: every call gets a FakePopen."""
+    return lambda cmd, **kw: FakePopen(cmd, stderr_text=stderr_text,
+                                       hang=hang, **kw)
 
 
 class TestKeyframeInfoHasScore:
@@ -223,6 +274,7 @@ class TestScaleAndSeekHelpers:
         assert _seek_args(5, 10) == ["-ss", "5", "-to", "10"]
         assert _seek_args(0, 10) == ["-to", "10"]
 
+    @patch("reel_scout.vision.keyframe.subprocess.Popen")
     @patch("reel_scout.vision.keyframe._get_duration", return_value=30.0)
     @patch("reel_scout.vision.keyframe.os.path.exists", return_value=True)
     @patch("reel_scout.vision.keyframe.os.makedirs")
@@ -233,6 +285,7 @@ class TestScaleAndSeekHelpers:
         mock_makedirs: MagicMock,
         mock_exists: MagicMock,
         mock_duration: MagicMock,
+        mock_popen: MagicMock,
     ) -> None:
         from reel_scout.vision.keyframe import extract_keyframes
 
@@ -243,16 +296,18 @@ class TestScaleAndSeekHelpers:
 
         mock_result.stderr = "\n".join(
             "n:%d pts_time:%.1f" % (i, i * 2.0) for i in range(6))
+        mock_popen.side_effect = _popen_serving(mock_result.stderr)
 
         extract_keyframes(
             "/tmp/v.mp4", "/tmp/out", "vid1",
             strategy="scene", max_frames=4, resolution=1024,
         )
-        cmds = [c[0][0] for c in mock_run.call_args_list]
+        # Pass 1 runs through Popen (streamed stderr); pass 2 through run.
+        detect = mock_popen.call_args_list[0][0][0]
+        cmds = [detect] + [c[0][0] for c in mock_run.call_args_list]
 
         # Pass 1 finds cuts and encodes nothing, so scaling there would be paid
         # for and thrown away. It must still ask showinfo for the timestamps.
-        detect = cmds[0]
         vf = detect[detect.index("-vf") + 1]
         assert "showinfo" in vf
         assert "scale=" not in vf, "the detection pass writes no images to scale"
@@ -265,6 +320,7 @@ class TestScaleAndSeekHelpers:
         for cmd in grabs:
             assert "scale=1024:-2" in cmd[cmd.index("-vf") + 1]
 
+    @patch("reel_scout.vision.keyframe.subprocess.Popen")
     @patch("reel_scout.vision.keyframe._get_duration", return_value=30.0)
     @patch("reel_scout.vision.keyframe.os.path.exists", return_value=True)
     @patch("reel_scout.vision.keyframe.os.makedirs")
@@ -275,6 +331,7 @@ class TestScaleAndSeekHelpers:
         mock_makedirs: MagicMock,
         mock_exists: MagicMock,
         mock_duration: MagicMock,
+        mock_popen: MagicMock,
     ) -> None:
         from reel_scout.vision.keyframe import extract_keyframes
 
@@ -282,12 +339,13 @@ class TestScaleAndSeekHelpers:
         mock_result.stderr = ""
         mock_result.stdout = ""
         mock_run.return_value = mock_result
+        mock_popen.side_effect = _popen_serving("")
 
         extract_keyframes(
             "/tmp/v.mp4", "/tmp/out", "vid1",
             strategy="scene", max_frames=4, start_sec=5.0, end_sec=10.0,
         )
-        cmd = mock_run.call_args_list[0][0][0]
+        cmd = mock_popen.call_args_list[0][0][0]
         assert "-ss" in cmd and "5.0" in cmd
         assert "-to" in cmd and "10.0" in cmd
 
@@ -303,6 +361,7 @@ class TestMotionStrategy:
         )
         assert kf.strategy == "motion"
 
+    @patch("reel_scout.vision.keyframe.subprocess.Popen")
     @patch("reel_scout.vision.keyframe._get_duration", return_value=30.0)
     @patch("reel_scout.vision.keyframe.os.path.exists", return_value=True)
     @patch("reel_scout.vision.keyframe.os.makedirs")
@@ -313,6 +372,7 @@ class TestMotionStrategy:
         mock_makedirs: MagicMock,
         mock_exists: MagicMock,
         mock_duration: MagicMock,
+        mock_popen: MagicMock,
     ) -> None:
         from reel_scout.vision.keyframe import extract_keyframes
 
@@ -324,13 +384,14 @@ class TestMotionStrategy:
         )
         mock_result.stdout = ""
         mock_run.return_value = mock_result
+        mock_popen.side_effect = _popen_serving(mock_result.stderr)
 
         frames = extract_keyframes(
             "/tmp/video.mp4", "/tmp/out", "vid1",
             strategy="motion", max_frames=8,
         )
         # Should have called ffmpeg with mpdecimate
-        first_call_args = mock_run.call_args_list[0]
+        first_call_args = mock_popen.call_args_list[0]
         cmd = first_call_args[0][0]
         vf_arg = cmd[cmd.index("-vf") + 1]
         assert "mpdecimate" in vf_arg
@@ -369,12 +430,16 @@ def test_scene_detect_timeout_falls_back_to_interval_instead_of_zero_frames(
     """
     from reel_scout.vision import keyframe
 
-    def _timeout_on_scene_detect(cmd, **kw):
-        if any("showinfo" in str(a) for a in cmd):
-            raise subprocess.TimeoutExpired(cmd, 120)
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-
-    monkeypatch.setattr(keyframe.subprocess, "run", _timeout_on_scene_detect)
+    # The detection pass hangs like an ffmpeg that never reaches EOF; the
+    # deadline is shrunk so the watchdog fires in milliseconds, not 120s.
+    FakePopen.instances = []
+    monkeypatch.setattr(keyframe.subprocess, "Popen",
+                        _popen_serving(hang=True))
+    monkeypatch.setattr(keyframe, "detect_timeout", lambda d: 0.05)
+    # `keyframe.subprocess` is the global module, so `run` (which builds on
+    # Popen) has to be stubbed too for the per-frame grabs that follow.
+    monkeypatch.setattr(keyframe.subprocess, "run",
+                        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "", ""))
     monkeypatch.setattr(keyframe, "_get_duration", lambda p: 15035.0)
     monkeypatch.setattr(
         keyframe, "_extract_interval",
@@ -391,6 +456,8 @@ def test_scene_detect_timeout_falls_back_to_interval_instead_of_zero_frames(
 
     assert len(frames) == 5, "a scene-detect timeout must not end with zero frames"
     assert all(f.strategy == "interval" for f in frames)
+    (proc,) = FakePopen.instances
+    assert proc.killed and proc.reaped, "an overrun ffmpeg must be killed and reaped"
 
 
 def test_partial_scene_result_is_not_padded_with_interval(tmp_path, monkeypatch):
@@ -634,12 +701,14 @@ class TestSelectSpread:
 
 
 class TestSceneDetectionPass:
+    @patch("reel_scout.vision.keyframe.subprocess.Popen")
     @patch("reel_scout.vision.keyframe._get_duration", return_value=15.3)
     @patch("reel_scout.vision.keyframe.os.path.exists", return_value=True)
     @patch("reel_scout.vision.keyframe.os.makedirs")
     @patch("reel_scout.vision.keyframe.subprocess.run")
     def test_detection_does_not_stop_at_the_budget(
         self, mock_run, mock_makedirs, mock_exists, mock_duration,
+        mock_popen,
     ):
         """The actual bug, pinned at the argv.
 
@@ -652,27 +721,31 @@ class TestSceneDetectionPass:
                                 for i, t in enumerate(CLUSTERED))
         res.stdout = ""
         mock_run.return_value = res
+        mock_popen.side_effect = _popen_serving(res.stderr)
 
         extract_keyframes("/tmp/v.mp4", "/tmp/out", "vid1",
                           strategy="scene", max_frames=8)
 
-        detect = mock_run.call_args_list[0][0][0]
+        detect = mock_popen.call_args_list[0][0][0]
         assert "-frames:v" not in detect, (
             "capping the detection pass is what made ffmpeg stop looking")
         assert detect[detect.index("-f") + 1] == "null"
 
+    @patch("reel_scout.vision.keyframe.subprocess.Popen")
     @patch("reel_scout.vision.keyframe._get_duration", return_value=15.3)
     @patch("reel_scout.vision.keyframe.os.path.exists", return_value=True)
     @patch("reel_scout.vision.keyframe.os.makedirs")
     @patch("reel_scout.vision.keyframe.subprocess.run")
     def test_the_frames_it_grabs_cover_the_clip_not_its_opening(
         self, mock_run, mock_makedirs, mock_exists, mock_duration,
+        mock_popen,
     ):
         res = MagicMock()
         res.stderr = "\n".join("n:%d pts_time:%.2f" % (i, t)
                                 for i, t in enumerate(CLUSTERED))
         res.stdout = ""
         mock_run.return_value = res
+        mock_popen.side_effect = _popen_serving(res.stderr)
 
         frames = extract_keyframes("/tmp/v.mp4", "/tmp/out", "vid1",
                                    strategy="scene", max_frames=8)
@@ -704,12 +777,14 @@ class TestSelectSpreadDegenerate:
 
 
 class TestBudgetIsThinnedNotTruncated:
+    @patch("reel_scout.vision.keyframe.subprocess.Popen")
     @patch("reel_scout.vision.keyframe._get_duration", return_value=60.0)
     @patch("reel_scout.vision.keyframe.os.path.exists", return_value=True)
     @patch("reel_scout.vision.keyframe.os.makedirs")
     @patch("reel_scout.vision.keyframe.subprocess.run")
     def test_first_and_last_do_not_push_the_tail_off_the_end(
         self, mock_run, mock_makedirs, mock_exists, mock_duration,
+        mock_popen,
     ):
         """The truncation bug, in the one place it could still live.
 
@@ -726,6 +801,7 @@ class TestBudgetIsThinnedNotTruncated:
                                 for i, t in enumerate(stamps))
         res.stdout = ""
         mock_run.return_value = res
+        mock_popen.side_effect = _popen_serving(res.stderr)
 
         frames = extract_keyframes("/tmp/v.mp4", "/tmp/out", "vid1",
                                    strategy="scene", max_frames=4)
@@ -746,23 +822,26 @@ class TestMotionDetectionPass:
     list that only ever described the opening of the clip.
     """
 
+    @patch("reel_scout.vision.keyframe.subprocess.Popen")
     @patch("reel_scout.vision.keyframe._get_duration", return_value=15.3)
     @patch("reel_scout.vision.keyframe.os.path.exists", return_value=True)
     @patch("reel_scout.vision.keyframe.os.makedirs")
     @patch("reel_scout.vision.keyframe.subprocess.run")
     def test_detection_does_not_stop_at_the_budget(
         self, mock_run, mock_makedirs, mock_exists, mock_duration,
+        mock_popen,
     ):
         res = MagicMock()
         res.stderr = "\n".join("n:%d pts_time:%.2f" % (i, t)
                                for i, t in enumerate(CLUSTERED))
         res.stdout = ""
         mock_run.return_value = res
+        mock_popen.side_effect = _popen_serving(res.stderr)
 
         extract_keyframes("/tmp/v.mp4", "/tmp/out", "vid1",
                           strategy="motion", max_frames=8)
 
-        detect = mock_run.call_args_list[0][0][0]
+        detect = mock_popen.call_args_list[0][0][0]
         assert "-frames:v" not in detect, (
             "mpdecimate emits across the whole file — measured, 405 of a 13.7s "
             "reel's ~411 frames survive it — so capping the pass made ffmpeg "
@@ -770,12 +849,14 @@ class TestMotionDetectionPass:
         assert detect[detect.index("-f") + 1] == "null", (
             "unbounded detection must not also write unbounded JPEGs")
 
+    @patch("reel_scout.vision.keyframe.subprocess.Popen")
     @patch("reel_scout.vision.keyframe._get_duration", return_value=15.3)
     @patch("reel_scout.vision.keyframe.os.path.exists", return_value=True)
     @patch("reel_scout.vision.keyframe.os.makedirs")
     @patch("reel_scout.vision.keyframe.subprocess.run")
     def test_showinfo_reads_source_time_not_a_rebased_ordinal(
         self, mock_run, mock_makedirs, mock_exists, mock_duration,
+        mock_popen,
     ):
         """The second defect, and the reason it hid for so long.
 
@@ -790,29 +871,33 @@ class TestMotionDetectionPass:
                                for i, t in enumerate(CLUSTERED))
         res.stdout = ""
         mock_run.return_value = res
+        mock_popen.side_effect = _popen_serving(res.stderr)
 
         extract_keyframes("/tmp/v.mp4", "/tmp/out", "vid1",
                           strategy="motion", max_frames=8)
 
-        detect = mock_run.call_args_list[0][0][0]
+        detect = mock_popen.call_args_list[0][0][0]
         vf = detect[detect.index("-vf") + 1]
         assert "mpdecimate" in vf
         assert "setpts" not in vf, (
             "showinfo runs after the filter chain, so any setpts ahead of it "
             "replaces the timestamp this function exists to report")
 
+    @patch("reel_scout.vision.keyframe.subprocess.Popen")
     @patch("reel_scout.vision.keyframe._get_duration", return_value=15.3)
     @patch("reel_scout.vision.keyframe.os.path.exists", return_value=True)
     @patch("reel_scout.vision.keyframe.os.makedirs")
     @patch("reel_scout.vision.keyframe.subprocess.run")
     def test_the_frames_it_grabs_cover_the_clip_not_its_opening(
         self, mock_run, mock_makedirs, mock_exists, mock_duration,
+        mock_popen,
     ):
         res = MagicMock()
         res.stderr = "\n".join("n:%d pts_time:%.2f" % (i, t)
                                for i, t in enumerate(CLUSTERED))
         res.stdout = ""
         mock_run.return_value = res
+        mock_popen.side_effect = _popen_serving(res.stderr)
 
         frames = extract_keyframes("/tmp/v.mp4", "/tmp/out", "vid1",
                                    strategy="motion", max_frames=8)
@@ -824,12 +909,14 @@ class TestMotionDetectionPass:
         assert stamps[-1] > 13.0
         assert _max_gap(stamps) < 4.0
 
+    @patch("reel_scout.vision.keyframe.subprocess.Popen")
     @patch("reel_scout.vision.keyframe._get_duration", return_value=15.3)
     @patch("reel_scout.vision.keyframe.os.path.exists", return_value=True)
     @patch("reel_scout.vision.keyframe.os.makedirs")
     @patch("reel_scout.vision.keyframe.subprocess.run")
     def test_the_detection_pass_reads_ffmpeg_as_utf8(
         self, mock_run, mock_makedirs, mock_exists, mock_duration,
+        mock_popen,
     ):
         """Companion to the behavioural test below; this one names the kwarg.
         `text=True` on its own decodes with the console codepage."""
@@ -837,11 +924,14 @@ class TestMotionDetectionPass:
         res.stderr = "n:0 pts_time:0.00"
         res.stdout = ""
         mock_run.return_value = res
+        mock_popen.side_effect = _popen_serving(res.stderr)
 
         extract_keyframes("/tmp/v.mp4", "/tmp/out", "vid1",
                           strategy="motion", max_frames=8)
 
-        assert mock_run.call_args_list[0][1].get("encoding") == "utf-8"
+        kw = mock_popen.call_args_list[0][1]
+        assert kw.get("encoding") == "utf-8"
+        assert kw.get("errors") == "replace"
 
 
 def test_motion_detect_timeout_falls_back_to_interval_instead_of_zero_frames(
@@ -855,12 +945,16 @@ def test_motion_detect_timeout_falls_back_to_interval_instead_of_zero_frames(
     """
     from reel_scout.vision import keyframe
 
-    def _timeout_on_motion_detect(cmd, **kw):
-        if any("mpdecimate" in str(a) for a in cmd):
-            raise subprocess.TimeoutExpired(cmd, 300)
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-
-    monkeypatch.setattr(keyframe.subprocess, "run", _timeout_on_motion_detect)
+    # The detection pass hangs like an ffmpeg that never reaches EOF; the
+    # deadline is shrunk so the watchdog fires in milliseconds, not 300s.
+    FakePopen.instances = []
+    monkeypatch.setattr(keyframe.subprocess, "Popen",
+                        _popen_serving(hang=True))
+    monkeypatch.setattr(keyframe, "detect_timeout", lambda d: 0.05)
+    # `keyframe.subprocess` is the global module, so `run` (which builds on
+    # Popen) has to be stubbed too for the per-frame grabs that follow.
+    monkeypatch.setattr(keyframe.subprocess, "run",
+                        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "", ""))
     monkeypatch.setattr(keyframe, "_get_duration", lambda p: 15035.0)
     monkeypatch.setattr(
         keyframe, "_extract_interval",
@@ -877,6 +971,8 @@ def test_motion_detect_timeout_falls_back_to_interval_instead_of_zero_frames(
 
     assert len(frames) == 5, "a motion-detect timeout must not end with zero frames"
     assert all(f.strategy == "interval" for f in frames)
+    (proc,) = FakePopen.instances
+    assert proc.killed and proc.reaped, "an overrun ffmpeg must be killed and reaped"
 
 
 def test_partial_motion_result_is_not_padded_with_interval(tmp_path, monkeypatch):
@@ -973,3 +1069,87 @@ def test_motion_survives_stderr_the_console_locale_cannot_read(tmp_path):
     assert "UnicodeDecodeError" not in err, err
     assert out.strip() == "0.00,6.00,12.00,18.00", (
         "the timestamps have to come back intact, not merely not-crash: %r" % out)
+
+
+# ── streamed detection pass ───────────────────────────────────────────────────
+# `capture_output=True` held the whole showinfo log in memory before parsing it:
+# 12.2 MB for a 22-minute clip, ~98 MB worst case under the 300s cap. The pass
+# now reads stderr line by line; these pin the parse, the offset, the deadline,
+# and that stdout cannot back up.
+
+class TestDetectStampsStreaming:
+    def test_stamps_parse_from_streamed_lines_with_offset(self, monkeypatch):
+        from reel_scout.vision import keyframe
+        FakePopen.instances = []
+        text = ("Input #0, mov,mp4, from 'x.mp4':\n"
+                "[Parsed_showinfo] n:0 pts:0 pts_time:0.5 pos:1\n"
+                "frame=  10 fps=0.0 q=-0.0 size=N/A\n"
+                "[Parsed_showinfo] n:1 pts:9 pts_time:3\n"
+                "[Parsed_showinfo] n:2 pts:9 pts_time:12.25\n")
+        monkeypatch.setattr(keyframe.subprocess, "Popen", _popen_serving(text))
+
+        stamps = keyframe._detect_stamps(["ffmpeg"], 5, offset=10.0)
+
+        assert stamps == [10.5, 13.0, 22.25]
+        (proc,) = FakePopen.instances
+        assert proc.reaped and not proc.killed
+        assert proc.kwargs["stdout"] is subprocess.DEVNULL, (
+            "unused stdout must not be a pipe nobody drains")
+        assert proc.kwargs["stderr"] is subprocess.PIPE
+        assert proc.kwargs["encoding"] == "utf-8"
+        assert proc.kwargs["errors"] == "replace"
+
+    def test_no_stamps_is_empty_not_timeout(self, monkeypatch):
+        from reel_scout.vision import keyframe
+        monkeypatch.setattr(keyframe.subprocess, "Popen",
+                            _popen_serving("no showinfo here\n"))
+        assert keyframe._detect_stamps(["ffmpeg"], 5) == []
+
+    def test_timeout_returns_none_and_kills_and_reaps(self, monkeypatch):
+        from reel_scout.vision import keyframe
+        FakePopen.instances = []
+        monkeypatch.setattr(keyframe.subprocess, "Popen",
+                            _popen_serving(hang=True))
+
+        assert keyframe._detect_stamps(["ffmpeg"], 0.05) is None
+        (proc,) = FakePopen.instances
+        assert proc.killed and proc.reaped
+
+    def test_scene_timeout_prints_the_fallback_message(self, monkeypatch, capsys):
+        from reel_scout.vision import keyframe
+        monkeypatch.setattr(keyframe.subprocess, "Popen",
+                            _popen_serving(hang=True))
+        monkeypatch.setattr(keyframe, "detect_timeout", lambda d: 0.05)
+        monkeypatch.setattr(keyframe, "_get_duration", lambda p: 60.0)
+
+        assert keyframe._extract_scene("/tmp/v.mp4", "/tmp/out", "vid", 4) == []
+        assert ("Scene detection timed out — falling back to interval sampling"
+                in capsys.readouterr().err)
+
+    def test_real_process_is_killed_on_deadline(self, tmp_path):
+        """No fakes: a child that writes a stamp and then sleeps forever."""
+        from reel_scout.vision import keyframe
+        script = tmp_path / "slow.py"
+        script.write_text(
+            "import sys, time\n"
+            "sys.stderr.write('[Parsed_showinfo] n:0 pts_time:1.0\\n')\n"
+            "sys.stderr.flush()\n"
+            "time.sleep(60)\n", encoding="utf-8")
+        import time
+        t0 = time.monotonic()
+        assert keyframe._detect_stamps([sys.executable, str(script)], 0.5) is None
+        assert time.monotonic() - t0 < 10
+
+    def test_real_process_streams_large_stderr(self, tmp_path):
+        """Many lines through a real pipe, with stdout also written to."""
+        from reel_scout.vision import keyframe
+        script = tmp_path / "chatty.py"
+        script.write_text(
+            "import sys\n"
+            "for i in range(20000):\n"
+            "    sys.stdout.write('x' * 100 + '\\n')\n"
+            "    sys.stderr.write('[Parsed_showinfo] n:%d pts_time:%d.5\\n' % (i, i))\n",
+            encoding="utf-8")
+        stamps = keyframe._detect_stamps([sys.executable, str(script)], 30)
+        assert len(stamps) == 20000
+        assert stamps[0] == 0.5 and stamps[-1] == 19999.5

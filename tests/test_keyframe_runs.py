@@ -267,7 +267,31 @@ def _stub_ffmpeg(monkeypatch, payload):
                 fh.write(payload)
         return _Res()
 
+    class _Popen:
+        """The detection pass streams stderr through Popen."""
+        def __init__(self, cmd, **kw):
+            self.stderr = _Lines(_Res.stderr)
+            self.returncode = None
+
+        def poll(self):
+            return self.returncode
+
+        def kill(self):
+            pass
+
+        def wait(self, timeout=None):
+            self.returncode = 0
+            return 0
+
+    class _Lines(list):
+        def __init__(self, text):
+            super().__init__(text.splitlines(True))
+
+        def close(self):
+            pass
+
     monkeypatch.setattr(kf_mod.subprocess, "run", _run)
+    monkeypatch.setattr(kf_mod.subprocess, "Popen", _Popen)
     monkeypatch.setattr(kf_mod, "_get_duration", lambda p: 12.0)
 
 
