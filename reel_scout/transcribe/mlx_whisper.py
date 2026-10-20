@@ -4,8 +4,9 @@
 同一支 3:39:30 的片：faster-whisper large-v3 RTF 1.22（4h28m），mlx-whisper
 large-v3 RTF 0.242（~53 分），large-v3-turbo RTF 0.040（~9 分）。
 
-**opt-in**：`WHISPER_BACKEND=mlx`（或 `--whisper-backend mlx` / `transcribe --backend mlx`）。
-預設仍是 faster-whisper，直到 A/B 有數據（見 #113 驗收條件 2：先建雜訊地板）。
+**預設（`WHISPER_BACKEND=auto`）**：能跑就走這條（Apple Silicon ＋ `mlx` extra），否則 faster-whisper。
+2026-10-20 A/B（5 支有人工中文字幕的片）：large-v3 平均字錯率 9.5%，faster-whisper 9.4%，
+差距在各片起伏之內；RTF 0.11–0.37 對 1.17–1.79。明寫 `WHISPER_BACKEND=mlx` 仍可強制。
 
 跟 faster-whisper 的差異（別當成等價產物）：
   - **沒有 beam search**：mlx-whisper 0.4.3 `decoding.py` 對 beam_size 明確

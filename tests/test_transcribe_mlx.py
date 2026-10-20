@@ -78,10 +78,51 @@ def _warnings(monkeypatch):
 
 # ------------------------------------------------------------------ selection
 
-def test_default_backend_is_still_faster_whisper(monkeypatch, apple_silicon, fake_mlx):
-    # mlx installed on Apple Silicon must NOT change the default.
+def test_explicit_faster_whisper_is_kept_even_where_mlx_runs(monkeypatch, apple_silicon, fake_mlx):
+    # mlx installed on Apple Silicon must NOT override an explicit choice.
     monkeypatch.setattr(config, "WHISPER_BACKEND", "faster-whisper")
     assert isinstance(tr.get_transcriber(), FasterWhisperTranscriber)
+
+
+def test_default_backend_is_auto():
+    # Read the getenv default from source: reloading config would re-read the
+    # developer's own .env (which may pin a backend) and leak it into os.environ.
+    import ast
+    import inspect
+    tree = ast.parse(inspect.getsource(config))
+    defaults = [n.value.args[1].value for n in ast.walk(tree)
+                if isinstance(n, ast.Assign)
+                and any(getattr(t, "id", None) == "WHISPER_BACKEND" for t in n.targets)
+                and isinstance(n.value, ast.Call)]
+    assert defaults == ["auto"]
+    assert "auto" in config.WHISPER_BACKENDS
+
+
+def test_auto_picks_mlx_where_it_runs(monkeypatch, apple_silicon, fake_mlx, plain_cfg):
+    warned = _warnings(monkeypatch)
+    monkeypatch.setattr(tr, "_auto_note_shown", False)
+    monkeypatch.setattr(config, "WHISPER_BACKEND", "auto")
+    assert isinstance(tr.get_transcriber(), MlxWhisperTranscriber)
+    assert warned == []
+
+
+def test_auto_is_silent_off_apple_silicon(monkeypatch, fake_mlx):
+    warned = _warnings(monkeypatch)
+    monkeypatch.setattr(tr, "_auto_note_shown", False)
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+    assert isinstance(tr.get_transcriber("auto"), FasterWhisperTranscriber)
+    assert warned == []
+
+
+def test_auto_without_mlx_on_apple_silicon_notes_it_once(monkeypatch, apple_silicon):
+    warned = _warnings(monkeypatch)
+    monkeypatch.setattr(tr, "_auto_note_shown", False)
+    monkeypatch.setitem(sys.modules, "mlx_whisper", None)   # import raises
+    for _ in range(3):                                        # e.g. one per video in a batch
+        assert isinstance(tr.get_transcriber("auto"), FasterWhisperTranscriber)
+    assert len(warned) == 1
+    assert "auto using faster-whisper" in warned[0] and "reel-scout[mlx]" in warned[0]
 
 
 def test_mlx_selected_when_opted_in_and_available(monkeypatch, apple_silicon, fake_mlx, plain_cfg):

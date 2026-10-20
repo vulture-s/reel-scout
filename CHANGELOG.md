@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Changed
+
+- **Whisper backend defaults to `auto`: mlx-whisper on Apple Silicon when the
+  `mlx` extra is installed, faster-whisper everywhere else.** On 5 clips with
+  human Chinese subtitles mlx `large-v3` matched faster-whisper `large-v3`
+  (mean CER 9.5% vs 9.4%) at RTF 0.11–0.37 vs 1.17–1.79; `turbo` averaged 10.2%
+  but swung the most per clip, so `WHISPER_MODEL` stays `large-v3`. Set
+  `WHISPER_BACKEND=faster-whisper` to keep the old engine. On Apple Silicon
+  without a working mlx, `auto` says once per run that it is on the CPU path.
+- **`config check` reports the Simplified → Traditional step.** It lists whether
+  opencc is installed whenever `REEL_SCOUT_ZH_CONVERT` is not `off`; without it
+  Simplified transcripts are stored as received. mlx `large-v3` drifted into
+  Simplified for 31% of one Taiwanese clip despite the Traditional seed prompt.
+
 ### Fixed
 
 - **faster-whisper transcripts silently lost speech over music/noise.** The
