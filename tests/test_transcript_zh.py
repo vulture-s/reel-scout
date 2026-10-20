@@ -54,7 +54,7 @@ def _row(c, vid):
 def test_fresh_db_has_the_v21_columns(conn):
     cols = {r[1] for r in conn.execute("PRAGMA table_info(transcripts)")}
     assert {"text_full_original", "segments_json_original", "zh_conversion"} <= cols
-    assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == db.SCHEMA_VERSION == 21
+    assert conn.execute("SELECT version FROM schema_version").fetchone()[0] == db.SCHEMA_VERSION >= 21
 
 
 def test_v20_database_upgrades_and_keeps_its_rows(temp_db):
@@ -73,7 +73,7 @@ def test_v20_database_upgrades_and_keeps_its_rows(temp_db):
     """)
     c.commit()
     db.init_db(c)
-    assert c.execute("SELECT version FROM schema_version").fetchone()[0] == 21
+    assert c.execute("SELECT version FROM schema_version").fetchone()[0] == db.SCHEMA_VERSION
     cols = {r[1] for r in c.execute("PRAGMA table_info(transcripts)")}
     assert {"text_full_original", "segments_json_original", "zh_conversion"} <= cols
     row = _row(c, "old")
