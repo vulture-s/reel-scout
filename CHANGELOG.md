@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- **faster-whisper transcripts silently lost speech over music/noise.** The
+  whisper-guard filter dropped any segment with `no_speech_prob > 0.8`; over a
+  music bed faster-whisper reports 0.9–1.0 for confidently decoded speech, and
+  one 177 s explainer lost 20 of 173 segments. Requires `whisper-guard>=0.3.2`,
+  which keeps a ≥5 s window that is dense (≥2 chars/s) and confident
+  (`avg_logprob` > −0.5) — vulture-s/whisper-guard#4.
 - **`[mlx]` extra pins `scipy<1.15` on Python 3.10 / Apple Silicon.** On macOS 27
   every scipy 1.15.x cp310 wheel fails to load (dyld rejects `_spropack`'s
   `__thread_bss` section), and mlx-whisper imports `scipy.signal`, so
