@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 
 from reel_scout import config, db
@@ -66,17 +67,31 @@ def test_heartbeat_thread_stops_with_the_worker(temp_db, monkeypatch):
 
 
 def test_heartbeat_survives_a_failed_touch(temp_db, monkeypatch):
+    """A touch that raises must not kill the thread: the next beat tries again.
+
+    Waits on the second touch itself rather than a fixed sleep. Each beat opens
+    a fresh sqlite connection (WAL pragma, fsync) before touching, so under a
+    loaded machine a 0.3s window sometimes held only one attempt -- the test
+    then failed on timing, not on the behaviour it checks.
+    """
     calls = []
+    second_touch = threading.Event()
 
     def flaky(c, b):
         calls.append(1)
+        if len(calls) >= 2:
+            second_touch.set()
         raise sqlite3.OperationalError("database is locked")
 
     monkeypatch.setattr(db, "touch_batch_heartbeat", flaky)
     hb = batch_worker.Heartbeat("nope", 0.05).start()
-    time.sleep(0.3)
-    alive = hb._thread.is_alive()
-    hb.stop()
+    try:
+        # Reaching a 2nd touch means the thread survived the 1st raise.
+        assert second_touch.wait(timeout=10), (
+            "heartbeat never retried after a failed touch: %d call(s)" % len(calls))
+        alive = hb._thread.is_alive()
+    finally:
+        hb.stop()
     assert alive and len(calls) >= 2
 
 
