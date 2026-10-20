@@ -201,12 +201,20 @@ OPENCLAW_BASE_URL = os.getenv("OPENCLAW_BASE_URL", "http://localhost:18789/v1")
 OPENCLAW_MODEL = os.getenv("OPENCLAW_MODEL", "")
 
 # --- Whisper ---
-# faster-whisper (default) / whisper-cpp / mlx. `mlx` = mlx-whisper on Metal
-# (Apple Silicon only, `mlx` extra; issue #113) -- faster-whisper is CPU-only on
-# macOS. Unavailable mlx falls back to faster-whisper with a one-line notice.
+# auto (default) / faster-whisper / whisper-cpp / mlx. `mlx` = mlx-whisper on
+# Metal (Apple Silicon only, `mlx` extra; issue #113) -- faster-whisper is
+# CPU-only on macOS. An explicit `mlx` that cannot run falls back to
+# faster-whisper with a one-line notice.
+#
+# `auto` picks mlx when it can run here (Apple Silicon + the `mlx` extra) and
+# faster-whisper otherwise. A/B on 5 clips with human Chinese subtitles
+# (2026-10-20, M2 Max): mean CER 9.5% for mlx large-v3 vs 9.4% for
+# faster-whisper large-v3 -- within the per-clip spread -- at RTF 0.11-0.37 vs
+# 1.17-1.79. large-v3-turbo averaged 10.2% but swung the most per clip (A:
+# 10.5% vs 3.5%), so the model default stays large-v3.
 # With mlx, WHISPER_MODEL is large-v3 / large-v3-turbo or an HF repo id.
-WHISPER_BACKENDS = ("faster-whisper", "whisper-cpp", "mlx")
-WHISPER_BACKEND = os.getenv("WHISPER_BACKEND", "faster-whisper")
+WHISPER_BACKENDS = ("auto", "faster-whisper", "whisper-cpp", "mlx")
+WHISPER_BACKEND = os.getenv("WHISPER_BACKEND", "auto")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "large-v3")
 # Language handling. Defaults reproduce prior behavior (detect-once, transcribe).
 #   WHISPER_LANGUAGE=""      -> auto-detect (whisper locks one language from the opening window)

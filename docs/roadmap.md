@@ -83,7 +83,7 @@ shot_metrics 116 | ocr_captions 113 支           ← §4E / §4F 的產物，�
 - **Crawl**: yt-dlp (YT/IG/TikTok) + rate limiter + cookies + IG instaloader fallback
 - **Browse**: 帳號/頻道頁列出所有影片（human / `--json` / `--urls-only`）
 - **Transcribe**: subtitle-first（優先吃原生字幕，`find_subtitle`）→ faster-whisper / whisper.cpp fallback
-- **mlx-whisper backend**（#113，2026-10-15，opt-in）：`WHISPER_BACKEND=mlx` 走 Metal（Apple Silicon，`[mlx]` extra）；faster-whisper 在 macOS 是 CPU-only（M2 Max RTF 1.22 vs mlx turbo 0.04）。不可用時出聲退回 faster-whisper。**預設不換**，待 A/B（先建雜訊地板，#113 驗收 2）
+- **mlx-whisper backend**（#113，2026-10-15，opt-in）：`WHISPER_BACKEND=mlx` 走 Metal（Apple Silicon，`[mlx]` extra）；faster-whisper 在 macOS 是 CPU-only（M2 Max RTF 1.22 vs mlx turbo 0.04）。不可用時出聲退回 faster-whisper。**2026-10-20 起預設 `auto`**（能跑 mlx 就用）：5 支人工中文字幕片 A/B，large-v3 平均字錯率 mlx 9.5% vs faster-whisper 9.4%，RTF 0.11–0.37 vs 1.17–1.79；turbo 各片落差大，預設模型維持 large-v3
 - **中英雙語轉錄** (v0.2.0): `WHISPER_MULTILINGUAL` + `WHISPER_CHUNK_LENGTH` 每段重偵測語言，解長檔語言鎖定漂移（40 分鐘中英訪談實測：latin 還原 56%→90%）；另有 `WHISPER_LANGUAGE` / `WHISPER_TASK`
 - **Vision**: keyframe 抽取（scene / interval / motion / hybrid + first/last 保底 + score）+ duration-aware frame budget + `KEYFRAME_RESOLUTION` 升採樣（讀畫面小字）+ `--start/--end` focus window + VLM (oMLX/Ollama) + fallback model + per-frame resilience（單幀逾時不炸整跑）
 - **Audio**: PANNs 音訊事件偵測（onnxruntime, optional）

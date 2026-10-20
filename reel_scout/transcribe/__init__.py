@@ -158,8 +158,28 @@ def mlx_unavailable_reason() -> Optional[str]:
     return None
 
 
+_auto_note_shown = False
+
+
+def resolve_auto_backend() -> str:
+    """What ``WHISPER_BACKEND=auto`` runs here: ``mlx`` or ``faster-whisper``."""
+    return "mlx" if mlx_unavailable_reason() is None else "faster-whisper"
+
+
 def get_transcriber(backend: Optional[str] = None) -> BaseTranscriber:
+    global _auto_note_shown
     backend = backend or config.WHISPER_BACKEND
+    if backend == "auto":
+        backend = resolve_auto_backend()
+        reason = mlx_unavailable_reason() if backend != "mlx" else None
+        # `auto` promised nothing, so off Apple Silicon this is silent. On Apple
+        # Silicon without a working mlx the user is on the CPU path that is ~10x
+        # slower -- say so once per process, not once per video.
+        if reason and not reason.startswith("not Apple Silicon") and not _auto_note_shown:
+            _auto_note_shown = True
+            from ..utils.stderr import warn
+            warn("  note: WHISPER_BACKEND=auto using faster-whisper (CPU) — %s; "
+                 "pip install 'reel-scout[mlx]' for Metal" % reason)
     if backend == "mlx":
         reason = mlx_unavailable_reason()
         if reason is None:

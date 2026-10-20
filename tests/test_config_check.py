@@ -88,3 +88,30 @@ def test_diarize_flagged_not_ok_without_token(monkeypatch):
     diarize = [c for c in cli._run_config_checks() if c[0] == "diarize"][0]
     assert diarize[1] is False  # not ok — token missing
     assert "TOKEN MISSING" in diarize[2]
+
+
+def test_whisper_auto_reports_what_it_resolved_to(monkeypatch):
+    from reel_scout import transcribe as tr
+    _patch_probes(monkeypatch)
+    monkeypatch.setattr(config, "WHISPER_BACKEND", "auto")
+    monkeypatch.setattr(tr, "mlx_unavailable_reason", lambda: None)
+    detail = dict((c[0], c[2]) for c in cli._run_config_checks())["whisper"]
+    assert detail.startswith("auto -> mlx-whisper")
+    monkeypatch.setattr(tr, "mlx_unavailable_reason", lambda: "not Apple Silicon (Linux/x86_64)")
+    detail = dict((c[0], c[2]) for c in cli._run_config_checks())["whisper"]
+    assert detail.startswith("auto -> faster-whisper") and "not Apple Silicon" in detail
+
+
+def test_zh_convert_check_flags_missing_opencc(monkeypatch):
+    calls = _patch_probes(monkeypatch, import_ok=False)
+    monkeypatch.setattr(config, "ZH_CONVERT", "s2twp")
+    checks = dict((c[0], c[1:]) for c in cli._run_config_checks())
+    assert "opencc" in calls["imports"]
+    ok, detail = checks["zh convert"]
+    assert ok is False and "stored as received" in detail
+
+
+def test_zh_convert_check_skipped_when_off(monkeypatch):
+    _patch_probes(monkeypatch)
+    monkeypatch.setattr(config, "ZH_CONVERT", "off")
+    assert "zh convert" not in _names(cli._run_config_checks())

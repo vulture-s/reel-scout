@@ -54,8 +54,9 @@ def main(argv: List[str] = None) -> None:
     p_analyze.add_argument("--skip-transcribe", action="store_true", help="Skip transcription")
     p_analyze.add_argument(
         "--whisper-backend", default=None, choices=config.WHISPER_BACKENDS,
-        help="Whisper backend (default: WHISPER_BACKEND or faster-whisper; "
-             "mlx = Metal on Apple Silicon, needs the mlx extra)")
+        help="Whisper backend (default: WHISPER_BACKEND or auto = mlx when "
+             "it can run here, else faster-whisper; mlx = Metal on Apple Silicon, "
+             "needs the mlx extra)")
     p_analyze.add_argument("--vlm-backend", help="VLM backend (omlx, ollama)")
     p_analyze.add_argument("--vlm-model", help="VLM model name")
     p_analyze.add_argument("--keyframe-strategy", help="Keyframe strategy (scene, interval, hybrid)")
@@ -82,8 +83,9 @@ def main(argv: List[str] = None) -> None:
     p_transcribe.add_argument("--pending", action="store_true", help="Transcribe all pending videos")
     p_transcribe.add_argument(
         "--backend", default=None, choices=config.WHISPER_BACKENDS,
-        help="Whisper backend (default: WHISPER_BACKEND or faster-whisper; "
-             "mlx = Metal on Apple Silicon, needs the mlx extra)")
+        help="Whisper backend (default: WHISPER_BACKEND or auto = mlx when "
+             "it can run here, else faster-whisper; mlx = Metal on Apple Silicon, "
+             "needs the mlx extra)")
 
     # --- vision ---
     p_vision = sub.add_parser("vision", help="Extract keyframes and describe with VLM")
@@ -2213,22 +2215,44 @@ def _run_config_checks():
     # yt-dlp: probe the SAME binary the crawlers use, not a hardcoded "yt-dlp".
     checks.append(("yt-dlp", *_probe_cmd(list(ytdlp.base_cmd()) + ["--version"])))
 
-    if config.WHISPER_BACKEND == "mlx":
+    whisper_backend = config.WHISPER_BACKEND
+    auto = whisper_backend == "auto"
+    if auto:
+        from .transcribe import resolve_auto_backend
+        whisper_backend = resolve_auto_backend()
+    if auto and whisper_backend == "faster-whisper":
+        from .transcribe import mlx_unavailable_reason
+        ok = _probe_import("faster_whisper")
+        checks.append(("whisper", ok, "auto -> faster-whisper %s (mlx: %s)"
+                       % ("installed" if ok else "NOT installed", mlx_unavailable_reason())))
+    elif whisper_backend == "mlx":
         from .transcribe import mlx_unavailable_reason
         reason = mlx_unavailable_reason()
         if reason is None:
-            checks.append(("whisper", True, "mlx-whisper installed (Metal)"))
+            checks.append(("whisper", True, "%smlx-whisper installed (Metal)"
+                           % ("auto -> " if auto else "")))
         else:
             # get_transcriber falls back to faster-whisper here, so report that path too.
             fw = _probe_import("faster_whisper")
             checks.append(("whisper", fw, "mlx unavailable (%s); fallback faster-whisper %s"
                            % (reason, "installed" if fw else "NOT installed")))
-    elif config.WHISPER_BACKEND == "faster-whisper":
+    elif whisper_backend == "faster-whisper":
         ok = _probe_import("faster_whisper")
         checks.append(("whisper", ok, "faster-whisper %s" % ("installed" if ok else "NOT installed")))
     else:
         ok, _ = _probe_cmd(["whisper", "--help"])
         checks.append(("whisper", ok, "whisper.cpp %s" % ("found" if ok else "NOT found")))
+
+    # Whisper (either engine) writes Chinese in Simplified more often than not;
+    # save_transcript converts it with OpenCC, and without the zh extra stores it
+    # as received. Measured 2026-10-20: mlx large-v3 drifted into Simplified for
+    # 31% of one Taiwanese clip despite the Traditional seed prompt.
+    if str(config.ZH_CONVERT).strip().lower() != "off":
+        ok = _probe_import("opencc")
+        checks.append(("zh convert", ok,
+                       "%s, opencc %s" % (config.ZH_CONVERT, "installed" if ok else
+                                          "NOT installed — Simplified transcripts are stored "
+                                          "as received (pip install \"reel-scout[zh]\")")))
 
     vlm_url = config.OMLX_BASE_URL if config.VLM_BACKEND == "omlx" else config.OLLAMA_BASE_URL
     checks.append(("VLM (%s)" % config.VLM_BACKEND, *_probe_http(vlm_url)))

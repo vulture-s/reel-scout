@@ -50,8 +50,9 @@ existing DB by default; pass `analyze: true` to crawl+analyze first (slow).
   (default `qwen2.5vl:7b`), fallback `VLM_FALLBACK_MODEL`.
 - **LLM** (merger/scorer/inspire/research, `LLM_BACKEND`): `omlx` / `ollama` /
   `openclaw` (proxy to a subscription, no local GPU).
-- **Whisper** (`WHISPER_BACKEND`): `faster-whisper` (default) / whisper.cpp /
-  `mlx` (opt-in: mlx-whisper on Metal, Apple Silicon, `mlx` extra; `WHISPER_MODEL`
+- **Whisper** (`WHISPER_BACKEND`): `auto` (default: `mlx` when it can run here,
+  else `faster-whisper`) / `faster-whisper` / whisper.cpp /
+  `mlx` (mlx-whisper on Metal, Apple Silicon, `mlx` extra; `WHISPER_MODEL`
   `large-v3` / `large-v3-turbo` or an HF repo id; no beam search, falls back to
   faster-whisper with a notice when unavailable);
   subtitle-first when a native subtitle is present (uploaded track in the
@@ -113,7 +114,7 @@ download modest, or rely on subtitle-first when the source has native subtitles.
 | `SHOT_METRICS_ENABLED` / `SHOT_SCENE_THRESHOLD` | `true` / `0.3` | §4E measured pacing (cuts/min + energy/BPM). |
 | `OCR_ENABLED` / `OCR_ENGINE` | `true` / `vlm` | §4F on-screen text; `tesseract` opt-in (needs the `ocr` extra). |
 | `IG_COOKIES_FILE` | — | Instagram cookies for gated content. |
-| `LLM_BACKEND` / `VLM_BACKEND` / `WHISPER_BACKEND` | `omlx`/`omlx`/`faster-whisper` | Inference backends. |
+| `LLM_BACKEND` / `VLM_BACKEND` / `WHISPER_BACKEND` | `omlx`/`omlx`/`auto` | Inference backends. |
 | `REEL_SCOUT_ZH_CONVERT` / `REEL_SCOUT_ZH_HOTWORDS` | `s2twp` / — | Source Simplified→Traditional conversion (`s2twp`/`s2tw`/`off`, needs the `zh` extra) for inspire's analysis copy and for Simplified transcripts / subtitles as they are saved (original kept in `transcripts.text_full_original`), plus a YAML/JSON hotword table applied after OpenCC. |
 | `INSPIRE_NAME_RETRIES` | `2` | inspire re-asks on a real-name miss at most this many times (0 = check only). |
 

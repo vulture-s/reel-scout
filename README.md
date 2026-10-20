@@ -42,11 +42,15 @@ transcription on Apple Silicon — see below), `audio` (audio events
 + BPM), `ocr`, `diarize`, `instagram`, `zh` — e.g. `pip install "reel-scout[whisper]"`.
 `mlx` exists because faster-whisper is CPU-only on macOS: on an M2 Max it ran a
 3h39m video at 1.22× real time, where mlx-whisper `large-v3-turbo` runs ~0.04×.
-It is opt-in — `pip install "reel-scout[whisper,mlx]"`, then
-`WHISPER_BACKEND=mlx WHISPER_MODEL=large-v3-turbo` (or `--whisper-backend mlx`);
-the model (~1.5 GB for turbo, ~2.9 GB for large-v3) downloads from Hugging Face on
-first use. Off Apple Silicon or without the package it falls back to
-faster-whisper and says so on stderr.
+The default `WHISPER_BACKEND=auto` uses it whenever it can run — install
+`pip install "reel-scout[whisper,mlx]"` on Apple Silicon — and faster-whisper
+everywhere else. On 5 clips with human Chinese subtitles, mlx `large-v3` matched
+faster-whisper `large-v3` (mean CER 9.5% vs 9.4%) at 4–11× the speed; `turbo` is
+faster still but less even per clip, so the default model stays `large-v3`.
+The model (~2.9 GB for large-v3, ~1.5 GB for turbo) downloads from Hugging Face on
+first use. `WHISPER_BACKEND=faster-whisper` keeps the CPU engine; an explicit
+`WHISPER_BACKEND=mlx` that cannot run falls back to faster-whisper and says so on
+stderr.
 `zh` (OpenCC) converts Simplified Chinese to Traditional at the source, in two
 places: (1) **`inspire`** — the analysis it sends the LLM; (2) **transcripts /
 subtitles** — when a transcript is saved and it contains Simplified characters
