@@ -43,7 +43,7 @@ Issues = "https://github.com/vulture-s/reel-scout/issues"
 Changelog = "https://github.com/vulture-s/reel-scout/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
-whisper = ["faster-whisper>=1.1.0", "whisper-guard>=0.3.2"]
+whisper = ["faster-whisper>=1.1.0", "whisper-guard>=0.3.3"]
 # Metal transcription on Apple Silicon (WHISPER_BACKEND=mlx, issue #113).
 # faster-whisper is CPU-only on macOS: on an M2 Max large-v3 runs at RTF 1.22
 # there vs 0.04 for mlx large-v3-turbo. The default WHISPER_BACKEND=auto uses it
@@ -60,7 +60,7 @@ whisper = ["faster-whisper>=1.1.0", "whisper-guard>=0.3.2"]
 mlx = [
     "mlx-whisper>=0.4.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "scipy<1.15; sys_platform == 'darwin' and platform_machine == 'arm64' and python_version < '3.11'",
-    "whisper-guard>=0.3.2",
+    "whisper-guard>=0.3.3",
 ]
 audio = ["onnxruntime>=1.15.0", "numpy>=1.21.0"]
 vector = ["lancedb>=0.4.0", "chromadb>=0.4.0"]
@@ -86,7 +86,7 @@ motion = ["av>=12", "numpy>=1.21.0"]
 # reached the pure-python halves of that module, so CI never needed it — and a
 # test that skips itself on CI is not a gate, it is decoration. onnxruntime
 # stays out: those tests script the session rather than load the 327 MB model.
-dev = ["pytest>=7.0", "whisper-guard>=0.3.2", "numpy>=1.21.0"]
+dev = ["pytest>=7.0", "whisper-guard>=0.3.3", "numpy>=1.21.0"]
 
 [project.scripts]
 reel-scout = "reel_scout.cli:main"

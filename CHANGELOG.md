@@ -38,6 +38,11 @@
   one 177 s explainer lost 20 of 173 segments. Requires `whisper-guard>=0.3.2`,
   which keeps a ≥5 s window that is dense (≥2 chars/s) and confident
   (`avg_logprob` > −0.5) — vulture-s/whisper-guard#4.
+- **Silence hallucinations with a low `no_speech_prob` reached the transcript.**
+  Over a noise bed faster-whisper filled 30 s windows with "Thank you." at
+  `no_speech_prob` 0.14–0.75, under every cut. Requires `whisper-guard>=0.3.3`,
+  which drops a ≥10 s decoding window with <1 char/s whatever its metrics —
+  vulture-s/whisper-guard#6.
 - **`[mlx]` extra pins `scipy<1.15` on Python 3.10 / Apple Silicon.** On macOS 27
   every scipy 1.15.x cp310 wheel fails to load (dyld rejects `_spropack`'s
   `__thread_bss` section), and mlx-whisper imports `scipy.signal`, so
