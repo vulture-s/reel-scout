@@ -25,6 +25,13 @@
   MCP `show_video` (`transcript.script_mix` + `transcript.warning`) and
   `export --format json`. The migration scans existing rows once (writes only
   the new column; no text is converted).
+- **Scene and motion detection stream ffmpeg's stderr instead of buffering it.**
+  The detection pass held the whole `showinfo` log in memory before parsing
+  (12.2 MB for a 22-minute clip, ~98 MB worst case under the 300s cap); it now
+  reads `pts_time:` stamps line by line through `Popen`. The deadline is a
+  watchdog that kills and reaps ffmpeg, with the same fallback to interval
+  sampling as before.
+
 - **faster-whisper transcripts silently lost speech over music/noise.** The
   whisper-guard filter dropped any segment with `no_speech_prob > 0.8`; over a
   music bed faster-whisper reports 0.9–1.0 for confidently decoded speech, and

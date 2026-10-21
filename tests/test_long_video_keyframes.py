@@ -19,6 +19,7 @@ All synthetic: no ffmpeg, no media, no model.
 """
 from __future__ import annotations
 
+import io
 import subprocess
 
 from reel_scout import config
@@ -99,12 +100,28 @@ def test_scene_strategy_end_to_end_on_a_cutless_four_hour_clip(tmp_path, monkeyp
     cuts -- through the real `_extract_interval`, `_ensure_first_last` and
     `select_spread`, with only ffmpeg stubbed.
     """
+    class _NoCutsPopen:
+        """Detection pass (streamed via Popen): finishes, reports zero cuts."""
+        def __init__(self, cmd, **kw):
+            assert "-f" in cmd and "null" in cmd, cmd
+            self.stderr = io.StringIO("frame=1 fps=0.0\n")
+            self.returncode = None
+
+        def poll(self):
+            return self.returncode
+
+        def kill(self):
+            pass
+
+        def wait(self, timeout=None):
+            self.returncode = 0
+            return 0
+
     def _fake_run(cmd, **kw):
-        if "-f" in cmd and "null" in cmd:  # detection pass: zero cuts
-            return subprocess.CompletedProcess(cmd, 0, "", "")
         open(cmd[-1], "wb").close()     # per-frame grab
         return subprocess.CompletedProcess(cmd, 0, b"", b"")
 
+    monkeypatch.setattr(keyframe.subprocess, "Popen", _NoCutsPopen)
     monkeypatch.setattr(keyframe.subprocess, "run", _fake_run)
     monkeypatch.setattr(keyframe, "_get_duration", lambda p: RWY_DURATION)
     monkeypatch.setattr(config, "KEYFRAME_DEDUPE", False)

@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass
 from typing import List
 
@@ -542,6 +543,58 @@ def select_spread(timestamps: List[float], n: int) -> List[int]:
     return out
 
 
+_PTS_TIME = re.compile(r"pts_time:(\d+\.?\d*)")
+
+
+def _detect_stamps(cmd: List[str], timeout: float,
+                   offset: float = 0.0) -> "List[float] | None":
+    """Run a showinfo detection pass and return its ``pts_time`` stamps.
+
+    Returns None when the pass overruns ``timeout`` (the process is killed and
+    reaped), so callers can tell "timed out" from "found nothing".
+
+    stderr is read line by line rather than buffered whole. `capture_output`
+    held the entire showinfo log in memory before a single stamp was parsed:
+    measured 12.2 MB for a 22-minute clip, so ~98 MB worst case under the 300s
+    cap -- all of it thrown away except the numbers after `pts_time:`.
+
+    The deadline is a watchdog timer, not `communicate(timeout=)`, because
+    iterating the pipe blocks; killing the process closes its end of the pipe,
+    which is what ends the loop. stdout is unused (`-f null -`) and goes to
+    DEVNULL so it can never fill a pipe and stall ffmpeg.
+    """
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", errors="replace",
+    )
+    expired = threading.Event()
+
+    def _expire() -> None:
+        if proc.poll() is None:
+            expired.set()
+            proc.kill()
+
+    watchdog = threading.Timer(timeout, _expire)
+    watchdog.daemon = True
+    watchdog.start()
+    stamps: List[float] = []
+    try:
+        for line in proc.stderr:
+            for m in _PTS_TIME.findall(line):
+                stamps.append(float(m) + offset)
+        proc.wait()
+    except BaseException:
+        proc.kill()
+        proc.wait()
+        raise
+    finally:
+        watchdog.cancel()
+        proc.stderr.close()
+    if expired.is_set():
+        return None
+    return stamps
+
+
 def _extract_scene(
     video_path: str, output_dir: str, video_id: str, max_frames: int,
     resolution: int = 0, start_sec: float = 0.0, end_sec: float = 0.0,
@@ -568,23 +621,15 @@ def _extract_scene(
     cmd = [config.FFMPEG_BIN]
     cmd += _seek_args(start_sec, end_sec)
     cmd += ["-i", video_path, "-vf", vf, "-an", "-f", "null", "-"]
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True,
-            encoding="utf-8", errors="replace",
-            timeout=detect_timeout(_get_duration(video_path)),
-        )
-    except subprocess.TimeoutExpired:
-        print("  Scene detection timed out — falling back to interval sampling",
-              file=sys.stderr)
-        return []
-
-    # Parse timestamps from showinfo output (in stderr). With input seeking (-ss
+    # Timestamps come from showinfo output (in stderr). With input seeking (-ss
     # before -i) ffmpeg resets pts to 0 at the seek point, so add start_sec back to
     # recover absolute video time.
     offset = start_sec if (start_sec and start_sec > 0) else 0.0
-    ts_pattern = re.compile(r"pts_time:(\d+\.?\d*)")
-    stamps = [float(m) + offset for m in ts_pattern.findall(result.stderr)]
+    stamps = _detect_stamps(cmd, detect_timeout(_get_duration(video_path)), offset)
+    if stamps is None:
+        print("  Scene detection timed out — falling back to interval sampling",
+              file=sys.stderr)
+        return []
     if not stamps:
         return []
 
@@ -646,23 +691,15 @@ def _extract_motion(
     cmd = [config.FFMPEG_BIN]
     cmd += _seek_args(start_sec, end_sec)
     cmd += ["-i", video_path, "-vf", vf, "-an", "-f", "null", "-"]
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True,
-            encoding="utf-8", errors="replace",
-            timeout=detect_timeout(_get_duration(video_path)),
-        )
-    except subprocess.TimeoutExpired:
-        print("  Motion detection timed out — falling back to interval sampling",
-              file=sys.stderr)
-        return []
-
-    # Parse timestamps from showinfo output (in stderr). With input seeking (-ss
+    # Timestamps come from showinfo output (in stderr). With input seeking (-ss
     # before -i) ffmpeg resets pts to 0 at the seek point, so add start_sec back to
     # recover absolute video time.
     offset = start_sec if (start_sec and start_sec > 0) else 0.0
-    ts_pattern = re.compile(r"pts_time:(\d+\.?\d*)")
-    stamps = [float(m) + offset for m in ts_pattern.findall(result.stderr)]
+    stamps = _detect_stamps(cmd, detect_timeout(_get_duration(video_path)), offset)
+    if stamps is None:
+        print("  Motion detection timed out — falling back to interval sampling",
+              file=sys.stderr)
+        return []
     if not stamps:
         return []
 
