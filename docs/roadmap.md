@@ -58,9 +58,9 @@ Phase 8  ████████████████████  ✅ 外�
 Phase 9  ████████████████████  ✅ 對外曝光面（2026-10-05）— 官網（Astro / GitHub Pages / GA4）＋ 紙質外殼下沉到三個介面；repo 補上 description 與 homepage
 ```
 
-**目前版本**：**v1.5.0** ｜ **DB schema**：**v21**
+**目前版本**：**v1.5.0** ｜ **DB schema**：**v22**
 
-> schema 階梯：v14 `shots`／v15 `shot_labels`／v16 `translations`／v17 `shot_labels.prompt_hash`／v18 `shot_motion`／v19 `shot_motion.zoom`+`rotation`／v20 `post_meta`／v21 `transcripts.text_full_original`+`segments_json_original`+`zh_conversion`。
+> schema 階梯：v14 `shots`／v15 `shot_labels`／v16 `translations`／v17 `shot_labels.prompt_hash`／v18 `shot_motion`／v19 `shot_motion.zoom`+`rotation`／v20 `post_meta`／v21 `transcripts.text_full_original`+`segments_json_original`+`zh_conversion`／v22 `transcripts.script_mix`。
 >
 > 🔴 **這兩行以前寫過三次互相矛盾的數字，而且是連續的。** 上上版一行 schema v15、下一行 v16；上一版修好了那個，同一段立刻變成一行 v18、下一行 v17 —— **警告這個失效模式的註記，就掛在一個活生生的實例正上方**。
 >

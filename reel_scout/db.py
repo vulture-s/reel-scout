@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from . import config
 from .utils.stderr import warn
 
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 22
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS transcripts (
     created_at      TEXT DEFAULT (datetime('now')),
     text_full_original     TEXT,
     segments_json_original TEXT,
-    zh_conversion          TEXT
+    zh_conversion          TEXT,
+    script_mix             TEXT
 );
 
 CREATE TABLE IF NOT EXISTS keyframe_runs (
@@ -842,6 +843,43 @@ def _migrate_v20_to_v21(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _migrate_v21_to_v22(conn: sqlite3.Connection) -> None:
+    """The mixed-script finding outlives the run that made it (v21 -> v22).
+
+    `save_transcript` has always detected a transcript that mixes traditional
+    and simplified -- and printed it to stderr, where it lived exactly as long
+    as the terminal or log file did (issue #114). The reader the warning is
+    *about* is someone searching the transcript months later, and they had
+    nothing to go on.
+
+    One nullable column, ``transcripts.script_mix``: JSON
+    ``{"trad": N, "simp": M, "minority": 0.43}`` when the stored text is mixed,
+    NULL when it is not. Existing rows are scanned once here so that NULL means
+    the same thing on every row ("checked, not mixed") rather than also meaning
+    "stored before anyone recorded this". The scan reads ``text_full`` and
+    writes only the new column -- nothing is converted.
+    """
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(transcripts)")]
+    if "script_mix" not in cols:
+        conn.execute("ALTER TABLE transcripts ADD COLUMN script_mix TEXT")
+    _backfill_script_mix(conn)
+    conn.execute("UPDATE schema_version SET version = 22")
+    conn.commit()
+
+
+def _backfill_script_mix(conn: sqlite3.Connection,
+                         video_id: Optional[str] = None) -> None:
+    """Recompute ``script_mix`` from the stored ``text_full`` (one row or all)."""
+    sql = "SELECT video_id, text_full FROM transcripts"
+    params: Tuple[Any, ...] = ()
+    if video_id is not None:
+        sql += " WHERE video_id = ?"
+        params = (video_id,)
+    updates = [(transcript_script_mix(text), vid)
+               for vid, text in conn.execute(sql, params).fetchall()]
+    conn.executemany("UPDATE transcripts SET script_mix = ? WHERE video_id = ?", updates)
+
+
 def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
     if conn is None:
         # `REEL_SCOUT_DATA` defaults to "./data", i.e. relative to wherever the
@@ -933,6 +971,9 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
             current_ver = 20
         if current_ver < 21:
             _migrate_v20_to_v21(conn)
+            current_ver = 21
+        if current_ver < 22:
+            _migrate_v21_to_v22(conn)
     # Fresh installs never run the ladder, so every table added by a migration
     # also needs a CREATE IF NOT EXISTS here -- the same reason audio_events
     # below is repeated.
@@ -1246,6 +1287,58 @@ def scan_script_mix(text: str) -> Tuple[int, int]:
     return trad, simp
 
 
+def transcript_script_mix(text: Optional[str]) -> Optional[str]:
+    """The ``transcripts.script_mix`` value for `text`: JSON, or None if not mixed.
+
+    ``{"trad": N, "simp": M, "minority": 0.43}`` -- the two `scan_script_mix`
+    counts and the smaller one's share. None for single-script, non-Chinese or
+    empty text, so the column stays quiet where there is nothing to say.
+    """
+    if not text:
+        return None
+    trad, simp = scan_script_mix(text)
+    if not (trad and simp):
+        return None
+    return json.dumps({"trad": trad, "simp": simp,
+                       "minority": round(float(min(trad, simp)) / (trad + simp), 2)})
+
+
+def parse_script_mix(row: Any) -> Optional[Dict[str, Any]]:
+    """The decoded ``script_mix`` of a transcripts row, or None.
+
+    Tolerates rows without the column (a row built by hand, or read before
+    init_db ran) and a value that is not valid JSON -- a consumer asking
+    "is this mixed?" should get an answer, not an exception.
+    """
+    if row is None:
+        return None
+    try:
+        raw = row["script_mix"]
+    except (IndexError, KeyError):
+        return None
+    if not raw:
+        return None
+    try:
+        val = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return val if isinstance(val, dict) else None
+
+
+def script_mix_warning(mix: Optional[Dict[str, Any]]) -> Optional[str]:
+    """One-line consumer-facing warning for a parsed ``script_mix``, or None."""
+    if not mix:
+        return None
+    try:
+        trad, simp = int(mix.get("trad", 0)), int(mix.get("simp", 0))
+        minority = float(mix.get("minority", 0.0))
+    except (TypeError, ValueError):
+        return None
+    return ("transcript mixes traditional and simplified (%d / %d, minority %.0f%%) "
+            "-- a keyword search will silently miss whichever half it is not written in"
+            % (trad, simp, 100.0 * minority))
+
+
 #: How far past the end of the media a transcript may run before it is worth
 #: saying something. Whisper pads to its 30s decode window, so a little
 #: overshoot is normal and nagging about it would train people to ignore the
@@ -1426,6 +1519,10 @@ def restore_transcript_originals(conn: sqlite3.Connection,
         sql += " AND video_id = ?"
         params = (video_id,)
     n = conn.execute(sql, params).rowcount
+    if n:
+        # The received text may itself be mixed; script_mix describes what is
+        # stored, so it follows the text back.
+        _backfill_script_mix(conn, video_id)
     conn.commit()
     return n
 
@@ -1471,24 +1568,27 @@ def save_transcript(
     zh = _zh_to_traditional(language, text_full, segments_json)
     text_full, segments_json = zh.text_full, zh.segments_json
 
+    # Stored with the row, not only printed (issue #114): the person this
+    # warning protects is whoever searches the transcript later, and stderr
+    # does not reach them. Consumers read it back via `parse_script_mix`.
+    script_mix = transcript_script_mix(text_full)
     notice = None
-    if text_full:
-        trad, simp = scan_script_mix(text_full)
-        if trad and simp:
-            minor = min(trad, simp)
-            total = trad + simp
-            notice = (
-                "  ⚠️  transcript mixes traditional and simplified "
-                "(%d / %d, minority %.0f%%) — a keyword search will silently "
-                "miss whichever half it is not written in" % (trad, simp, 100.0 * minor / total)
-            )
+    if script_mix:
+        mix = json.loads(script_mix)
+        trad, simp = mix["trad"], mix["simp"]
+        notice = (
+            "  ⚠️  transcript mixes traditional and simplified "
+            "(%d / %d, minority %.0f%%) — a keyword search will silently "
+            "miss whichever half it is not written in"
+            % (trad, simp, 100.0 * min(trad, simp) / (trad + simp))
+        )
     conn.execute(
         """INSERT OR REPLACE INTO transcripts
            (video_id, language, text_full, segments_json, whisper_model, duration_sec,
-            text_full_original, segments_json_original, zh_conversion)
-           VALUES (?,?,?,?,?,?,?,?,?)""",
+            text_full_original, segments_json_original, zh_conversion, script_mix)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
         (video_id, language, text_full, segments_json, whisper_model, duration_sec,
-         zh.original_text, zh.original_segments, zh.applied),
+         zh.original_text, zh.original_segments, zh.applied, script_mix),
     )
     # Advance to 'transcribed', never back to it. An analysed clip whose
     # transcript is re-saved keeps its analysis, and every export listing

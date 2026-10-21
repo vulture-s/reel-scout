@@ -18,6 +18,13 @@
 
 ### Fixed
 
+- **A transcript that mixes traditional and simplified now says so after the
+  run ends (#114, schema v22).** The detector's finding was only printed to
+  stderr; it is now stored in `transcripts.script_mix` (JSON
+  `{"trad", "simp", "minority"}`, NULL when not mixed) and surfaced by `show`,
+  MCP `show_video` (`transcript.script_mix` + `transcript.warning`) and
+  `export --format json`. The migration scans existing rows once (writes only
+  the new column; no text is converted).
 - **Scene and motion detection stream ffmpeg's stderr instead of buffering it.**
   The detection pass held the whole `showinfo` log in memory before parsing
   (12.2 MB for a 22-minute clip, ~98 MB worst case under the 300s cap); it now

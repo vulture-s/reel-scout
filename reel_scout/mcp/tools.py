@@ -84,7 +84,10 @@ def list_tools() -> List[Dict[str, Any]]:
                 "transcript text, and keyframe descriptions. Timed transcript "
                 "segments are NOT included by default — `has_segments` and "
                 "`segment_count` tell you they exist; pass `include_segments: true` "
-                "only when you need to cut on a timecode."
+                "only when you need to cut on a timecode. `transcript.script_mix` is "
+                "non-null (with a `transcript.warning`) when the stored text mixes "
+                "traditional and simplified Chinese: a keyword search then misses "
+                "whichever half the query is not written in."
             ),
             "inputSchema": {
                 "type": "object",
@@ -783,7 +786,14 @@ def _tool_show_video(args: Dict[str, Any]) -> Dict[str, Any]:
                 # shape as arkiv's get_transcript `has_words` flag.
                 "has_segments": bool(segments),
                 "segment_count": len(segments),
+                # Issue #114: mixed traditional/simplified is recorded at save
+                # time. None when not mixed; otherwise the counts plus a warning
+                # an agent can relay before it keyword-searches text_full.
+                "script_mix": db.parse_script_mix(transcript),
             }
+            warning = db.script_mix_warning(payload["transcript"]["script_mix"])
+            if warning:
+                payload["transcript"]["warning"] = warning
             if include_segments:
                 payload["transcript"]["segments"] = _round_confidences(segments)
         if analysis is not None:

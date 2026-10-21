@@ -1075,6 +1075,9 @@ def _cmd_show(args) -> None:
     words = (transcript["text_full"] or "").strip() if transcript else ""
     if words:
         print(f"\n--- Transcript ({transcript['language']}) ---")
+        mix_warning = db.script_mix_warning(db.parse_script_mix(transcript))
+        if mix_warning:
+            print(f"⚠️  {mix_warning}")
         print(words[:500])
     else:
         print("\n--- Transcript ---")

@@ -94,6 +94,10 @@ def export_json(
                 bool((transcript["text_full"] or "").strip()) if transcript else False
             ),
             "language": transcript["language"] if transcript else None,
+            # Issue #114: {"trad", "simp", "minority"} when the stored transcript
+            # mixes traditional and simplified, else None -- a keyword search
+            # over `transcript` misses whichever half it is not written in.
+            "script_mix": db.parse_script_mix(transcript),
             # R-seg: keep the timecoded (and, when diarized, speaker-tagged)
             # segments, not just the flat text_full — so a JSON consumer can locate
             # and cut on a line, not only read the words.
