@@ -122,6 +122,47 @@ def _measured_from_metrics(sm) -> dict:
     return {k: sm[k] for k in _MEASURED_FIELDS if sm[k] is not None}
 
 
+def pacing_label(cuts_per_minute: Optional[float]) -> Optional[str]:
+    """`fast|medium|slow` for a measured cut rate; None when there is none."""
+    if cuts_per_minute is None:
+        return None
+    if cuts_per_minute < config.PACING_SLOW_BELOW_CPM:
+        return "slow"
+    if cuts_per_minute >= config.PACING_FAST_FROM_CPM:
+        return "fast"
+    return "medium"
+
+
+def apply_measured_pacing(data: Dict[str, Any]) -> bool:
+    """Overwrite `style.pacing` with the label the measured cut rate gives.
+
+    The merge LLM writes `style.pacing` without the measurement in front of it,
+    and what it writes is then mirrored into the `style_pacing` column that
+    `patterns`, `track` and `stats` aggregate on -- `track` tells the user
+    "top performers pace X; yours reads Y" from it. Across 220 clips the LLM
+    label did not follow the cut rate at all (see config.PACING_*), so a
+    measured clip takes the measured label. The LLM's word is kept beside it
+    as `pacing_llm` when the two disagree, rather than thrown away.
+
+    Returns True when `data` changed. No measurement, no change.
+    """
+    label = pacing_label((data.get("measured") or {}).get("cuts_per_minute"))
+    if label is None:
+        return False
+    style = data.get("style")
+    if not isinstance(style, dict):
+        style = {}
+        data["style"] = style
+    if style.get("pacing") == label and style.get("pacing_source") == "measured":
+        return False
+    prior = style.get("pacing")
+    if prior and prior != label and style.get("pacing_source") != "measured":
+        style["pacing_llm"] = prior
+    style["pacing"] = label
+    style["pacing_source"] = "measured"
+    return True
+
+
 def backfill_measured(conn: sqlite3.Connection, video_id: str) -> None:
     """Fold measured metrics into an EXISTING analysis when the merge step is
     skipped (re-analyzing a video whose analysis predates §4E). Without this a
@@ -137,15 +178,24 @@ def backfill_measured(conn: sqlite3.Connection, video_id: str) -> None:
         data = json.loads(analysis["full_json"] or "{}")
     except (ValueError, TypeError):
         return
-    if data.get("measured") == measured:
-        return  # already current — don't rewrite
+    if not isinstance(data.get("style"), dict):
+        # Older blobs may carry style only in its own column; start from that so
+        # relabelling pacing does not drop the rest of it.
+        try:
+            data["style"] = json.loads(analysis["style_json"] or "{}")
+        except (ValueError, TypeError):
+            data["style"] = {}
+    changed = data.get("measured") != measured
     data["measured"] = measured
+    changed = apply_measured_pacing(data) or changed
+    if not changed:
+        return  # already current — don't rewrite
     db.save_analysis(
         conn, video_id,
         summary=analysis["summary"] or "",
         topics_json=analysis["topics_json"] or "[]",
         hooks_json=analysis["hooks_json"] or "{}",
-        style_json=analysis["style_json"] or "{}",
+        style_json=json.dumps(data.get("style") or {}, ensure_ascii=False),
         engagement_signals_json=analysis["engagement_signals_json"] or "{}",
         full_json=json.dumps(data, ensure_ascii=False),
     )
@@ -287,6 +337,7 @@ def merge_analysis(
     measured = _measured_from_metrics(db.get_shot_metrics(conn, video_id))
     if measured:
         data["measured"] = measured
+        apply_measured_pacing(data)
 
     db.save_analysis(
         conn, video_id,
