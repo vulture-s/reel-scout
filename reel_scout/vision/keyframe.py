@@ -205,6 +205,41 @@ def frame_cap(duration_sec: float) -> int:
     return max(config.KEYFRAME_MAX, min(earned, config.KEYFRAME_MAX_LONG))
 
 
+def shot_frame_cap(duration_sec: float, budget: int) -> int:
+    """How far a short clip's frame cap may grow to give each shot a frame.
+
+    `frame_cap` is flat for short-form, which samples a slow reel about once a
+    second and a fast montage once every other shot: a 37-second ad with 23
+    shots got 12 frames and the VLM never saw four of its six locations. This
+    is the ceiling the scene pass may grow the cap to once it has counted the
+    cuts. It is not a budget in itself -- a clip only spends past `frame_cap`
+    if it actually has more shots than that.
+
+    Returns 0 (no growth) for long-form, which has its own per-minute curve,
+    for an unknown duration, and when KEYFRAME_SHOT_CAP is off. Never exceeds
+    `budget`, the duration curve's own ceiling.
+    """
+    if config.KEYFRAME_SHOT_CAP <= 0:
+        return 0
+    if duration_sec <= 0 or duration_sec > config.KEYFRAME_LONG_SEC:
+        return 0
+    return min(config.KEYFRAME_SHOT_CAP, budget)
+
+
+def grown_budget(max_frames: int, scene_frames: int, shot_cap: int) -> int:
+    """The cap after the scene pass: one frame per shot, within `shot_cap`.
+
+    `scene_frames` frames sit on cuts; `_ensure_first_last` then adds the
+    clip's first and last frames, hence +2. With only +1 the last-frame
+    guarantee pushed the list one over and the even thinning dropped a frame
+    from the densest run of cuts -- exactly the shots this exists to keep.
+    Never shrinks the cap.
+    """
+    if shot_cap <= max_frames:
+        return max_frames
+    return max(max_frames, min(scene_frames + 2, shot_cap))
+
+
 def _ensure_first_last(
     video_path: str,
     output_dir: str,
@@ -311,6 +346,7 @@ def extract_keyframes(
     duration = _get_duration(video_path)
     focused = bool((start_sec and start_sec > 0) or (end_sec and end_sec > 0))
 
+    shot_cap = 0
     if max_frames == 0:
         # 招② auto budget. Use the focus-window span when focused so a tight window
         # gets the denser claude-video table.
@@ -319,6 +355,7 @@ def extract_keyframes(
             budget = auto_frame_budget(window, focused=True)
         else:
             budget = auto_frame_budget(duration, focused=False)
+            shot_cap = shot_frame_cap(duration, budget)
         # COST RED LINE: never spend more local VLM calls than the cap allows.
         max_frames = min(budget, frame_cap(duration if not focused else
                                            (end_sec or duration) - (start_sec or 0.0)))
@@ -329,8 +366,9 @@ def extract_keyframes(
     if strategy == "scene":
         frames = _extract_scene(
             video_path, output_dir, video_id, max_frames,
-            resolution, start_sec, end_sec,
+            resolution, start_sec, end_sec, shot_cap=shot_cap,
         )
+        max_frames = grown_budget(max_frames, len(frames), shot_cap)
         # Only when there is nothing at all. A clip can legitimately have no cuts
         # to find — a lecture, a livestream, one person talking for four hours —
         # and leaving that at zero keyframes cost the whole visual layer and the
@@ -371,9 +409,14 @@ def extract_keyframes(
     elif strategy == "hybrid":
         frames = _extract_scene(
             video_path, output_dir, video_id, max_frames,
-            resolution, start_sec, end_sec,
+            resolution, start_sec, end_sec, shot_cap=shot_cap,
         )
-        if len(frames) < max_frames:
+        base = max_frames
+        max_frames = grown_budget(max_frames, len(frames), shot_cap)
+        # A grown cap means the scene pass already found more cuts than the base
+        # budget; topping up the +2 slots with interval frames would pay VLM
+        # calls for the edges `_ensure_first_last` is about to cover anyway.
+        if len(frames) < base:
             frames = _top_up_with_interval(
                 frames, video_path, output_dir, video_id, max_frames,
                 resolution, start_sec, end_sec,
@@ -598,12 +641,17 @@ def _detect_stamps(cmd: List[str], timeout: float,
 def _extract_scene(
     video_path: str, output_dir: str, video_id: str, max_frames: int,
     resolution: int = 0, start_sec: float = 0.0, end_sec: float = 0.0,
+    shot_cap: int = 0,
 ) -> List[KeyframeInfo]:
     """Extract keyframes using ffmpeg scene change detection.
 
     Returns [] rather than raising when ffmpeg overruns: a clip with no usable
     cuts is a normal thing to meet, not an error, and the caller has a cheaper
     strategy to fall back on.
+
+    `shot_cap` > `max_frames` lets the pick grow to one frame per cut (see
+    `shot_frame_cap`); the caller re-derives its cap with `grown_budget` from
+    how many frames come back.
     """
     # Pass 1 -- find every cut. No `-frames:v`, and no image encoding at all.
     #
@@ -638,7 +686,10 @@ def _extract_scene(
     # clip's duration.
     scale = _scale_vf(resolution)
     frames = []
-    for i, idx in enumerate(select_spread(stamps, max_frames)):
+    pick = max_frames
+    if shot_cap > max_frames:
+        pick = min(max(max_frames, len(stamps)), shot_cap)
+    for i, idx in enumerate(select_spread(stamps, pick)):
         ts = stamps[idx]
         fpath = os.path.join(output_dir, f"{video_id}_scene_{i+1:03d}.jpg")
         cmd = [config.FFMPEG_BIN, "-ss", str(ts), "-i", video_path]
