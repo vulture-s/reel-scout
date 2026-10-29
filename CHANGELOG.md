@@ -4,6 +4,15 @@
 
 ### Changed
 
+- **Fast-cut short clips get one keyframe per shot (`KEYFRAME_SHOT_CAP`,
+  default 30).** The flat short-form cap gave a 36-second, 23-shot montage
+  12 frames, so the VLM saw every other shot and four of its six locations
+  never reached it. When the scene pass finds more cuts than `KEYFRAME_MAX`,
+  the cap grows to cuts + first/last frame, up to `KEYFRAME_SHOT_CAP`. Clips
+  with fewer cuts, long-form, focus windows and an explicit `--keyframe-max`
+  spend exactly what they did before; `KEYFRAME_SHOT_CAP=0` restores the flat
+  cap. Fast-cut clips cost more VLM calls (that clip: 12 → 24), and their
+  scores are not comparable with runs made under the flat cap.
 - **Whisper backend defaults to `auto`: mlx-whisper on Apple Silicon when the
   `mlx` extra is installed, faster-whisper everywhere else.** On 5 clips with
   human Chinese subtitles mlx `large-v3` matched faster-whisper `large-v3`

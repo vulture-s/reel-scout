@@ -303,6 +303,14 @@ KEYFRAME_MAX = int(os.getenv("KEYFRAME_MAX", "8"))
 KEYFRAME_LONG_SEC = float(os.getenv("KEYFRAME_LONG_SEC", "180"))
 KEYFRAME_PER_MIN = float(os.getenv("KEYFRAME_PER_MIN", "2"))
 KEYFRAME_MAX_LONG = int(os.getenv("KEYFRAME_MAX_LONG", "40"))
+# The flat short-form cap had the mirror-image defect of the one above: a 37-second
+# montage with 23 shots got 12 frames, so the VLM saw every other shot and four of
+# the six locations in it never reached the model. Short clips whose scene pass finds
+# more cuts than KEYFRAME_MAX now earn one frame per shot, up to this ceiling. Only
+# fast-cut clips spend more; a clip with fewer cuts than KEYFRAME_MAX is unchanged.
+# 0 turns it off (flat KEYFRAME_MAX, the previous behaviour). See
+# keyframe.shot_frame_cap().
+KEYFRAME_SHOT_CAP = int(os.getenv("KEYFRAME_SHOT_CAP", "30"))
 
 # Near-duplicate keyframe removal. `frame_cap` above decides how many frames a
 # clip may spend; this decides how many it actually needs. They are different
@@ -470,6 +478,7 @@ def show() -> str:
         f"KEYFRAME_LONG_SEC:    {KEYFRAME_LONG_SEC}",
         f"KEYFRAME_PER_MIN:     {KEYFRAME_PER_MIN}",
         f"KEYFRAME_MAX_LONG:    {KEYFRAME_MAX_LONG}",
+        f"KEYFRAME_SHOT_CAP:    {KEYFRAME_SHOT_CAP or 'off'}",
         f"KEYFRAME_DEDUPE:      {'on' if KEYFRAME_DEDUPE else 'off'}"
         f" (dist<={KEYFRAME_DEDUPE_DISTANCE},"
         f" gap<={KEYFRAME_DEDUPE_MAX_GAP_SEC:g}s, floor={KEYFRAME_DEDUPE_MIN})",

@@ -111,6 +111,7 @@ download modest, or rely on subtitle-first when the source has native subtitles.
 |---|---|---|
 | `REEL_SCOUT_DATA` | `./data` | Data dir (DB, videos, keyframes). |
 | `KEYFRAME_STRATEGY` / `KEYFRAME_MAX` / `KEYFRAME_RESOLUTION` | `scene` / `8` / `0` | Keyframe extraction. |
+| `KEYFRAME_SHOT_CAP` | `30` | Short clips (≤ `KEYFRAME_LONG_SEC`) with more cuts than `KEYFRAME_MAX` get one frame per shot up to this many; `0` keeps the flat cap. `scene`/`hybrid` only. |
 | `SHOT_METRICS_ENABLED` / `SHOT_SCENE_THRESHOLD` | `true` / `0.3` | §4E measured pacing (cuts/min + energy/BPM). |
 | `OCR_ENABLED` / `OCR_ENGINE` | `true` / `vlm` | §4F on-screen text; `tesseract` opt-in (needs the `ocr` extra). |
 | `IG_COOKIES_FILE` | — | Instagram cookies for gated content. |
