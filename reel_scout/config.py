@@ -421,6 +421,13 @@ SHOT_SCENE_THRESHOLD = float(os.getenv("SHOT_SCENE_THRESHOLD", "0.3"))
 # an unmeasured one keeps the LLM's word.
 PACING_SLOW_BELOW_CPM = float(os.getenv("PACING_SLOW_BELOW_CPM", "8"))
 PACING_FAST_FROM_CPM = float(os.getenv("PACING_FAST_FROM_CPM", "25"))
+# Flash runs: MICRO_RUN_MIN or more consecutive shots each shorter than
+# MICRO_SHOT_SEC are one strobe / flash-montage / stop-motion stretch. Counted
+# once in `segment_count`, which also sets how far a short clip's keyframe cap
+# may grow (KEYFRAME_SHOT_CAP), so a stop-motion reel stops buying 30 VLM calls
+# on near-identical frames. See shots.flash_runs().
+MICRO_SHOT_SEC = float(os.getenv("MICRO_SHOT_SEC", "0.2"))
+MICRO_RUN_MIN = int(os.getenv("MICRO_RUN_MIN", "3"))
 
 # --- External tools ---
 FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg")
