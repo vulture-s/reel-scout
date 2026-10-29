@@ -157,6 +157,99 @@ def metrics_from_cuts(cuts: int, duration_sec: float) -> ShotMetrics:
 
 
 @dataclass
+class FlashRun:
+    """A run of consecutive micro shots: a strobe, flash montage or stop-motion
+    stretch that the cut detector reports as many shots and a viewer reads as one."""
+    start_sec: float
+    end_sec: float
+    shots: int
+
+
+def flash_runs(spans: Sequence[Tuple[float, float]],
+               micro_sec: Optional[float] = None,
+               min_run: Optional[int] = None) -> List[FlashRun]:
+    """Runs of at least `min_run` consecutive shots shorter than `micro_sec`.
+
+    `spans` are `(start_sec, end_sec)` in clip order -- `Shot`s or rows of the
+    `shots` table both reduce to that. Pure.
+
+    The cut detector is right about these: a 9-second reel whose image changes
+    every two frames really has 110 hard cuts, and a stop-motion count
+    ("19 bottles, 20, 21 ...") really does change picture every three. What
+    cuts/min cannot say is that a viewer takes each stretch in as one beat, so
+    it is measured separately rather than "corrected" away.
+    """
+    micro = config.MICRO_SHOT_SEC if micro_sec is None else micro_sec
+    need = config.MICRO_RUN_MIN if min_run is None else min_run
+    runs: List[FlashRun] = []
+    cur: List[Tuple[float, float]] = []
+
+    def _close() -> None:
+        if len(cur) >= need:
+            runs.append(FlashRun(cur[0][0], cur[-1][1], len(cur)))
+
+    for start, end in spans:
+        if (end - start) < micro:
+            cur.append((start, end))
+        else:
+            _close()
+            cur = []
+    _close()
+    return runs
+
+
+def segment_count(spans: Sequence[Tuple[float, float]]) -> int:
+    """Shots, with every flash run counted once."""
+    spans = list(spans)
+    return len(spans) - sum(r.shots - 1 for r in flash_runs(spans))
+
+
+def segment_cut_times(cut_times: Sequence[float], duration_sec: float) -> List[float]:
+    """The cuts that open a segment: every cut except those inside a flash run.
+
+    A run keeps the cut that opens it, so the run still gets a frame. Choosing
+    which cuts to keep has to happen here rather than by thinning the full list
+    evenly in time -- that drops whatever is densest, which is the run *and*
+    the ordinary shots either side of it.
+    """
+    spans = [(s.start_sec, s.end_sec) for s in shots_from_cuts(list(cut_times), duration_sec)]
+    inside = set()
+    for r in flash_runs(spans):
+        for s, _e in spans:
+            if r.start_sec < s < r.end_sec:
+                inside.add(s)
+    return [t for t in cut_times if t not in inside]
+
+
+def segment_summary(spans: Sequence[Tuple[float, float]],
+                    duration_sec: float) -> dict:
+    """Shot-table figures that collapse each flash run to one segment.
+
+    - micro_shot_ratio: share of shots shorter than MICRO_SHOT_SEC
+    - segment_count: shots, with every flash run counted once
+    - segments_per_minute: segment_count - 1 boundaries per minute, the
+      counterpart of cuts_per_minute
+    - flash_runs: [[start, end, shots], ...], rounded for display
+    Empty dict when there is no table to read.
+    """
+    spans = list(spans)
+    if not spans or not duration_sec or duration_sec <= 0:
+        return {}
+    micro = config.MICRO_SHOT_SEC
+    runs = flash_runs(spans)
+    segments = segment_count(spans)
+    minutes = duration_sec / 60.0
+    return {
+        "micro_shot_ratio": round(
+            sum(1 for s, e in spans if (e - s) < micro) / len(spans), 3),
+        "segment_count": segments,
+        "segments_per_minute": round((segments - 1) / minutes, 2),
+        "flash_runs": [[round(r.start_sec, 2), round(r.end_sec, 2), r.shots]
+                       for r in runs],
+    }
+
+
+@dataclass
 class ShotFrames:
     """One shot together with the keyframes that fall inside it."""
     shot: Shot

@@ -688,7 +688,17 @@ def _extract_scene(
     frames = []
     pick = max_frames
     if shot_cap > max_frames:
-        pick = min(max(max_frames, len(stamps)), shot_cap)
+        # Grow by segments, not raw cuts: a flash run is one beat to a viewer,
+        # and spending a frame per cut on it bought up to 30 VLM calls on
+        # near-identical stop-motion frames. `- 1` keeps this a cut count, so
+        # a clip with no flash runs picks exactly what it did before.
+        from ..shots import segment_cut_times
+        dur = _get_duration(video_path)
+        seg_stamps = segment_cut_times(stamps, dur) if dur and dur > 0 else stamps
+        pick = min(max(max_frames, len(seg_stamps)), shot_cap)
+        if len(seg_stamps) > max_frames:
+            stamps = seg_stamps      # growing: one frame per segment start
+        # else: no growth; the flat cap spreads over every cut as before.
     for i, idx in enumerate(select_spread(stamps, pick)):
         ts = stamps[idx]
         fpath = os.path.join(output_dir, f"{video_id}_scene_{i+1:03d}.jpg")

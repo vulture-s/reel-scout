@@ -4,6 +4,21 @@
 
 ### Changed
 
+- **Flash runs: strobe, flash-montage and stop-motion stretches are measured
+  as one beat.** Three or more consecutive shots shorter than `MICRO_SHOT_SEC`
+  (0.2s; `MICRO_RUN_MIN` 3) form a run. The cut detector was right about these
+  clips (one reel changes picture every two frames: 110 cuts in 8.9s), but
+  cuts/min could not tell a strobe from 110 real shots. `measured` now adds
+  `segment_count`, `segments_per_minute`, `micro_shot_ratio` and `flash_runs`,
+  read from the stored shot table (no new schema, no re-detection); the merge
+  prompt gets a "Cut Rhythm" section naming the runs and the score prompt gets
+  the segment figures. `cuts_per_minute` is unchanged. The `KEYFRAME_SHOT_CAP`
+  growth from the previous entry now counts segments: a 23-shot clip with one
+  4-shot strobe gets 21 frames instead of 24, and a stop-motion reel stays at
+  the flat cap instead of spending 30 VLM calls on near-identical frames.
+  Clips without runs pick exactly what they did before. 0.15/0.2/0.25 were
+  compared on the 288-clip library; 0.25 collapsed a genuine flash montage of
+  distinct images to 2 segments.
 - **`style.pacing` is set from the measured cut rate when there is one.** The
   merge LLM labelled pacing without seeing the shot metrics, and across 220
   short clips its label did not follow them (84% "medium"; its "slow" clips

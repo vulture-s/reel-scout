@@ -75,6 +75,20 @@ def _measured_block(analysis_json: str) -> str:
     for key, label in labels:
         if m.get(key) is not None:
             lines.append("- %s: %s" % (label, m[key]))
+    # Flash runs: the cut count is right, but a strobe or stop-motion stretch is
+    # one beat to a viewer. Without this a 110-cut flash reel and a 110-shot
+    # edit look identical to the model.
+    if m.get("segments_per_minute") is not None:
+        lines.append("- segments_per_minute: %s (cuts/min with each flash run "
+                     "counted once; closer to how many beats a viewer perceives)"
+                     % m["segments_per_minute"])
+    if m.get("micro_shot_ratio") is not None:
+        lines.append("- micro_shot_ratio: %s (share of shots shorter than %gs)"
+                     % (m["micro_shot_ratio"], config.MICRO_SHOT_SEC))
+    if m.get("flash_runs"):
+        lines.append("- flash_runs (strobe / flash montage / stop-motion, "
+                     "[start_sec, end_sec, shots]): %s"
+                     % json.dumps(m["flash_runs"]))
     # A bare "36.7" means nothing without a scale; the model rated a 36.7 cuts/min
     # montage 6.5 on pacing while its analysis still said "medium". Give the band
     # and what it is relative to.

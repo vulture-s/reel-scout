@@ -69,6 +69,9 @@ def _ts(frames):
     return [f.timestamp_sec for f in frames]
 
 
+KOMPAN_FLASH = (24.52, 24.92)   # four sub-0.2s shots: one strobe beat
+
+
 @pytest.mark.parametrize("strategy", ["scene", "hybrid"])
 def test_fast_cut_short_clip_gets_a_frame_in_every_shot(tmp_path, monkeypatch, strategy):
     _stub_ffmpeg(monkeypatch, KOMPAN_CUTS, KOMPAN_DURATION)
@@ -78,11 +81,16 @@ def test_fast_cut_short_clip_gets_a_frame_in_every_shot(tmp_path, monkeypatch, s
 
     shots = _shots(KOMPAN_CUTS, KOMPAN_DURATION)
     assert len(shots) == 23
-    # One per cut plus the guaranteed first and last frames.
-    assert len(frames) == len(KOMPAN_CUTS) + 2 == 24
+    # 20 segments (the 4-shot flash run counts once) -> 19 cut frames, plus the
+    # guaranteed first and last frames.
+    assert len(frames) == 21
     ts = _ts(frames)
+    lo, hi = KOMPAN_FLASH
     for start, end in shots:
+        if lo <= start and end <= hi:
+            continue                      # inside the flash run: covered below
         assert any(start <= t < end for t in ts), (start, end, ts)
+    assert any(lo <= t < hi for t in ts), "the flash run itself is still seen"
 
 
 def test_hybrid_does_not_pad_a_grown_budget_with_interval_frames(tmp_path, monkeypatch):

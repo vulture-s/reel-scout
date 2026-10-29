@@ -114,6 +114,7 @@ download modest, or rely on subtitle-first when the source has native subtitles.
 | `KEYFRAME_SHOT_CAP` | `30` | Short clips (≤ `KEYFRAME_LONG_SEC`) with more cuts than `KEYFRAME_MAX` get one frame per shot up to this many; `0` keeps the flat cap. `scene`/`hybrid` only. |
 | `SHOT_METRICS_ENABLED` / `SHOT_SCENE_THRESHOLD` | `true` / `0.3` | §4E measured pacing (cuts/min + energy/BPM). |
 | `PACING_SLOW_BELOW_CPM` / `PACING_FAST_FROM_CPM` | `8` / `25` | Cuts/min bands that set `style.pacing` for measured clips. |
+| `MICRO_SHOT_SEC` / `MICRO_RUN_MIN` | `0.2` / `3` | Flash runs (strobe / stop-motion): counted once in `segment_count` and in keyframe-cap growth. |
 | `OCR_ENABLED` / `OCR_ENGINE` | `true` / `vlm` | §4F on-screen text; `tesseract` opt-in (needs the `ocr` extra). |
 | `IG_COOKIES_FILE` | — | Instagram cookies for gated content. |
 | `LLM_BACKEND` / `VLM_BACKEND` / `WHISPER_BACKEND` | `omlx`/`omlx`/`auto` | Inference backends. |

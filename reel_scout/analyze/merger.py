@@ -28,6 +28,9 @@ _MERGE_PROMPT_TEMPLATE = """You are analyzing a short-form video. Based on the t
 ## On-screen Text (burned-in captions, L3.5)
 {onscreen_text}
 
+## Cut Rhythm (measured)
+{cut_rhythm}
+
 ## Output Format (JSON only, no markdown)
 {{
   "summary": "1-2 sentence summary of the video content",
@@ -122,6 +125,42 @@ def _measured_from_metrics(sm) -> dict:
     return {k: sm[k] for k in _MEASURED_FIELDS if sm[k] is not None}
 
 
+def _measured(conn: sqlite3.Connection, video_id: str) -> dict:
+    """Shot metrics plus the flash-run view of the stored shot table.
+
+    The shot table partitions the clip, so its last span ends at the clip's
+    duration; nothing else has to be looked up. Clips measured before the
+    table existed simply get no segment fields.
+    """
+    from ..shots import segment_summary
+    measured = _measured_from_metrics(db.get_shot_metrics(conn, video_id))
+    if measured:
+        spans = [(r["start_sec"], r["end_sec"]) for r in db.get_shots(conn, video_id)]
+        if spans:
+            measured.update(segment_summary(spans, spans[-1][1]))
+    return measured
+
+
+def _cut_rhythm_text(measured: dict) -> str:
+    """The merge prompt's view of the measured cut rhythm.
+
+    Keyframes sample a flash run at one or two frames, so without this the
+    model narrates a 0.4-second strobe as an ordinary transition, or misses it.
+    """
+    if not measured:
+        return "(not measured)"
+    lines = []
+    if measured.get("shot_count") is not None:
+        lines.append("- %s shots, %s cuts/min" % (
+            measured["shot_count"], measured.get("cuts_per_minute")))
+    runs = measured.get("flash_runs") or []
+    if runs:
+        lines.append("- flash runs (strobe / flash montage / stop-motion: many "
+                     "sub-%gs shots read as one beat):" % config.MICRO_SHOT_SEC)
+        lines.extend("  - %.1f-%.1fs: %d shots" % (s, e, n) for s, e, n in runs)
+    return "\n".join(lines) or "(not measured)"
+
+
 def pacing_label(cuts_per_minute: Optional[float]) -> Optional[str]:
     """`fast|medium|slow` for a measured cut rate; None when there is none."""
     if cuts_per_minute is None:
@@ -171,7 +210,7 @@ def backfill_measured(conn: sqlite3.Connection, video_id: str) -> None:
     analysis = db.get_analysis(conn, video_id)
     if analysis is None:
         return
-    measured = _measured_from_metrics(db.get_shot_metrics(conn, video_id))
+    measured = _measured(conn, video_id)
     if not measured:
         return
     try:
@@ -298,6 +337,7 @@ def merge_analysis(
         vision_descriptions=vision_text,
         audio_events=audio_text,
         onscreen_text=onscreen_text,
+        cut_rhythm=_cut_rhythm_text(_measured(conn, video_id)),
     )
 
     llm = get_llm()
@@ -334,7 +374,7 @@ def merge_analysis(
     # §4E: fold measured pacing signals (cuts/min, shot count, audio energy/BPM)
     # into the analysis blob so the scorer reasons on evidence, not LLM vibes.
     # Only present when Step 3.5 measured them; None values are dropped.
-    measured = _measured_from_metrics(db.get_shot_metrics(conn, video_id))
+    measured = _measured(conn, video_id)
     if measured:
         data["measured"] = measured
         apply_measured_pacing(data)
