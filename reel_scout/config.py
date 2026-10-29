@@ -413,6 +413,14 @@ OCR_LANG = os.getenv("OCR_LANG", "chi_tra+eng")
 SHOT_METRICS_ENABLED = os.getenv("SHOT_METRICS_ENABLED", "true").lower() in ("true", "1", "yes")
 # Scene-change score threshold for counting a hard cut (matches keyframe scene mode).
 SHOT_SCENE_THRESHOLD = float(os.getenv("SHOT_SCENE_THRESHOLD", "0.3"))
+# `style.pacing` bands, in measured cuts/min. The merge LLM writes that label
+# before the measurement is folded in, and across 220 short clips (2026-10-29)
+# its label was noise: 84% "medium", and the clips it called "slow" averaged
+# 56.7 cuts/min against 32.4 for "medium". The defaults are that corpus's
+# terciles (p33 7.9, p67 24.6), rounded. A measured clip is labelled from these;
+# an unmeasured one keeps the LLM's word.
+PACING_SLOW_BELOW_CPM = float(os.getenv("PACING_SLOW_BELOW_CPM", "8"))
+PACING_FAST_FROM_CPM = float(os.getenv("PACING_FAST_FROM_CPM", "25"))
 
 # --- External tools ---
 FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg")
@@ -488,6 +496,7 @@ def show() -> str:
         f"AUDIO_HOP_SEC:        {AUDIO_HOP_SEC}",
         f"SHOT_METRICS_ENABLED: {SHOT_METRICS_ENABLED}",
         f"SHOT_SCENE_THRESHOLD: {SHOT_SCENE_THRESHOLD}",
+        f"PACING bands (cpm):   slow <{PACING_SLOW_BELOW_CPM:g}, fast >={PACING_FAST_FROM_CPM:g}",
         f"OCR_ENABLED:          {OCR_ENABLED}",
         f"OCR_ENGINE:           {OCR_ENGINE}",
         f"FFMPEG_BIN:           {FFMPEG_BIN}",

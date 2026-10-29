@@ -4,6 +4,17 @@
 
 ### Changed
 
+- **`style.pacing` is set from the measured cut rate when there is one.** The
+  merge LLM labelled pacing without seeing the shot metrics, and across 220
+  short clips its label did not follow them (84% "medium"; its "slow" clips
+  averaged 56.7 cuts/min against 32.4 for "medium"). That label feeds the
+  `style_pacing` column `patterns`, `track` and `stats` aggregate on. Measured
+  clips are now `slow` below `PACING_SLOW_BELOW_CPM` (8), `fast` from
+  `PACING_FAST_FROM_CPM` (25) — the corpus terciles — and `medium` between; a
+  disagreeing LLM label is kept as `style.pacing_llm`. Unmeasured clips keep
+  the LLM label. The score prompt now states the band and its scale. Existing
+  analyses are relabelled when `analyze` next runs the measured backfill; on
+  the 289-clip library that changes 172 labels.
 - **Fast-cut short clips get one keyframe per shot (`KEYFRAME_SHOT_CAP`,
   default 30).** The flat short-form cap gave a 36-second, 23-shot montage
   12 frames, so the VLM saw every other shot and four of its six locations

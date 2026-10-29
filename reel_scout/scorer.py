@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from . import config, db, ingest, validity
+from .analyze.merger import pacing_label
 from .llm import get_llm
 
 _SCORE_PROMPT = """You are a short-form video content analyst. Based on the analysis below, score this video on 4 dimensions (0-10 scale, decimals ok).
@@ -74,6 +75,16 @@ def _measured_block(analysis_json: str) -> str:
     for key, label in labels:
         if m.get(key) is not None:
             lines.append("- %s: %s" % (label, m[key]))
+    # A bare "36.7" means nothing without a scale; the model rated a 36.7 cuts/min
+    # montage 6.5 on pacing while its analysis still said "medium". Give the band
+    # and what it is relative to.
+    band = pacing_label(m.get("cuts_per_minute"))
+    if band:
+        lines.append(
+            "- cut_rhythm_band: %s (bands: slow < %g, medium %g-%g, fast >= %g "
+            "cuts/min; the terciles of a 220-clip short-form corpus)"
+            % (band, config.PACING_SLOW_BELOW_CPM, config.PACING_SLOW_BELOW_CPM,
+               config.PACING_FAST_FROM_CPM, config.PACING_FAST_FROM_CPM))
     return "\n".join(lines) + "\n"
 
 
