@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from . import config
 from .utils.stderr import warn
 
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -867,6 +867,27 @@ def _migrate_v21_to_v22(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _migrate_v22_to_v23(conn: sqlite3.Connection) -> None:
+    """Add the audio_loudness table (schema v22 -> v23): programme loudness
+    (BS.1770 integrated LUFS, loudness range, sample and true peak) measured by
+    ffmpeg's ebur128. One row per video, like shot_metrics: measured numbers,
+    directly queryable. No backfill here -- `db backfill-loudness` fills old
+    clips without re-running analyze."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS audio_loudness (
+            video_id         TEXT PRIMARY KEY REFERENCES videos(id),
+            integrated_lufs  REAL,
+            lra_lu           REAL,
+            sample_peak_dbfs REAL,
+            true_peak_dbtp   REAL,
+            method           TEXT DEFAULT 'ffmpeg-ebur128',
+            created_at       TEXT DEFAULT (datetime('now'))
+        );
+    """)
+    conn.execute("UPDATE schema_version SET version = 23 WHERE version = 22")
+    conn.commit()
+
+
 def _backfill_script_mix(conn: sqlite3.Connection,
                          video_id: Optional[str] = None) -> None:
     """Recompute ``script_mix`` from the stored ``text_full`` (one row or all)."""
@@ -974,6 +995,9 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
             current_ver = 21
         if current_ver < 22:
             _migrate_v21_to_v22(conn)
+            current_ver = 22
+        if current_ver < 23:
+            _migrate_v22_to_v23(conn)
     # Fresh installs never run the ladder, so every table added by a migration
     # also needs a CREATE IF NOT EXISTS here -- the same reason audio_events
     # below is repeated.
@@ -994,6 +1018,18 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
             UNIQUE(video_id, t_sec)
         );
         CREATE INDEX IF NOT EXISTS idx_shot_motion_video ON shot_motion(video_id);
+    """)
+    # audio_loudness (v23) -- fresh installs never run the ladder.
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS audio_loudness (
+            video_id         TEXT PRIMARY KEY REFERENCES videos(id),
+            integrated_lufs  REAL,
+            lra_lu           REAL,
+            sample_peak_dbfs REAL,
+            true_peak_dbtp   REAL,
+            method           TEXT DEFAULT 'ffmpeg-ebur128',
+            created_at       TEXT DEFAULT (datetime('now'))
+        );
     """)
     # Always ensure audio_events table exists for fresh installs
     conn.executescript("""
@@ -1834,6 +1870,29 @@ def save_shot_metrics(
     conn.commit()
 
 
+def save_audio_loudness(
+    conn: sqlite3.Connection,
+    video_id: str,
+    integrated_lufs: Optional[float] = None,
+    lra_lu: Optional[float] = None,
+    sample_peak_dbfs: Optional[float] = None,
+    true_peak_dbtp: Optional[float] = None,
+) -> None:
+    """Insert or replace the measured programme loudness for a video."""
+    conn.execute(
+        """INSERT OR REPLACE INTO audio_loudness
+           (video_id, integrated_lufs, lra_lu, sample_peak_dbfs, true_peak_dbtp)
+           VALUES (?,?,?,?,?)""",
+        (video_id, integrated_lufs, lra_lu, sample_peak_dbfs, true_peak_dbtp),
+    )
+    conn.commit()
+
+
+def get_audio_loudness(conn: sqlite3.Connection, video_id: str) -> Optional[sqlite3.Row]:
+    cur = conn.execute("SELECT * FROM audio_loudness WHERE video_id = ?", (video_id,))
+    return cur.fetchone()
+
+
 def get_shot_metrics(conn: sqlite3.Connection, video_id: str) -> Optional[sqlite3.Row]:
     cur = conn.execute("SELECT * FROM shot_metrics WHERE video_id = ?", (video_id,))
     return cur.fetchone()
@@ -2234,7 +2293,7 @@ def mark_batch_completed(conn: sqlite3.Connection, batch_id: str) -> None:
 
 def db_stats(conn: sqlite3.Connection) -> Dict[str, Any]:
     stats = {}
-    for table in ["videos", "transcripts", "keyframes", "vision_descriptions", "analyses", "audio_events", "shot_metrics", "ocr_captions", "performance", "scores", "batches"]:
+    for table in ["videos", "transcripts", "keyframes", "vision_descriptions", "analyses", "audio_events", "shot_metrics", "audio_loudness", "ocr_captions", "performance", "scores", "batches"]:
         cur = conn.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608 - table names are hardcoded
         stats[table] = cur.fetchone()[0]
 
