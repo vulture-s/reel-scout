@@ -642,6 +642,24 @@ def _process_single(
             except Exception as e:  # noqa: BLE001 — measured pacing is best-effort
                 print("  Shot metrics skipped: %s" % e, file=sys.stderr)
 
+    # Step 3.55: Programme loudness (BS.1770 via ffmpeg ebur128). ffmpeg only --
+    # no model, no new dependency -- so it runs on every analyze, like the
+    # rhythm half of 3.5. Best-effort: a failure here never stops the run, and
+    # a clip with no audio stream stores nothing rather than a fake -70 LUFS.
+    if db.get_audio_loudness(conn, video_id) is None:
+        try:
+            from ..audio.loudness import NoAudio, measure as measure_loudness
+            try:
+                lm = measure_loudness(file_path)
+            except NoAudio:
+                print("  Loudness skipped: no audio stream")
+            else:
+                db.save_audio_loudness(conn, video_id, **lm)
+                print("  Loudness: %.1f LUFS, LRA %s LU, true peak %s dBTP" % (
+                    lm["integrated_lufs"], lm["lra_lu"], lm["true_peak_dbtp"]))
+        except Exception as e:  # noqa: BLE001 — measured evidence is best-effort
+            print("  Loudness skipped: %s" % e, file=sys.stderr)
+
     # Step 3.6: On-screen text (§4F, L3.5). Collect burned-in captions (the VLM's
     # text_in_frame, or a dedicated OCR engine) with timestamps so merge can fold
     # them in — the only textual signal for low-dialogue / pure-visual reels.

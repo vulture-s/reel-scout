@@ -436,6 +436,16 @@ def main(argv: List[str] = None) -> None:
     p_db_shots.add_argument(
         "--limit", type=int, default=0, help="Stop after N clips (0 = all)"
     )
+    p_db_loud = p_db_sub.add_parser(
+        "backfill-loudness",
+        help="Measure programme loudness (LUFS / LRA / true peak) for analyzed clips that have none",
+    )
+    p_db_loud.add_argument(
+        "--dry-run", action="store_true", help="Report what would be measured; write nothing"
+    )
+    p_db_loud.add_argument(
+        "--limit", type=int, default=0, help="Stop after N clips (0 = all)"
+    )
     p_db_invalid = p_db_sub.add_parser(
         "check-invalid",
         help="Find stored videos whose media never processed (0 keyframes but a "
@@ -2063,6 +2073,23 @@ def _cmd_db(args):
             # media it was measured from is simply not on this machine any more.
             print("  media-gone clips keep their cut count and stay without spans "
                   "— re-crawl to fill them", file=sys.stderr)
+        if args.dry_run:
+            print("  nothing written — re-run without --dry-run to apply")
+
+    elif args.db_command == "backfill-loudness":
+        from .backfill_loudness import backfill as backfill_loudness
+
+        config.ensure_dirs()
+        conn = db.init_db()
+        try:
+            r = backfill_loudness(conn, dry_run=args.dry_run, limit=args.limit or None,
+                                  progress=True)
+        finally:
+            conn.close()
+        print("clips without a loudness measurement: %d" % r["candidates"])
+        print("  %s %d, skipped %d (media gone), %d without audio, failed %d"
+              % ("would measure" if args.dry_run else "measured",
+                 r["filled"], r["skipped_no_media"], r["no_audio"], r["failed"]))
         if args.dry_run:
             print("  nothing written — re-run without --dry-run to apply")
 
