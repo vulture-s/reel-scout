@@ -7,7 +7,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -34,7 +34,7 @@ jobs:
     # Same suite with the optional `zh` extra (OpenCC). REEL_SCOUT_REQUIRE_OPENCC
     # turns the opencc-only tests' skip into a failure, so this job cannot go
     # green having tested nothing.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
