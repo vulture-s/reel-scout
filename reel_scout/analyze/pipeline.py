@@ -660,6 +660,27 @@ def _process_single(
         except Exception as e:  # noqa: BLE001 — measured evidence is best-effort
             print("  Loudness skipped: %s" % e, file=sys.stderr)
 
+    # Step 3.56: CLAP sound-search index (10 s windows, 5 s hop -> 512-d
+    # embeddings, for `search-sound`). Needs the optional `clap` extra and the
+    # model files, so it is skipped with a one-line reason when either is
+    # absent. Best-effort like 3.55: a failure never stops the run.
+    try:
+        from ..audio import clap as _clap
+        _have = db.get_audio_clap(conn, video_id)
+        if _have is None or _have["revision"] != _clap.MODEL_REVISION:
+            _why = _clap.availability()
+            if _why:
+                print("  CLAP index skipped: %s" % _why)
+            else:
+                try:
+                    _ci = _clap.index_video(conn, video_id, file_path)
+                except _clap.NoAudio:
+                    print("  CLAP index skipped: no audio stream")
+                else:
+                    print("  CLAP index: %d window(s) in %.1fs" % (_ci["windows"], _ci["seconds"]))
+    except Exception as e:  # noqa: BLE001 — sound search is best-effort
+        print("  CLAP index skipped: %s" % e, file=sys.stderr)
+
     # Step 3.6: On-screen text (§4F, L3.5). Collect burned-in captions (the VLM's
     # text_in_frame, or a dedicated OCR engine) with timestamps so merge can fold
     # them in — the only textual signal for low-dialogue / pure-visual reels.

@@ -15,3 +15,22 @@ Copyright (c) 2026 Bradley Bonanno:
 
 These are independent reimplementations within Reel Scout's own pipeline, not a
 fork; attribution is provided per the MIT License.
+
+Text-to-sound search (`search-sound`, reel_scout/audio/clap*.py) runs the LAION
+CLAP model laion/larger_clap_general, revision
+16c8cc3159a3c8a31e8ff5ef1f66b0d9ab3667db, Apache License 2.0
+(https://huggingface.co/laion/larger_clap_general). The weights are not
+redistributed here: users export them to ONNX themselves with
+scripts/export_clap_onnx.py. CLAP: Wu, Chen, Zhang, Hui, Berg-Kirkpatrick,
+Dubnov, "Large-scale Contrastive Language-Audio Pretraining with Feature Fusion
+and Keyword-to-Caption Augmentation", ICASSP 2023.
+
+The design of that feature (windowed CLAP embeddings searched by text, numpy
+front end) takes earshot (https://github.com/Leonxlnx/earshot, MIT License) as a
+reference. No earshot code is included.
+
+Audio event detection (reel_scout/audio/panns.py) runs a user-supplied PANNs
+Cnn14 ONNX model (PANNS_MODEL_PATH; weights from
+https://zenodo.org/record/3987831, CC BY 4.0). Kong, Cao, Iqbal, Wang, Wang,
+Plumbley, "PANNs: Large-Scale Pretrained Audio Neural Networks for Audio Pattern
+Recognition", IEEE/ACM TASLP 28, 2020. The weights are not redistributed here.

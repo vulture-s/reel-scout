@@ -47,7 +47,7 @@ pip install "reel-scout[whisper]"   # faster-whisper 轉錄（建議一起裝）
 ```
 
 需要 `ffmpeg` 與 `yt-dlp`（Mac：`brew install ffmpeg yt-dlp`）。
-其他 extras：`mlx`（見下）、`audio`（音訊事件 + BPM）、`ocr`、`diarize`、`instagram`、`zh`。
+其他 extras：`mlx`（見下）、`audio`（音訊事件 + BPM）、`clap`（文字搜音效 `search-sound`；模型檔另放，見 `docs/commands.md`）、`ocr`、`diarize`、`instagram`、`zh`。
 
 `mlx` 用途＝**Apple Silicon 上的 Metal 轉錄**。預設 `WHISPER_BACKEND=auto`：能跑 mlx 就用 mlx，
 否則 faster-whisper。faster-whisper 在 macOS 只能跑 CPU：M2 Max 上一支 3h39m 的片 RTF 1.22。

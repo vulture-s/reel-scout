@@ -360,6 +360,16 @@ SCORE_DIMENSIONS = tuple(SCORE_WEIGHTS)
 
 # --- Audio ---
 PANNS_MODEL_PATH = os.getenv("PANNS_MODEL_PATH", "")
+
+# CLAP sound search (`search-sound`, `clap` extra). The ONNX export is not in
+# the repo: point REEL_SCOUT_CLAP_DIR at it, or put it in the default below.
+# Files are sha256-checked on load (reel_scout/audio/clap.py). The int8 audio
+# graph is 3.6x smaller and 2x faster but its retrieval top-1 agrees with fp32
+# for only 84% of queries (top-10 overlap 92%), so fp32 is the default.
+CLAP_MODEL_TAG = "larger_clap_general@16c8cc3"
+CLAP_MODEL_DIR = os.getenv("REEL_SCOUT_CLAP_DIR", "") or os.path.join(
+    DATA_DIR, "models", "clap", CLAP_MODEL_TAG)
+CLAP_AUDIO_VARIANT = os.getenv("CLAP_AUDIO_VARIANT", "fp32")
 AUDIO_WINDOW_SEC = float(os.getenv("AUDIO_WINDOW_SEC", "2.0"))
 AUDIO_HOP_SEC = float(os.getenv("AUDIO_HOP_SEC", "1.0"))
 #: Confidence a window's dominant class must clear to be recorded. Music and
@@ -499,6 +509,7 @@ def show() -> str:
         f" gap<={KEYFRAME_DEDUPE_MAX_GAP_SEC:g}s, floor={KEYFRAME_DEDUPE_MIN})",
         f"KEYFRAME_RESOLUTION:  {KEYFRAME_RESOLUTION or '(native)'}",
         f"PANNS_MODEL_PATH:     {PANNS_MODEL_PATH or '(not set)'}",
+        f"CLAP_MODEL_DIR:       {CLAP_MODEL_DIR} ({CLAP_AUDIO_VARIANT})",
         f"AUDIO_WINDOW_SEC:     {AUDIO_WINDOW_SEC}",
         f"AUDIO_HOP_SEC:        {AUDIO_HOP_SEC}",
         f"SHOT_METRICS_ENABLED: {SHOT_METRICS_ENABLED}",

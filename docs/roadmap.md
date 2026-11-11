@@ -58,9 +58,9 @@ Phase 8  ████████████████████  ✅ 外�
 Phase 9  ████████████████████  ✅ 對外曝光面（2026-10-05）— 官網（Astro / GitHub Pages / GA4）＋ 紙質外殼下沉到三個介面；repo 補上 description 與 homepage
 ```
 
-**目前版本**：**v1.5.0** ｜ **DB schema**：**v23**
+**目前版本**：**v1.5.0** ｜ **DB schema**：**v24**
 
-> schema 階梯：v14 `shots`／v15 `shot_labels`／v16 `translations`／v17 `shot_labels.prompt_hash`／v18 `shot_motion`／v19 `shot_motion.zoom`+`rotation`／v20 `post_meta`／v21 `transcripts.text_full_original`+`segments_json_original`+`zh_conversion`／v22 `transcripts.script_mix`／v23 `audio_loudness`。
+> schema 階梯：v14 `shots`／v15 `shot_labels`／v16 `translations`／v17 `shot_labels.prompt_hash`／v18 `shot_motion`／v19 `shot_motion.zoom`+`rotation`／v20 `post_meta`／v21 `transcripts.text_full_original`+`segments_json_original`+`zh_conversion`／v22 `transcripts.script_mix`／v23 `audio_loudness`／v24 `audio_clap`+`audio_clap_windows`。
 >
 > 🔴 **這兩行以前寫過三次互相矛盾的數字，而且是連續的。** 上上版一行 schema v15、下一行 v16；上一版修好了那個，同一段立刻變成一行 v18、下一行 v17 —— **警告這個失效模式的註記，就掛在一個活生生的實例正上方**。
 >
@@ -117,6 +117,7 @@ v1.3.0 發布後到 2026-08-26 之間有 **35 顆 commit** 進 master，其中�
 - **逐字稿語言兩修**（#73/#74）：繁體講者不再回簡體；不再挑到 YouTube 的機器翻譯軌
 - **codec 守門**（#60/#78/#79）：停止抓 AV1／IG 與 TikTok 補上編碼條件——「分析得很好，然後放不出來」
 - **whisper-guard 反幻覺**（#45）、**speaker-align 抽成套件**（#49）
+- **文字搜音效 `search-sound`／MCP `search_sound`**（2026-11-12）：LAION CLAP（`laion/larger_clap_general` @16c8cc3）的 ONNX 版，**不需要 torch**（`clap` extra＝onnxruntime＋numpy＋tokenizers）。10 s 窗、5 s hop，每窗 512 維存 `audio_clap_windows`（schema v24）；中文查詢先經 `LLM_BACKEND` 翻成英文、印出實際查的英文，翻譯失敗就明說不查。模型檔不進 repo（`REEL_SCOUT_CLAP_DIR`，載入時驗 sha256；匯出腳本 `scripts/export_clap_onnx.py`）
 - **BPM near-miss 可見**（本輪）：被門檻否決但接近的 tempo 不再靜默消失，印出候選值與比值
 
 ---
