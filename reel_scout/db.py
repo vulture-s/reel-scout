@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from . import config
 from .utils.stderr import warn
 
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 24
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -888,6 +888,43 @@ def _migrate_v22_to_v23(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _migrate_v23_to_v24(conn: sqlite3.Connection) -> None:
+    """Add the CLAP sound-search index (schema v23 -> v24).
+
+    ``audio_clap`` is one row per video: which model / revision / audio variant
+    made the vectors, the window geometry, and the L2-normalised mean of the
+    window embeddings (a whole-clip vector). ``audio_clap_windows`` is one row
+    per 10 s window (5 s hop): its seconds and its 512-d embedding as float32
+    bytes, L2-normalised, so a search is a dot product. Vectors are only
+    comparable within one revision; search filters on it. No backfill here --
+    `db backfill-clap` fills old clips without re-running analyze."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS audio_clap (
+            video_id    TEXT PRIMARY KEY REFERENCES videos(id),
+            model       TEXT NOT NULL,
+            revision    TEXT NOT NULL,
+            variant     TEXT NOT NULL,
+            dim         INTEGER NOT NULL,
+            window_s    REAL NOT NULL,
+            hop_s       REAL NOT NULL,
+            n_windows   INTEGER NOT NULL,
+            duration_s  REAL,
+            mean_emb    BLOB,
+            created_at  TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS audio_clap_windows (
+            video_id    TEXT NOT NULL REFERENCES videos(id),
+            idx         INTEGER NOT NULL,
+            start_s     REAL NOT NULL,
+            end_s       REAL NOT NULL,
+            emb         BLOB NOT NULL,
+            PRIMARY KEY (video_id, idx)
+        );
+    """)
+    conn.execute("UPDATE schema_version SET version = 24 WHERE version = 23")
+    conn.commit()
+
+
 def _backfill_script_mix(conn: sqlite3.Connection,
                          video_id: Optional[str] = None) -> None:
     """Recompute ``script_mix`` from the stored ``text_full`` (one row or all)."""
@@ -998,6 +1035,9 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
             current_ver = 22
         if current_ver < 23:
             _migrate_v22_to_v23(conn)
+            current_ver = 23
+        if current_ver < 24:
+            _migrate_v23_to_v24(conn)
     # Fresh installs never run the ladder, so every table added by a migration
     # also needs a CREATE IF NOT EXISTS here -- the same reason audio_events
     # below is repeated.
@@ -1029,6 +1069,30 @@ def init_db(conn: Optional[sqlite3.Connection] = None) -> sqlite3.Connection:
             true_peak_dbtp   REAL,
             method           TEXT DEFAULT 'ffmpeg-ebur128',
             created_at       TEXT DEFAULT (datetime('now'))
+        );
+    """)
+    # audio_clap + audio_clap_windows (v24) -- fresh installs never run the ladder.
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS audio_clap (
+            video_id    TEXT PRIMARY KEY REFERENCES videos(id),
+            model       TEXT NOT NULL,
+            revision    TEXT NOT NULL,
+            variant     TEXT NOT NULL,
+            dim         INTEGER NOT NULL,
+            window_s    REAL NOT NULL,
+            hop_s       REAL NOT NULL,
+            n_windows   INTEGER NOT NULL,
+            duration_s  REAL,
+            mean_emb    BLOB,
+            created_at  TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS audio_clap_windows (
+            video_id    TEXT NOT NULL REFERENCES videos(id),
+            idx         INTEGER NOT NULL,
+            start_s     REAL NOT NULL,
+            end_s       REAL NOT NULL,
+            emb         BLOB NOT NULL,
+            PRIMARY KEY (video_id, idx)
         );
     """)
     # Always ensure audio_events table exists for fresh installs
@@ -1893,6 +1957,47 @@ def get_audio_loudness(conn: sqlite3.Connection, video_id: str) -> Optional[sqli
     return cur.fetchone()
 
 
+def save_audio_clap(
+    conn: sqlite3.Connection,
+    video_id: str,
+    windows: List[Tuple[int, float, float, bytes]],
+    mean_emb: Optional[bytes],
+    model: str,
+    revision: str,
+    variant: str,
+    dim: int,
+    window_s: float,
+    hop_s: float,
+    duration_s: Optional[float] = None,
+) -> int:
+    """Replace this clip's CLAP index (meta row + every window) in one transaction.
+
+    Replace, not append: a re-index with another variant or a re-cut file must
+    not leave windows from the old pass behind the same ``video_id``.
+    """
+    with conn:
+        conn.execute("DELETE FROM audio_clap_windows WHERE video_id = ?", (video_id,))
+        conn.executemany(
+            "INSERT INTO audio_clap_windows (video_id, idx, start_s, end_s, emb) "
+            "VALUES (?,?,?,?,?)",
+            [(video_id, int(i), float(s), float(e), sqlite3.Binary(b))
+             for i, s, e, b in windows])
+        conn.execute(
+            """INSERT OR REPLACE INTO audio_clap
+               (video_id, model, revision, variant, dim, window_s, hop_s,
+                n_windows, duration_s, mean_emb)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (video_id, model, revision, variant, int(dim), float(window_s),
+             float(hop_s), len(windows), duration_s,
+             sqlite3.Binary(mean_emb) if mean_emb is not None else None))
+    return len(windows)
+
+
+def get_audio_clap(conn: sqlite3.Connection, video_id: str) -> Optional[sqlite3.Row]:
+    cur = conn.execute("SELECT * FROM audio_clap WHERE video_id = ?", (video_id,))
+    return cur.fetchone()
+
+
 def get_shot_metrics(conn: sqlite3.Connection, video_id: str) -> Optional[sqlite3.Row]:
     cur = conn.execute("SELECT * FROM shot_metrics WHERE video_id = ?", (video_id,))
     return cur.fetchone()
@@ -2293,7 +2398,7 @@ def mark_batch_completed(conn: sqlite3.Connection, batch_id: str) -> None:
 
 def db_stats(conn: sqlite3.Connection) -> Dict[str, Any]:
     stats = {}
-    for table in ["videos", "transcripts", "keyframes", "vision_descriptions", "analyses", "audio_events", "shot_metrics", "audio_loudness", "ocr_captions", "performance", "scores", "batches"]:
+    for table in ["videos", "transcripts", "keyframes", "vision_descriptions", "analyses", "audio_events", "shot_metrics", "audio_loudness", "audio_clap", "audio_clap_windows", "ocr_captions", "performance", "scores", "batches"]:
         cur = conn.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608 - table names are hardcoded
         stats[table] = cur.fetchone()[0]
 

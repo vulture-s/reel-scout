@@ -494,6 +494,30 @@ def list_tools() -> List[Dict[str, Any]]:
             },
         },
         {
+            "name": "search_sound",
+            "description": (
+                "Find clips by describing a sound (\"door slam\", \"keyboard "
+                "typing\", \"crowd cheering\"). Ranks the 10 s audio windows "
+                "indexed by CLAP (laion/larger_clap_general) by cosine to the "
+                "query. CLAP reads English only: a Chinese / Japanese / Korean "
+                "query is translated by the configured LLM first, and query_en "
+                "in the result is what was actually searched. Scores rank within "
+                "one query only. Needs the clap extra, the model files, and "
+                "`db backfill-clap` (or analyze) to have indexed clips."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "What it sounds like"},
+                    "top": {"type": "integer", "default": 10},
+                    "per_video": {"type": "boolean", "default": False,
+                                  "description": ("One hit per clip, widened over "
+                                                  "adjacent windows scoring nearly as well")},
+                },
+                "required": ["query"],
+            },
+        },
+        {
             "name": "list_annotations",
             "description": (
                 "Every note / group / star in the library, plus the group list. "
@@ -663,6 +687,26 @@ def _tool_analyze(args: Dict[str, Any]) -> Dict[str, Any]:
     finally:
         conn.close()
     return _text_result({"batch_id": batch_id, "items": processed})
+
+
+def _tool_search_sound(args: Dict[str, Any]) -> Dict[str, Any]:
+    from ..audio import clap, clap_search
+
+    query = (args.get("query") or "").strip()
+    if not query:
+        return _error_result("query is required")
+    config.ensure_dirs()
+    conn = db.init_db()
+    try:
+        # The LLM client may print retries; keep them off the JSON-RPC stream.
+        with contextlib.redirect_stdout(sys.stderr):
+            result = clap_search.search(conn, query, top=int(args.get("top", 10)),
+                                        per_video=bool(args.get("per_video", False)))
+    except (clap.ClapUnavailable, clap_search.TranslationFailed) as e:
+        return _error_result(str(e))
+    finally:
+        conn.close()
+    return _text_result(result)
 
 
 def _tool_list_videos(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1703,6 +1747,7 @@ _HANDLERS = {
     "mark": _tool_mark,
     "analyze": _tool_analyze,
     "list_videos": _tool_list_videos,
+    "search_sound": _tool_search_sound,
     "show_video": _tool_show_video,
     "keyframes": _tool_keyframes,
     "ingest_vision": _tool_ingest_vision,

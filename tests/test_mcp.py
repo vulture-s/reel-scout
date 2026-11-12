@@ -41,6 +41,7 @@ EXPECTED_TOOLS = {
     "annotate",
     "list_annotations",
     "mark",
+    "search_sound",
 }
 
 

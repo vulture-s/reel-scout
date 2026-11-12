@@ -63,6 +63,10 @@ mlx = [
     "whisper-guard>=0.3.3",
 ]
 audio = ["onnxruntime>=1.15.0", "numpy>=1.21.0"]
+# Text-to-sound search (`search-sound`, MCP `search_sound`): LAION CLAP
+# (laion/larger_clap_general) exported to ONNX, so no torch. The model files
+# (~780 MB fp32) are not in the wheel -- see REEL_SCOUT_CLAP_DIR.
+clap = ["onnxruntime>=1.15.0", "numpy>=1.21.0", "tokenizers>=0.15"]
 vector = ["lancedb>=0.4.0", "chromadb>=0.4.0"]
 # R-mig: diarization now lives in the speaker-align package; its [pyannote]
 # extra pulls pyannote.audio (which brings torch). speaker-align is not yet on
@@ -86,7 +90,9 @@ motion = ["av>=12", "numpy>=1.21.0"]
 # reached the pure-python halves of that module, so CI never needed it — and a
 # test that skips itself on CI is not a gate, it is decoration. onnxruntime
 # stays out: those tests script the session rather than load the 327 MB model.
-dev = ["pytest>=7.0", "whisper-guard>=0.3.3", "numpy>=1.21.0"]
+# tokenizers is here for the CLAP tokenizer-padding regression test, which
+# builds a tiny tokenizer in-process rather than loading the model's.
+dev = ["pytest>=7.0", "whisper-guard>=0.3.3", "numpy>=1.21.0", "tokenizers>=0.15"]
 
 [project.scripts]
 reel-scout = "reel_scout.cli:main"

@@ -39,7 +39,8 @@ reel-scout skill install       # only if you drive it from Claude — see below
 `ffmpeg` must be on PATH (macOS: `brew install ffmpeg`). `yt-dlp` comes with the
 package. Extras: `whisper` (faster-whisper transcription), `mlx` (Metal
 transcription on Apple Silicon — see below), `audio` (audio events
-+ BPM), `ocr`, `diarize`, `instagram`, `zh` — e.g. `pip install "reel-scout[whisper]"`.
++ BPM), `clap` (text-to-sound search, `search-sound`; model files separate, see
+[`docs/commands.md`](docs/commands.md)), `ocr`, `diarize`, `instagram`, `zh` — e.g. `pip install "reel-scout[whisper]"`.
 `mlx` exists because faster-whisper is CPU-only on macOS: on an M2 Max it ran a
 3h39m video at 1.22× real time, where mlx-whisper `large-v3-turbo` runs ~0.04×.
 The default `WHISPER_BACKEND=auto` uses it whenever it can run — install

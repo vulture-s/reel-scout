@@ -196,6 +196,15 @@ def main(argv: List[str] = None) -> None:
                       help="Leave translations whose source text has changed. "
                            "Off by default: a stale one looks exactly like a current one.")
 
+    p_snd = sub.add_parser(
+        "search-sound",
+        help="Find clips by describing a sound (CLAP; Chinese queries are translated to English first)")
+    p_snd.add_argument("query", help='What it sounds like, e.g. "door slam" or "打字聲"')
+    p_snd.add_argument("--top", type=int, default=10, help="How many hits (default 10)")
+    p_snd.add_argument("--per-video", action="store_true",
+                       help="One hit per clip, widened over adjacent windows that score nearly as well")
+    p_snd.add_argument("--json", action="store_true", help="Print the result as JSON")
+
     p_sbdiff = sub.add_parser(
         "storyboard-diff",
         help="Compare an edited storyboard project against the teardown it came from")
@@ -446,6 +455,16 @@ def main(argv: List[str] = None) -> None:
     p_db_loud.add_argument(
         "--limit", type=int, default=0, help="Stop after N clips (0 = all)"
     )
+    p_db_clap = p_db_sub.add_parser(
+        "backfill-clap",
+        help="Build the CLAP sound-search index for analyzed clips that have none (needs the clap extra)",
+    )
+    p_db_clap.add_argument(
+        "--dry-run", action="store_true", help="Report what would be indexed; write nothing"
+    )
+    p_db_clap.add_argument(
+        "--limit", type=int, default=0, help="Stop after N clips (0 = all)"
+    )
     p_db_invalid = p_db_sub.add_parser(
         "check-invalid",
         help="Find stored videos whose media never processed (0 keyframes but a "
@@ -505,6 +524,7 @@ def main(argv: List[str] = None) -> None:
         "motion": _cmd_motion,
         "storyboard-diff": _cmd_storyboard_diff,
         "translate": _cmd_translate,
+        "search-sound": _cmd_search_sound,
         "research": _cmd_research,
         "db": _cmd_db,
         "config": _cmd_config,
@@ -833,6 +853,43 @@ def _cmd_translate(args) -> None:
         # Worth naming: the source text moved under a translation that was
         # already there, and nothing else would have said so.
         print("  refreshed = the original had changed since it was translated")
+
+
+def _fmt_secs(s: float) -> str:
+    s = int(round(s))
+    return "%d:%02d" % (s // 60, s % 60)
+
+
+def _cmd_search_sound(args) -> None:
+    import json as _json
+
+    from . import db
+    from .audio import clap, clap_search
+
+    conn = db.init_db()
+    try:
+        r = clap_search.search(conn, args.query, top=args.top, per_video=args.per_video)
+    except (clap.ClapUnavailable, clap_search.TranslationFailed, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(2)
+    finally:
+        conn.close()
+    if args.json:
+        print(_json.dumps(r, ensure_ascii=False, indent=2))
+        return
+    if r["translated"]:
+        print("query: %s  ->  searched as: %s" % (r["query"], r["query_en"]))
+    else:
+        print("query: %s" % r["query"])
+    if not r["indexed_windows"]:
+        print("  no clips are indexed yet — run `reel-scout db backfill-clap`")
+        return
+    print("  %d window(s) across %d clip(s) searched"
+          % (r["indexed_windows"], r["indexed_videos"]))
+    for i, h in enumerate(r["results"], 1):
+        print("  %2d. %.3f  %s  %s-%s  %s" % (
+            i, h["score"], h["video_id"][:12], _fmt_secs(h["start_s"]),
+            _fmt_secs(h["end_s"]), (h.get("title") or "")[:60]))
 
 
 def _cmd_storyboard_diff(args) -> None:
@@ -2090,6 +2147,31 @@ def _cmd_db(args):
         print("  %s %d, skipped %d (media gone), %d without audio, failed %d"
               % ("would measure" if args.dry_run else "measured",
                  r["filled"], r["skipped_no_media"], r["no_audio"], r["failed"]))
+        if args.dry_run:
+            print("  nothing written — re-run without --dry-run to apply")
+
+    elif args.db_command == "backfill-clap":
+        from .audio.clap import ClapUnavailable
+        from .backfill_clap import backfill as backfill_clap
+
+        config.ensure_dirs()
+        conn = db.init_db()
+        try:
+            r = backfill_clap(conn, dry_run=args.dry_run, limit=args.limit or None,
+                              progress=True)
+        except ClapUnavailable as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(2)
+        finally:
+            conn.close()
+        print("clips without a CLAP index: %d" % r["candidates"])
+        print("  %s %d, skipped %d (media gone), %d without audio, failed %d"
+              % ("would index" if args.dry_run else "indexed",
+                 r["filled"], r["skipped_no_media"], r["no_audio"], r["failed"]))
+        if not args.dry_run and r["filled"]:
+            print("  %d window(s), %.1fs of audio in %.1fs (%.2fs per clip)"
+                  % (r["windows"], r["audio_seconds"], r["seconds"],
+                     r["seconds"] / r["filled"]))
         if args.dry_run:
             print("  nothing written — re-run without --dry-run to apply")
 
