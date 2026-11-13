@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Fixed
+
+- **MCP server refuses to run on mixed old/new code after a mid-session
+  update.** The server lives as long as the client session and most handlers
+  import their modules lazily, so pulling a new version while it ran made the
+  next call combine modules loaded at startup with files read fresh from disk.
+  `analyze` then died with `module 'reel_scout.db' has no attribute
+  'get_audio_loudness'` -- naming a function that exists in the source, which
+  points the search at a bug that is not there. `call_tool` now compares a
+  stat-only fingerprint of the package's `.py` files with the one taken at
+  startup and, if anything changed, returns an error that names the changed
+  files and says to restart the session. Nothing runs on the mixed code.
+
 ### Changed
 
 - **Flash runs: strobe, flash-montage and stop-motion stretches are measured
