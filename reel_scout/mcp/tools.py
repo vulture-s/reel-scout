@@ -4,7 +4,7 @@ import contextlib
 import json
 import os
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from .. import config, db, ingest
 from ..export.json_export import export_csv, export_json
@@ -534,10 +534,65 @@ def list_tools() -> List[Dict[str, Any]]:
     ]
 
 
+_PKG_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _source_fingerprint() -> tuple:
+    """(path, mtime_ns, size) of every .py in the package, sorted.
+
+    Cheap enough to take on every call (a stat per file, no reads).
+    """
+    out = []
+    for root, dirs, files in os.walk(_PKG_DIR):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        for f in files:
+            if f.endswith(".py"):
+                path = os.path.join(root, f)
+                try:
+                    st = os.stat(path)
+                except OSError:
+                    continue
+                out.append((os.path.relpath(path, _PKG_DIR), st.st_mtime_ns, st.st_size))
+    return tuple(sorted(out))
+
+
+#: Taken once, when the MCP process imports this module.
+_STARTUP_FINGERPRINT = _source_fingerprint()
+
+
+def _stale_code_error() -> Optional[Dict[str, Any]]:
+    """Refuse to run when the source changed after this process started.
+
+    The MCP server lives as long as the client session, and most handlers
+    import their modules lazily. Pull a new version mid-session and the next
+    call mixes modules loaded at startup with ones read fresh from disk:
+    2026-11-13 `analyze` died with "module 'reel_scout.db' has no attribute
+    'get_audio_loudness'" -- the new pipeline.py, the old db already in memory.
+    The error named a function that plainly exists in the source, which sends
+    you looking for a bug that is not there. Say what actually happened instead.
+    """
+    now = _source_fingerprint()
+    if now == _STARTUP_FINGERPRINT:
+        return None
+    before = {p: (m, s) for p, m, s in _STARTUP_FINGERPRINT}
+    after = {p: (m, s) for p, m, s in now}
+    changed = sorted(p for p in set(before) | set(after) if before.get(p) != after.get(p))
+    shown = ", ".join(changed[:5]) + (" (+%d more)" % (len(changed) - 5) if len(changed) > 5 else "")
+    return _error_result(
+        "reel-scout source changed after this MCP server started (%s). "
+        "Modules already in memory would be mixed with the new files on disk, "
+        "so nothing was run. Restart the client session (e.g. a new Claude Code "
+        "session) to load the new version." % shown
+    )
+
+
 def call_tool(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     handler = _HANDLERS.get(name)
     if handler is None:
         return _error_result("Unknown tool: %s" % name)
+    stale = _stale_code_error()
+    if stale is not None:
+        return stale
     try:
         return handler(arguments)
     except Exception as exc:
