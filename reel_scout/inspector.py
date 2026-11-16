@@ -194,6 +194,65 @@ def _bi(view: Dict[str, Any], kind: str, ref: str, text: str) -> str:
             % (_e(text), _e(text), _e(zh)))
 
 
+def _vtt_ts(sec: Any) -> str:
+    """WebVTT timestamp HH:MM:SS.mmm (the dot, not SRT's comma)."""
+    ms = int(round(max(0.0, float(sec or 0)) * 1000))
+    h, rem = divmod(ms, 3600000)
+    m, rem = divmod(rem, 60000)
+    s, ms = divmod(rem, 1000)
+    return "%02d:%02d:%02d.%03d" % (h, m, s, ms)
+
+
+def _vtt(cues: List[Any]) -> str:
+    """WebVTT from (start, end, text) cues.
+
+    Cue text is HTML-ish in VTT: a bare `<` opens a tag and `-->` inside a cue
+    ends the timing line, so `& < >` are escaped. That also means the text can
+    never contain `</script>`, which matters because the tracks ride in the
+    page's JSON island. Blank cues are dropped (an empty cue renders as an
+    empty caption box); zero-length cues get 1 ms so players keep them.
+    """
+    out = ["WEBVTT", ""]
+    n = 0
+    for start, end, text in cues:
+        t = " ".join((text or "").split())
+        if not t:
+            continue
+        t = t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        a = float(start or 0)
+        b = max(float(end or 0), a + 0.001)
+        n += 1
+        out += [str(n), "%s --> %s" % (_vtt_ts(a), _vtt_ts(b)), t, ""]
+    return "\n".join(out) if n else ""
+
+
+def transcript_tracks(view: Dict[str, Any]) -> Dict[str, Any]:
+    """Caption tracks for the player, built from the stored transcript.
+
+    `orig` is the transcript as stored. `zh` exists only when at least one
+    segment has a translation that matches its text (same pairing rule as
+    `_bi`); untranslated segments fall back to the original so the Chinese
+    track never goes silent mid-clip.
+    """
+    segs = view.get("segments") or []
+    if not segs:
+        return {}
+    tr = view.get("tr") or {}
+    orig, zh, any_zh = [], [], False
+    for s in segs:
+        orig.append((s["start"], s["end"], s["text"]))
+        hit = tr.get(("transcript_segment", s.get("ref", "")))
+        if hit and (hit[0] or "").strip() == (s["text"] or "").strip() and (hit[1] or "").strip():
+            zh.append((s["start"], s["end"], hit[1]))
+            any_zh = True
+        else:
+            zh.append((s["start"], s["end"], s["text"]))
+    tracks = {"lang": view.get("language") or "und", "orig": _vtt(orig)}
+    if any_zh:
+        tracks["zh"] = _vtt(zh)
+    return tracks if tracks["orig"] else {}
+
+
 def build_inspect_view(conn: db.sqlite3.Connection, video_id: str) -> Optional[Dict[str, Any]]:
     """One clip's inspector payload, or None if unknown. Extends the viewer view
     with per-segment transcript, a resolved duration, and video-file presence."""
@@ -712,6 +771,12 @@ def render_inspector(view: Dict[str, Any], base: str = "",
         src = video_src if video_src else ("%s/api/stream/%s" % (base, _e(vid)))
         preview = ('<video id="player" class="player" preload="metadata" '
                    'controls playsinline src="%s"></video>' % src)
+        # Transcript as captions on the player (#CC): the track is built
+        # client-side from the VTT in the boot island, so it works the same on
+        # the live server and in a frozen export.
+        if view.get("segments"):
+            preview += ('<div class="wfbtns"><button id="cc" class="tbtn" '
+                        'aria-pressed="false">CC</button></div>')
     else:
         preview = ('<div class="noplayer" data-i18n="noVideo">video file not on disk &mdash; '
                    'keyframes &amp; transcript only</div>')
@@ -823,6 +888,10 @@ def render_inspector(view: Dict[str, Any], base: str = "",
     boot_data = {"id": vid, "dur": dur, "bins": _WAVEFORM_BINS,
                  "base": base, "segs": seg_data,
                  "hasVideo": bool(view.get("has_video"))}
+    if view.get("has_video"):
+        _tracks = transcript_tracks(view)
+        if _tracks:
+            boot_data["vtt"] = _tracks
     # Re-weighting happens entirely client-side: the four dimensions are already
     # on the page, so the reader gets an instant answer with no request and no
     # model call. Handing over the default weights too is what makes the
@@ -1431,6 +1500,7 @@ _SCRIPT = r"""
     });
     if(window.__rsRepaintIO) window.__rsRepaintIO();  // io label is JS-built
     if(window.__rsReapply) window.__rsReapply();       // reweight delta is JS-built
+    if(window.__rsRepaintCc) window.__rsRepaintCc();   // CC label is JS-built
     try{ localStorage.setItem('rs_lang', lang); }catch(e){}
   }
   [].forEach.call(document.querySelectorAll('#lang .langbtn'),function(b){
@@ -1534,6 +1604,30 @@ _SCRIPT = r"""
   if(bIn)bIn.addEventListener('click',setIn);
   if(bOut)bOut.addEventListener('click',setOut);
   if(bClr)bClr.addEventListener('click',function(){inSec=outSec=null;paintWindow();});
+
+  // --- CC: the stored transcript as captions on the player. Click cycles
+  //     off -> original -> 中文 (when translated) -> off. Tracks are Blob URLs
+  //     so a frozen export (no server) gets them too. ---
+  var bCc=document.getElementById('cc');
+  if(player&&bCc&&boot.vtt&&boot.vtt.orig){
+    var ccTracks=[], ccState=-1;
+    [['orig',boot.vtt.orig,boot.vtt.lang||'und'],['zh',boot.vtt.zh,'zh-Hant']].forEach(function(x){
+      if(!x[1])return;
+      var t=document.createElement('track'); t.kind='subtitles'; t.srclang=x[2];
+      // label is what the browser's own captions menu shows
+      t.label=x[0]==='zh'?'中文（翻譯）':('Original ('+x[2]+')');
+      t.src=URL.createObjectURL(new Blob([x[1]],{type:'text/vtt'}));
+      player.appendChild(t); ccTracks.push(x[0]);
+    });
+    var paintCc=function(){
+      for(var i=0;i<player.textTracks.length;i++) player.textTracks[i].mode=(i===ccState)?'showing':'hidden';
+      bCc.textContent=ccState<0?T('ccOff'):(ccTracks[ccState]==='zh'?T('ccZh'):T('ccOrig'));
+      bCc.classList.toggle('on',ccState>=0); bCc.setAttribute('aria-pressed',ccState>=0?'true':'false');
+    };
+    bCc.addEventListener('click',function(){ ccState=(ccState+1>=ccTracks.length)?-1:ccState+1; paintCc(); });
+    window.__rsRepaintCc=paintCc;
+    paintCc();
+  }
 
   // --- SRT export of the [IN,OUT] window, rebased to the IN point ---
   function srtTime(t){t=Math.max(0,t);var h=t/3600|0,m=(t%3600)/60|0,s=t%60|0,ms=Math.round((t-(t|0))*1000);

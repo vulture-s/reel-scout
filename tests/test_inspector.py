@@ -792,3 +792,76 @@ def test_reweight_readout_strings_exist_in_both_locales():
     for key in ("wSum", "wSumScaled", "wTotal", "wNoTotal"):
         assert i18n.STRINGS["en"][key] and i18n.STRINGS["zh"][key]
         assert i18n.STRINGS["zh"][key] != i18n.STRINGS["en"][key], key
+
+
+# --- transcript as captions on the player (CC) ---
+
+def _boot(page):
+    m = re.search(r'<script id="boot" type="application/json">(.*?)</script>', page, re.S)
+    assert m, "boot island missing"
+    return json.loads(m.group(1))
+
+
+def test_vtt_escapes_and_drops_blank_cues():
+    out = inspector._vtt([(0, 1.5, "Hi <b> & --> x"), (2, 2, "   "), (3661.2, 3661.2, "late")])
+    assert out.startswith("WEBVTT\n\n")
+    assert "Hi &lt;b&gt; &amp; --&gt; x" in out
+    assert "<b>" not in out and "</" not in out            # can't break the JSON island
+    assert out.count(" --> ") == 2                          # blank cue dropped
+    assert "00:00:00.000 --> 00:00:01.500" in out
+    assert "01:01:01.200 --> 01:01:01.201" in out           # zero-length kept, 1 ms
+
+
+def test_vtt_empty_when_no_words():
+    assert inspector._vtt([(0, 1, ""), (1, 2, " ")]) == ""
+
+
+def test_transcript_tracks_zh_only_when_translated_and_falls_back_per_segment():
+    segs = [{"start": 0.0, "end": 1.0, "text": "one", "ref": "0"},
+            {"start": 1.0, "end": 2.0, "text": "two", "ref": "1"}]
+    plain = inspector.transcript_tracks({"segments": segs, "language": "en"})
+    assert plain["lang"] == "en" and "one" in plain["orig"] and "zh" not in plain
+    tr = {("transcript_segment", "0"): ("one", "一")}
+    both = inspector.transcript_tracks({"segments": segs, "language": "en", "tr": tr})
+    assert "一" in both["zh"] and "two" in both["zh"]       # untranslated cue falls back
+    stale = {("transcript_segment", "0"): ("ONE (old)", "舊")}
+    assert "zh" not in inspector.transcript_tracks({"segments": segs, "tr": stale})
+    assert inspector.transcript_tracks({"segments": []}) == {}
+
+
+def test_cc_button_and_tracks_ride_with_a_playable_video(temp_db):
+    name, _, _ = _make_video_file("cc.mp4")
+    conn = _conn(temp_db)
+    try:
+        vid = _seed(conn, video_file=name)
+        page = inspector.render_inspector(inspector.build_inspect_view(conn, vid))
+        assert 'id="cc"' in page
+        boot = _boot(page)
+        assert boot["vtt"]["lang"] == "en"
+        assert "Hungry right now?" in boot["vtt"]["orig"]
+        assert boot["vtt"]["orig"].count(" --> ") == len(_SEGMENTS)
+        assert "text/vtt" in inspector._SCRIPT and "__rsRepaintCc" in inspector._SCRIPT
+    finally:
+        conn.close()
+
+
+def test_no_cc_without_video_file(temp_db):
+    conn = _conn(temp_db)
+    try:
+        vid = _seed(conn)  # transcript but no file on disk
+        page = inspector.render_inspector(inspector.build_inspect_view(conn, vid))
+        assert 'id="cc"' not in page and "vtt" not in _boot(page)
+    finally:
+        conn.close()
+
+
+def test_no_cc_without_transcript(temp_db):
+    name, _, _ = _make_video_file("cc2.mp4")
+    conn = _conn(temp_db)
+    try:
+        vid = _seed(conn, video_file=name, segments=[], text_full="")
+        page = inspector.render_inspector(inspector.build_inspect_view(conn, vid))
+        assert '<video id="player"' in page
+        assert 'id="cc"' not in page and "vtt" not in _boot(page)
+    finally:
+        conn.close()
