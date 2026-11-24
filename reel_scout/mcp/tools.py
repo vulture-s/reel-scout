@@ -26,6 +26,14 @@ def _enum(section, field) -> Dict[str, Any]:
     return {"type": "string", "enum": list(ingest._ENUMS[(section, field)])}
 
 
+#: Values `videos.platform` can hold: crawl's detect_platform() names plus
+#: 'local' for files analysed from disk (analyze/pipeline.py LOCAL_PLATFORM).
+#: Spelled out rather than imported because importing crawl/pipeline here would
+#: pull in every crawler and the transcriber at tools/list time; test_mcp pins
+#: this tuple to both sources so it cannot drift.
+_PLATFORMS = ("youtube", "instagram", "tiktok", "threads", "twitter", "local")
+
+
 #: Frames returned by `keyframes` when the caller does not say.
 _KEYFRAMES_DEFAULT_MAX = 8
 
@@ -39,7 +47,14 @@ def list_tools() -> List[Dict[str, Any]]:
     return [
         {
             "name": "crawl",
-            "description": "Download short-form videos from YouTube, Instagram, or TikTok",
+            "description": (
+                "Download videos (any length) from YouTube, Instagram, TikTok or "
+                "Threads into the local library WITHOUT analysing them: each ends "
+                "at status 'downloaded' with no transcript. Use it only to stage "
+                "files; to get a transcript or analysis call `analyze` (a few "
+                "links, waits for the result) or `batch_start` (many links, runs "
+                "in the background)."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -51,7 +66,15 @@ def list_tools() -> List[Dict[str, Any]]:
         },
         {
             "name": "analyze",
-            "description": "Full pipeline: download + transcribe + vision analysis + structured merge",
+            "description": (
+                "Full pipeline for a few links, run inside this call: download + "
+                "transcribe + vision analysis + structured merge, returning a "
+                "video_id per link. Blocks until every link is done, so for more "
+                "than a handful of links prefer `batch_start`, which runs in the "
+                "background and survives the conversation. A link already in the "
+                "library is better read with `show_video` than re-analysed. "
+                "Transcript only (no frames): skip_vision=true."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -65,14 +88,36 @@ def list_tools() -> List[Dict[str, Any]]:
         },
         {
             "name": "list_videos",
-            "description": "List analyzed videos with optional filters",
+            "description": (
+                "List videos already in the local library, newest first: video_id, "
+                "platform, title, status, duration_sec, url. Every status is "
+                "included unless you filter — pass status='analyzed' for fully "
+                "analysed clips. This lists rows only; for "
+                "a clip's transcript and analysis call `show_video` with its "
+                "video_id, and for cross-video patterns use `patterns`. An unknown "
+                "status or platform is an error, not an empty list."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "status": {"type": "string"},
-                    "platform": {"type": "string"},
+                    "status": {
+                        "type": "string",
+                        "enum": list(db.VIDEO_STATUSES),
+                        "description": (
+                            "downloaded = file only, no transcript; transcribed = "
+                            "transcript but no merged analysis; analyzed = full "
+                            "analysis; invalid = unusable clip (reason in the row's "
+                            "error message). Omit for all."
+                        ),
+                    },
+                    "platform": {
+                        "type": "string",
+                        "enum": list(_PLATFORMS),
+                        "description": "Source platform; 'local' = a file analysed from disk. Omit for all.",
+                    },
                     "limit": {"type": "integer", "default": 50},
                 },
+                "additionalProperties": False,
             },
         },
         {
@@ -410,7 +455,15 @@ def list_tools() -> List[Dict[str, Any]]:
         },
         {
             "name": "research",
-            "description": "Competitor research: browse the given channels, aggregate niche patterns, return the report data. analyze=true also analyzes each video first (slow); analyze=false skips per-video analysis but still browses the channels (needs network), aggregating from the existing DB.",
+            "description": (
+                "Competitor research across whole channels: browse the given "
+                "channel URLs, aggregate niche patterns, return the report data. "
+                "Use this for 'what works in this niche'; for one channel already "
+                "in the library use `patterns`, and for individual links use "
+                "`analyze`. analyze=true also analyzes each video first (slow); "
+                "analyze=false skips per-video analysis but still browses the "
+                "channels (needs network), aggregating from the existing DB."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -765,6 +818,14 @@ def _tool_search_sound(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _tool_list_videos(args: Dict[str, Any]) -> Dict[str, Any]:
+    # The schema's enum is advice the client may not enforce; without this check
+    # a misspelt filter ('Analyzed', 'ig') returns [] and reads as "no videos".
+    for key, allowed in (("status", db.VIDEO_STATUSES), ("platform", _PLATFORMS)):
+        value = args.get(key)
+        if value and value not in allowed:
+            return _error_result(
+                "unknown %s %r; expected one of: %s" % (key, value, ", ".join(allowed))
+            )
     config.ensure_dirs()
     conn = db.init_db()
     try:

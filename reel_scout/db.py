@@ -11,6 +11,13 @@ from typing import Any, Dict, List, Optional, Tuple
 from . import config
 from .utils.stderr import warn
 
+#: Every value `videos.status` can hold, in lifecycle order. The schema default
+#: is 'downloaded'; transcription advances it to 'transcribed', the merge step to
+#: 'analyzed', and validity.py parks unusable clips at 'invalid'. The MCP
+#: `list_videos` schema publishes this tuple as its enum, so a new status must be
+#: added here or callers can never filter on it (test_mcp guards the writers).
+VIDEO_STATUSES = ("downloaded", "transcribed", "analyzed", "invalid")
+
 SCHEMA_VERSION = 24
 
 _SCHEMA_SQL = """
