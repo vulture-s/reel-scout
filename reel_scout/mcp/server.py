@@ -16,6 +16,29 @@ CAPABILITIES = {
     "tools": {},
 }
 
+#: Sent in the initialize result; MCP clients show it to the model before any
+#: tool description. It carries what no single tool can: where each kind of data
+#: comes from and how far to trust it.
+INSTRUCTIONS = (
+    "reel-scout is the user's local library of analysed social videos (Instagram, "
+    "YouTube, TikTok, Threads, plus local files). Lookups (list_videos, show_video, "
+    "keyframes, patterns, search_sound, list_annotations) only read it; crawl, "
+    "analyze, batch_*, ingest_*, annotate and mark write to it.\n"
+    "Say where a claim comes from, because the layers differ in reliability:\n"
+    "- Transcripts come from one of two sources, named in show_video's "
+    "`transcript.whisper_model`: 'native-subtitles' is the platform's own caption "
+    "track (uploaded or auto-generated); anything else is local Whisper "
+    "speech-to-text. Either can misspell names and jargon, and Chinese may come "
+    "out simplified or mixed; `transcript.script_mix` flags the mix.\n"
+    "- Summaries, hooks, topics, style and keyframe descriptions are model-written "
+    "interpretations, and scores are a model's rubric judgement; present them as "
+    "assessments, not facts about the video.\n"
+    "- Values under `analysis.full.measured` (e.g. cuts_per_minute) are computed "
+    "from the file; prefer them over model-written labels when they disagree.\n"
+    "- A missing field means it was not produced for that clip, not that the "
+    "video lacks it (no music detected may only mean audio analysis was skipped)."
+)
+
 
 def read_message(stream: Any = None) -> Optional[Dict[str, Any]]:
     """Read one JSON-RPC message.
@@ -72,6 +95,7 @@ def handle_request(request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                     "protocolVersion": "2024-11-05",
                     "serverInfo": SERVER_INFO,
                     "capabilities": CAPABILITIES,
+                    "instructions": INSTRUCTIONS,
                 },
             )
         if method == "notifications/initialized":
